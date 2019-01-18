@@ -390,7 +390,7 @@ rc_visard_driver
     
     
     
-    <a href="#melodic-deps" data-toggle="tab"><span class="label label-primary">16</span> Dependencies</a>
+    <a href="#melodic-deps" data-toggle="tab"><span class="label label-primary">17</span> Dependencies</a>
   </li>
   <li class="better-tabs">
     
@@ -469,7 +469,7 @@ rc_visard_driver
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2018-10-29
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-01-09
         </span>
       </td>
     </tr>
@@ -612,6 +612,11 @@ implementation of the transport layer.</p>
         information if switched on.</li>
 </ul>
 </li>
+<li><p><code>max_reconnects</code>: Maximum number of consecutive recovery trials in case
+the driver lost connection to the device or another error happened,
+e.g. during streaming data.
+If 0, no recovery is tried at all. If negative, the driver keeps trying to
+re-connect forever until a connection is re-established. Default: 5.</p></li>
 <li><p><code>enable_tf</code>: If true then the node subscribes to the rc_visard's
 dynamics-pose stream and publishes them on tf. Default: false</p></li>
 <li><p><code>enable_visualization_markers</code>: If true, additional visualization markers are
@@ -647,35 +652,33 @@ time in seconds.</p></li>
 <li><p><code>depth_acquisition_mode</code>: Can be either <code>SingleFrame</code> or <code>Continuous</code>. Only
 the first letter will be checked, thus giving <code>S</code> or <code>C</code> is sufficient.</p></li>
 <li>
-<p><code>depth_quality</code>: Quality can be <code>Low</code>, <code>Medium</code>, <code>High</code> and <code>StaticHigh</code>.
-Only the first letter will be checked, thus specification of <code>L</code>, <code>M</code>,
-<code>H</code> or <code>S</code> is sufficient.</p>
+<p><code>depth_quality</code>: Quality can be "Low", "Medium", "High" and "Full". Only the first
+letter will be checked, thus specification of "L", "M", "H" or "F" is
+sufficient. The quality setting effectively downscales the image after
+the downscale factor as given above:</p>
 
 <ul>
-<li>
-<code>StaticHigh</code> quality means computation with 640x480 pixel, limited to 3 Hz
-and accumulation input images. The scene must be static during image
-accumulation! The timestamp of the disparity image is taken from the first
-image that was used for accumulation.</li>
-<li>
-<code>High</code> quality means computation with 640x480 pixel.</li>
-<li>
-<code>Medium</code> quality means computation with 320x240 pixel.</li>
-<li>
-<code>Low</code> quality means computation with 214x160 pixel.</li>
+<li>Full does not downscale the image, i.e. factor is 1 (e.g. 1280x960).
+NOTE: This mode requires the 'stereo_plus' license on the rc_visard.</li>
+<li>High downscales by factor 2 (e.g. 640x480).</li>
+<li>Medium downscales by factor 4 (e.g. 320x240).</li>
+<li>Low downscales by factor 6 (e.g. 214x160).</li>
 </ul>
 </li>
-</ul>
-
-<p>Default: <code>High</code>.</p>
-
-<ul>
+<li><p><code>depth_static_scene</code>: This parameter can be set to true if the scene and
+camera is static. It only has an effect if quality is either High or Full.
+If active, input images are accumulated and averaged for 300 ms to reduce
+noise. This limits the frame rate to a maximum of 3 Hz. The timestamp of
+the disparity image is taken from the first image that was used for
+accumulation.</p></li>
 <li><p><code>depth_disprange</code>: Disparity range in pixel, related to the downscaled
 image at quality=H. The range is adapted to the quality.</p></li>
 <li><p><code>depth_fill</code>: Higher numbers fill gaps with measurments with potentielly
 higher errors.</p></li>
 <li><p><code>depth_seg</code>: Maximum size of isolated disparity regions that will be
 invalidated, related to full resolution.</p></li>
+<li><p><code>depth_smooth</code>: Switching smoothing of disparities on or off.
+NOTE: Smoothing requires the 'stereo_plus' license on the rc_visard.</p></li>
 <li><p><code>depth_median</code>: Performs median filtering with the given window size.</p></li>
 <li><p><code>depth_minconf</code>: Minimal confidence. All disparities with lower confidence
 will be set to invalid.</p></li>
@@ -870,6 +873,43 @@ including the trajectory) to free the memory with</p>
 <ul>
 <li><code>slam_reset</code></li>
 </ul>
+
+<h2 id="diagnostics">Diagnostics</h2>
+
+<p>The rc_visard_driver uses the <code>diagnostics_updater</code> class from the
+<a href="https://wiki.ros.org/diagnostics">ROS diagnostics stack</a> to regularly publish a
+<a href="http://docs.ros.org/api/diagnostic_msgs/html/msg/DiagnosticStatus.html">DiagnosticStatus Message</a>.</p>
+
+<p>The regular publishing rate can be set via the <code>~diagnostic_period</code> parameter and defaults to 1 second.</p>
+
+<p>Currently two status are published:</p>
+
+<ul>
+<li><p><code>Device</code>: Information about the device that the driver is connected to. It covers the <em>rc_visard's</em>
+serial number, mac address, user-defined GeV ID, and the firmware image version.</p></li>
+<li>
+<p><code>Connection</code>: Status of the current connection between rc_visard_driver and rc_visard.
+It publishes 4 different messages:</p>
+
+<ul>
+<li>
+<code>Disconnected</code> (Error): The driver is currently not (yet) connected to the sensor and
+might try to reconnect several times according to the <code>max_reconnects</code> parameter.</li>
+<li>
+<code>Idle</code> (Ok): The driver is connected but not publishing any data because
+no one is subscribed to any.</li>
+<li>
+<code>No data</code> (Warning): The driver is connected and required to publish data but
+itself does not receive any data from the sensor.</li>
+<li>
+<code>Streaming</code> (Ok): The driver is connected and properly streaming data.</li>
+</ul>
+</li>
+</ul>
+
+<p>The published status values are <code>connection_loss_total</code>,
+  <code>incomplete_buffers_total</code>, <code>image_receive_timeouts_total</code>, and
+  <code>current_reconnect_trial</code>. If not <code>Disconnected</code>, additionally the current <code>ip_address</code> and <code>gev_packet_size</code> are published.</p>
 
 <h2 id="launching">Launching</h2>
 
@@ -1383,6 +1423,26 @@ disparity image</li>
                       </tr>
                     
                   
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/diagnostic_updater#melodic-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/diagnostic_updater" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/diagnostic_updater#melodic">diagnostic_updater</a></td>
+                      </tr>
+                    
+                  
                 </tbody>
               </table>
             
@@ -1733,7 +1793,7 @@ rc_visard_driver
     
     
     
-    <a href="#lunar-deps" data-toggle="tab"><span class="label label-primary">16</span> Dependencies</a>
+    <a href="#lunar-deps" data-toggle="tab"><span class="label label-primary">17</span> Dependencies</a>
   </li>
   <li class="better-tabs">
     
@@ -1812,7 +1872,7 @@ rc_visard_driver
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2018-10-29
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-01-09
         </span>
       </td>
     </tr>
@@ -1955,6 +2015,11 @@ implementation of the transport layer.</p>
         information if switched on.</li>
 </ul>
 </li>
+<li><p><code>max_reconnects</code>: Maximum number of consecutive recovery trials in case
+the driver lost connection to the device or another error happened,
+e.g. during streaming data.
+If 0, no recovery is tried at all. If negative, the driver keeps trying to
+re-connect forever until a connection is re-established. Default: 5.</p></li>
 <li><p><code>enable_tf</code>: If true then the node subscribes to the rc_visard's
 dynamics-pose stream and publishes them on tf. Default: false</p></li>
 <li><p><code>enable_visualization_markers</code>: If true, additional visualization markers are
@@ -1990,35 +2055,33 @@ time in seconds.</p></li>
 <li><p><code>depth_acquisition_mode</code>: Can be either <code>SingleFrame</code> or <code>Continuous</code>. Only
 the first letter will be checked, thus giving <code>S</code> or <code>C</code> is sufficient.</p></li>
 <li>
-<p><code>depth_quality</code>: Quality can be <code>Low</code>, <code>Medium</code>, <code>High</code> and <code>StaticHigh</code>.
-Only the first letter will be checked, thus specification of <code>L</code>, <code>M</code>,
-<code>H</code> or <code>S</code> is sufficient.</p>
+<p><code>depth_quality</code>: Quality can be "Low", "Medium", "High" and "Full". Only the first
+letter will be checked, thus specification of "L", "M", "H" or "F" is
+sufficient. The quality setting effectively downscales the image after
+the downscale factor as given above:</p>
 
 <ul>
-<li>
-<code>StaticHigh</code> quality means computation with 640x480 pixel, limited to 3 Hz
-and accumulation input images. The scene must be static during image
-accumulation! The timestamp of the disparity image is taken from the first
-image that was used for accumulation.</li>
-<li>
-<code>High</code> quality means computation with 640x480 pixel.</li>
-<li>
-<code>Medium</code> quality means computation with 320x240 pixel.</li>
-<li>
-<code>Low</code> quality means computation with 214x160 pixel.</li>
+<li>Full does not downscale the image, i.e. factor is 1 (e.g. 1280x960).
+NOTE: This mode requires the 'stereo_plus' license on the rc_visard.</li>
+<li>High downscales by factor 2 (e.g. 640x480).</li>
+<li>Medium downscales by factor 4 (e.g. 320x240).</li>
+<li>Low downscales by factor 6 (e.g. 214x160).</li>
 </ul>
 </li>
-</ul>
-
-<p>Default: <code>High</code>.</p>
-
-<ul>
+<li><p><code>depth_static_scene</code>: This parameter can be set to true if the scene and
+camera is static. It only has an effect if quality is either High or Full.
+If active, input images are accumulated and averaged for 300 ms to reduce
+noise. This limits the frame rate to a maximum of 3 Hz. The timestamp of
+the disparity image is taken from the first image that was used for
+accumulation.</p></li>
 <li><p><code>depth_disprange</code>: Disparity range in pixel, related to the downscaled
 image at quality=H. The range is adapted to the quality.</p></li>
 <li><p><code>depth_fill</code>: Higher numbers fill gaps with measurments with potentielly
 higher errors.</p></li>
 <li><p><code>depth_seg</code>: Maximum size of isolated disparity regions that will be
 invalidated, related to full resolution.</p></li>
+<li><p><code>depth_smooth</code>: Switching smoothing of disparities on or off.
+NOTE: Smoothing requires the 'stereo_plus' license on the rc_visard.</p></li>
 <li><p><code>depth_median</code>: Performs median filtering with the given window size.</p></li>
 <li><p><code>depth_minconf</code>: Minimal confidence. All disparities with lower confidence
 will be set to invalid.</p></li>
@@ -2213,6 +2276,43 @@ including the trajectory) to free the memory with</p>
 <ul>
 <li><code>slam_reset</code></li>
 </ul>
+
+<h2 id="diagnostics">Diagnostics</h2>
+
+<p>The rc_visard_driver uses the <code>diagnostics_updater</code> class from the
+<a href="https://wiki.ros.org/diagnostics">ROS diagnostics stack</a> to regularly publish a
+<a href="http://docs.ros.org/api/diagnostic_msgs/html/msg/DiagnosticStatus.html">DiagnosticStatus Message</a>.</p>
+
+<p>The regular publishing rate can be set via the <code>~diagnostic_period</code> parameter and defaults to 1 second.</p>
+
+<p>Currently two status are published:</p>
+
+<ul>
+<li><p><code>Device</code>: Information about the device that the driver is connected to. It covers the <em>rc_visard's</em>
+serial number, mac address, user-defined GeV ID, and the firmware image version.</p></li>
+<li>
+<p><code>Connection</code>: Status of the current connection between rc_visard_driver and rc_visard.
+It publishes 4 different messages:</p>
+
+<ul>
+<li>
+<code>Disconnected</code> (Error): The driver is currently not (yet) connected to the sensor and
+might try to reconnect several times according to the <code>max_reconnects</code> parameter.</li>
+<li>
+<code>Idle</code> (Ok): The driver is connected but not publishing any data because
+no one is subscribed to any.</li>
+<li>
+<code>No data</code> (Warning): The driver is connected and required to publish data but
+itself does not receive any data from the sensor.</li>
+<li>
+<code>Streaming</code> (Ok): The driver is connected and properly streaming data.</li>
+</ul>
+</li>
+</ul>
+
+<p>The published status values are <code>connection_loss_total</code>,
+  <code>incomplete_buffers_total</code>, <code>image_receive_timeouts_total</code>, and
+  <code>current_reconnect_trial</code>. If not <code>Disconnected</code>, additionally the current <code>ip_address</code> and <code>gev_packet_size</code> are published.</p>
 
 <h2 id="launching">Launching</h2>
 
@@ -2726,6 +2826,26 @@ disparity image</li>
                       </tr>
                     
                   
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/diagnostic_updater#lunar-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/diagnostic_updater" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/diagnostic_updater#lunar">diagnostic_updater</a></td>
+                      </tr>
+                    
+                  
                 </tbody>
               </table>
             
@@ -3076,7 +3196,7 @@ rc_visard_driver
     
     
     
-    <a href="#kinetic-deps" data-toggle="tab"><span class="label label-primary">16</span> Dependencies</a>
+    <a href="#kinetic-deps" data-toggle="tab"><span class="label label-primary">17</span> Dependencies</a>
   </li>
   <li class="better-tabs">
     
@@ -3155,7 +3275,7 @@ rc_visard_driver
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2018-10-29
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-01-09
         </span>
       </td>
     </tr>
@@ -3298,6 +3418,11 @@ implementation of the transport layer.</p>
         information if switched on.</li>
 </ul>
 </li>
+<li><p><code>max_reconnects</code>: Maximum number of consecutive recovery trials in case
+the driver lost connection to the device or another error happened,
+e.g. during streaming data.
+If 0, no recovery is tried at all. If negative, the driver keeps trying to
+re-connect forever until a connection is re-established. Default: 5.</p></li>
 <li><p><code>enable_tf</code>: If true then the node subscribes to the rc_visard's
 dynamics-pose stream and publishes them on tf. Default: false</p></li>
 <li><p><code>enable_visualization_markers</code>: If true, additional visualization markers are
@@ -3333,35 +3458,33 @@ time in seconds.</p></li>
 <li><p><code>depth_acquisition_mode</code>: Can be either <code>SingleFrame</code> or <code>Continuous</code>. Only
 the first letter will be checked, thus giving <code>S</code> or <code>C</code> is sufficient.</p></li>
 <li>
-<p><code>depth_quality</code>: Quality can be <code>Low</code>, <code>Medium</code>, <code>High</code> and <code>StaticHigh</code>.
-Only the first letter will be checked, thus specification of <code>L</code>, <code>M</code>,
-<code>H</code> or <code>S</code> is sufficient.</p>
+<p><code>depth_quality</code>: Quality can be "Low", "Medium", "High" and "Full". Only the first
+letter will be checked, thus specification of "L", "M", "H" or "F" is
+sufficient. The quality setting effectively downscales the image after
+the downscale factor as given above:</p>
 
 <ul>
-<li>
-<code>StaticHigh</code> quality means computation with 640x480 pixel, limited to 3 Hz
-and accumulation input images. The scene must be static during image
-accumulation! The timestamp of the disparity image is taken from the first
-image that was used for accumulation.</li>
-<li>
-<code>High</code> quality means computation with 640x480 pixel.</li>
-<li>
-<code>Medium</code> quality means computation with 320x240 pixel.</li>
-<li>
-<code>Low</code> quality means computation with 214x160 pixel.</li>
+<li>Full does not downscale the image, i.e. factor is 1 (e.g. 1280x960).
+NOTE: This mode requires the 'stereo_plus' license on the rc_visard.</li>
+<li>High downscales by factor 2 (e.g. 640x480).</li>
+<li>Medium downscales by factor 4 (e.g. 320x240).</li>
+<li>Low downscales by factor 6 (e.g. 214x160).</li>
 </ul>
 </li>
-</ul>
-
-<p>Default: <code>High</code>.</p>
-
-<ul>
+<li><p><code>depth_static_scene</code>: This parameter can be set to true if the scene and
+camera is static. It only has an effect if quality is either High or Full.
+If active, input images are accumulated and averaged for 300 ms to reduce
+noise. This limits the frame rate to a maximum of 3 Hz. The timestamp of
+the disparity image is taken from the first image that was used for
+accumulation.</p></li>
 <li><p><code>depth_disprange</code>: Disparity range in pixel, related to the downscaled
 image at quality=H. The range is adapted to the quality.</p></li>
 <li><p><code>depth_fill</code>: Higher numbers fill gaps with measurments with potentielly
 higher errors.</p></li>
 <li><p><code>depth_seg</code>: Maximum size of isolated disparity regions that will be
 invalidated, related to full resolution.</p></li>
+<li><p><code>depth_smooth</code>: Switching smoothing of disparities on or off.
+NOTE: Smoothing requires the 'stereo_plus' license on the rc_visard.</p></li>
 <li><p><code>depth_median</code>: Performs median filtering with the given window size.</p></li>
 <li><p><code>depth_minconf</code>: Minimal confidence. All disparities with lower confidence
 will be set to invalid.</p></li>
@@ -3556,6 +3679,43 @@ including the trajectory) to free the memory with</p>
 <ul>
 <li><code>slam_reset</code></li>
 </ul>
+
+<h2 id="diagnostics">Diagnostics</h2>
+
+<p>The rc_visard_driver uses the <code>diagnostics_updater</code> class from the
+<a href="https://wiki.ros.org/diagnostics">ROS diagnostics stack</a> to regularly publish a
+<a href="http://docs.ros.org/api/diagnostic_msgs/html/msg/DiagnosticStatus.html">DiagnosticStatus Message</a>.</p>
+
+<p>The regular publishing rate can be set via the <code>~diagnostic_period</code> parameter and defaults to 1 second.</p>
+
+<p>Currently two status are published:</p>
+
+<ul>
+<li><p><code>Device</code>: Information about the device that the driver is connected to. It covers the <em>rc_visard's</em>
+serial number, mac address, user-defined GeV ID, and the firmware image version.</p></li>
+<li>
+<p><code>Connection</code>: Status of the current connection between rc_visard_driver and rc_visard.
+It publishes 4 different messages:</p>
+
+<ul>
+<li>
+<code>Disconnected</code> (Error): The driver is currently not (yet) connected to the sensor and
+might try to reconnect several times according to the <code>max_reconnects</code> parameter.</li>
+<li>
+<code>Idle</code> (Ok): The driver is connected but not publishing any data because
+no one is subscribed to any.</li>
+<li>
+<code>No data</code> (Warning): The driver is connected and required to publish data but
+itself does not receive any data from the sensor.</li>
+<li>
+<code>Streaming</code> (Ok): The driver is connected and properly streaming data.</li>
+</ul>
+</li>
+</ul>
+
+<p>The published status values are <code>connection_loss_total</code>,
+  <code>incomplete_buffers_total</code>, <code>image_receive_timeouts_total</code>, and
+  <code>current_reconnect_trial</code>. If not <code>Disconnected</code>, additionally the current <code>ip_address</code> and <code>gev_packet_size</code> are published.</p>
 
 <h2 id="launching">Launching</h2>
 
@@ -4069,6 +4229,26 @@ disparity image</li>
                       </tr>
                     
                   
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/diagnostic_updater#kinetic-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/diagnostic_updater" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/diagnostic_updater#kinetic">diagnostic_updater</a></td>
+                      </tr>
+                    
+                  
                 </tbody>
               </table>
             
@@ -4419,7 +4599,7 @@ rc_visard_driver
     
     
     
-    <a href="#indigo-deps" data-toggle="tab"><span class="label label-primary">16</span> Dependencies</a>
+    <a href="#indigo-deps" data-toggle="tab"><span class="label label-primary">17</span> Dependencies</a>
   </li>
   <li class="better-tabs">
     
@@ -4498,7 +4678,7 @@ rc_visard_driver
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2018-10-29
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-01-09
         </span>
       </td>
     </tr>
@@ -4641,6 +4821,11 @@ implementation of the transport layer.</p>
         information if switched on.</li>
 </ul>
 </li>
+<li><p><code>max_reconnects</code>: Maximum number of consecutive recovery trials in case
+the driver lost connection to the device or another error happened,
+e.g. during streaming data.
+If 0, no recovery is tried at all. If negative, the driver keeps trying to
+re-connect forever until a connection is re-established. Default: 5.</p></li>
 <li><p><code>enable_tf</code>: If true then the node subscribes to the rc_visard's
 dynamics-pose stream and publishes them on tf. Default: false</p></li>
 <li><p><code>enable_visualization_markers</code>: If true, additional visualization markers are
@@ -4676,35 +4861,33 @@ time in seconds.</p></li>
 <li><p><code>depth_acquisition_mode</code>: Can be either <code>SingleFrame</code> or <code>Continuous</code>. Only
 the first letter will be checked, thus giving <code>S</code> or <code>C</code> is sufficient.</p></li>
 <li>
-<p><code>depth_quality</code>: Quality can be <code>Low</code>, <code>Medium</code>, <code>High</code> and <code>StaticHigh</code>.
-Only the first letter will be checked, thus specification of <code>L</code>, <code>M</code>,
-<code>H</code> or <code>S</code> is sufficient.</p>
+<p><code>depth_quality</code>: Quality can be "Low", "Medium", "High" and "Full". Only the first
+letter will be checked, thus specification of "L", "M", "H" or "F" is
+sufficient. The quality setting effectively downscales the image after
+the downscale factor as given above:</p>
 
 <ul>
-<li>
-<code>StaticHigh</code> quality means computation with 640x480 pixel, limited to 3 Hz
-and accumulation input images. The scene must be static during image
-accumulation! The timestamp of the disparity image is taken from the first
-image that was used for accumulation.</li>
-<li>
-<code>High</code> quality means computation with 640x480 pixel.</li>
-<li>
-<code>Medium</code> quality means computation with 320x240 pixel.</li>
-<li>
-<code>Low</code> quality means computation with 214x160 pixel.</li>
+<li>Full does not downscale the image, i.e. factor is 1 (e.g. 1280x960).
+NOTE: This mode requires the 'stereo_plus' license on the rc_visard.</li>
+<li>High downscales by factor 2 (e.g. 640x480).</li>
+<li>Medium downscales by factor 4 (e.g. 320x240).</li>
+<li>Low downscales by factor 6 (e.g. 214x160).</li>
 </ul>
 </li>
-</ul>
-
-<p>Default: <code>High</code>.</p>
-
-<ul>
+<li><p><code>depth_static_scene</code>: This parameter can be set to true if the scene and
+camera is static. It only has an effect if quality is either High or Full.
+If active, input images are accumulated and averaged for 300 ms to reduce
+noise. This limits the frame rate to a maximum of 3 Hz. The timestamp of
+the disparity image is taken from the first image that was used for
+accumulation.</p></li>
 <li><p><code>depth_disprange</code>: Disparity range in pixel, related to the downscaled
 image at quality=H. The range is adapted to the quality.</p></li>
 <li><p><code>depth_fill</code>: Higher numbers fill gaps with measurments with potentielly
 higher errors.</p></li>
 <li><p><code>depth_seg</code>: Maximum size of isolated disparity regions that will be
 invalidated, related to full resolution.</p></li>
+<li><p><code>depth_smooth</code>: Switching smoothing of disparities on or off.
+NOTE: Smoothing requires the 'stereo_plus' license on the rc_visard.</p></li>
 <li><p><code>depth_median</code>: Performs median filtering with the given window size.</p></li>
 <li><p><code>depth_minconf</code>: Minimal confidence. All disparities with lower confidence
 will be set to invalid.</p></li>
@@ -4899,6 +5082,43 @@ including the trajectory) to free the memory with</p>
 <ul>
 <li><code>slam_reset</code></li>
 </ul>
+
+<h2 id="diagnostics">Diagnostics</h2>
+
+<p>The rc_visard_driver uses the <code>diagnostics_updater</code> class from the
+<a href="https://wiki.ros.org/diagnostics">ROS diagnostics stack</a> to regularly publish a
+<a href="http://docs.ros.org/api/diagnostic_msgs/html/msg/DiagnosticStatus.html">DiagnosticStatus Message</a>.</p>
+
+<p>The regular publishing rate can be set via the <code>~diagnostic_period</code> parameter and defaults to 1 second.</p>
+
+<p>Currently two status are published:</p>
+
+<ul>
+<li><p><code>Device</code>: Information about the device that the driver is connected to. It covers the <em>rc_visard's</em>
+serial number, mac address, user-defined GeV ID, and the firmware image version.</p></li>
+<li>
+<p><code>Connection</code>: Status of the current connection between rc_visard_driver and rc_visard.
+It publishes 4 different messages:</p>
+
+<ul>
+<li>
+<code>Disconnected</code> (Error): The driver is currently not (yet) connected to the sensor and
+might try to reconnect several times according to the <code>max_reconnects</code> parameter.</li>
+<li>
+<code>Idle</code> (Ok): The driver is connected but not publishing any data because
+no one is subscribed to any.</li>
+<li>
+<code>No data</code> (Warning): The driver is connected and required to publish data but
+itself does not receive any data from the sensor.</li>
+<li>
+<code>Streaming</code> (Ok): The driver is connected and properly streaming data.</li>
+</ul>
+</li>
+</ul>
+
+<p>The published status values are <code>connection_loss_total</code>,
+  <code>incomplete_buffers_total</code>, <code>image_receive_timeouts_total</code>, and
+  <code>current_reconnect_trial</code>. If not <code>Disconnected</code>, additionally the current <code>ip_address</code> and <code>gev_packet_size</code> are published.</p>
 
 <h2 id="launching">Launching</h2>
 
@@ -5412,6 +5632,26 @@ disparity image</li>
                       </tr>
                     
                   
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/diagnostic_updater#indigo-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/diagnostic_updater" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/diagnostic_updater#indigo">diagnostic_updater</a></td>
+                      </tr>
+                    
+                  
                 </tbody>
               </table>
             
@@ -5677,7 +5917,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2019-01-16</em>
+          <em>generated on 2019-01-18</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
