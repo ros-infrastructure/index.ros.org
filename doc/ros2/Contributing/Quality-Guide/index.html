@@ -1601,6 +1601,128 @@ endif<span class="o">()</span>
 <li>Static code analysis tools not supported by <code class="docutils literal notranslate"><span class="pre">ament</span></code> need to be executed separately.</li>
 </ul>
 </div>
+<div class="section" id="static-thread-safety-analysis-via-code-annotation">
+<h2>Static Thread Safety Analysis via Code Annotation<a class="headerlink" href="#static-thread-safety-analysis-via-code-annotation" title="Permalink to this headline">¶</a></h2>
+<p><strong>Context:</strong></p>
+<ul class="simple">
+<li>You are developing/debugging your multithreaded C++ production code</li>
+<li>You access data from multiple threads in C++ code</li>
+</ul>
+<p><strong>Problem:</strong></p>
+<ul class="simple">
+<li>Data races and deadlocks can lead to critical bugs.</li>
+</ul>
+<p><strong>Solution:</strong></p>
+<ul class="simple">
+<li>Utilize Clang’s static <a class="reference external" href="https://clang.llvm.org/docs/ThreadSafetyAnalysis.html">Thread Safety Analysis</a> by annotating threaded code</li>
+</ul>
+<p><strong>Context For Implementation:</strong></p>
+<p>To enable Thread Safety Analysis, code must be annotated to let the compiler know more about the smantics of the code. These annotations are Clang-specific attributes - e.g. <code class="docutils literal notranslate"><span class="pre">__atribute__(capability()))</span></code>. Instead of using those attributes directly, ROS2 provides preprocessor macros that are erased when using other compilers.</p>
+<p>These macros can be found in <a class="reference external" href="https://github.com/ros2/rcpputils/blob/master/include/rcpputils/thread_safety_annotations.h">rcpputils/thread_safety_annotations.h</a></p>
+<dl class="docutils">
+<dt>The Thread Safety Analysis documentation states</dt>
+<dd>Thread safety analysis can be used with any threading library, but it does require that the threading API be wrapped in classes and methods which have the appropriate annotations</dd>
+</dl>
+<p>We have decided that we want ROS2 developers to be able to use <code class="docutils literal notranslate"><span class="pre">std::</span></code> threading primitives directly for their development. We do not want to provide our own wrapped types as is suggested above.</p>
+<p>There are three C++ standard libraries to be aware of
+* The GNU standard library <code class="docutils literal notranslate"><span class="pre">libstdc++</span></code> - default on Linux, explicitly via the compiler option <code class="docutils literal notranslate"><span class="pre">-stdlib=libstdc++</span></code>
+* The LLVM standard library <code class="docutils literal notranslate"><span class="pre">libc++</span></code> (also called <code class="docutils literal notranslate"><span class="pre">libcxx</span></code> ) - default on macOS,  explicitly set by the compiler option <code class="docutils literal notranslate"><span class="pre">-stdlib=libc++</span></code>
+* The Windows C++ Standard Library - not relevant to this use case</p>
+<p><code class="docutils literal notranslate"><span class="pre">libcxx</span></code> annotates its <code class="docutils literal notranslate"><span class="pre">std::mutex</span></code> and <code class="docutils literal notranslate"><span class="pre">std::lock_guard</span></code> implementations for Thread Safety Analysis. When using GNU <code class="docutils literal notranslate"><span class="pre">libstdc++</span></code> , those annotations are not present, so Thread Safety Analysis cannot be used on non-wrapped <code class="docutils literal notranslate"><span class="pre">std::</span></code> types.</p>
+<p><em>Therefore, to use Thread Safety Analysis directly with</em> <code class="docutils literal notranslate"><span class="pre">std::</span></code> <em>types, we must use</em> <code class="docutils literal notranslate"><span class="pre">libcxx</span></code></p>
+<p><strong>Implementation:</strong></p>
+<p>The code migration suggestions here are by no means complete - when writing (or annotating existing) threaded code, you are encouraged to utilize as many of the annotations as is logical for your use case. However, this step-by-step is a great place to start!</p>
+<ul>
+<li><p class="first">Enabling Analysis for Package/Target</p>
+<p>When the C++ compiler is Clang, enable the <code class="docutils literal notranslate"><span class="pre">-Wthread-safety</span></code> flag. Example below for CMake-based projects</p>
+<div class="highlight-cmake notranslate"><div class="highlight"><pre><span></span><span class="nb">if</span><span class="p">(</span><span class="s">CMAKE_CXX_COMPILER_ID</span> <span class="s">MATCHES</span> <span class="s2">&quot;Clang&quot;</span><span class="p">)</span>
+  <span class="nb">add_compile_options</span><span class="p">(</span><span class="s">-Wthread-safety</span><span class="p">)</span>   <span class="c"># for your whole package</span>
+  <span class="nb">target_compile_options</span><span class="p">(</span><span class="o">${</span><span class="nv">MY_TARGET</span><span class="o">}</span> <span class="s">PUBLIC</span> <span class="s">-Wthread-safety</span><span class="p">)</span>  <span class="c"># for a single library or executable</span>
+<span class="nb">endif</span><span class="p">()</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Annotating Code</p>
+<ul>
+<li><p class="first">Step 1 - Annotate data members</p>
+<ul class="simple">
+<li>Find anywhere that <code class="docutils literal notranslate"><span class="pre">std::mutex</span></code> is used to protect some member data</li>
+<li>Add the <code class="docutils literal notranslate"><span class="pre">RCPPUTILS_TSA_GUARDED_BY(mutex_name)</span></code> annotation to the data that is protected by the mutex</li>
+</ul>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="k">class</span> <span class="nc">Foo</span> <span class="p">{</span>
+<span class="k">public</span><span class="o">:</span>
+  <span class="kt">void</span> <span class="n">incr</span><span class="p">(</span><span class="kt">int</span> <span class="n">amount</span><span class="p">)</span> <span class="p">{</span>
+    <span class="n">std</span><span class="o">::</span><span class="n">lock_guard</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">mutex</span><span class="o">&gt;</span> <span class="n">lock</span><span class="p">(</span><span class="n">mutex_</span><span class="p">);</span>
+    <span class="n">bar</span> <span class="o">+=</span> <span class="n">amount</span><span class="p">;</span>
+  <span class="p">}</span>
+
+  <span class="kt">void</span> <span class="n">get</span><span class="p">()</span> <span class="k">const</span> <span class="p">{</span>
+    <span class="k">return</span> <span class="n">bar</span><span class="p">;</span>
+  <span class="p">}</span>
+
+<span class="k">private</span><span class="o">:</span>
+  <span class="k">mutable</span> <span class="n">std</span><span class="o">::</span><span class="n">mutex</span> <span class="n">mutex_</span><span class="p">;</span>
+<span class="hll">  <span class="kt">int</span> <span class="n">bar</span> <span class="nf">RCPPUTILS_TSA_GUARDED_BY</span><span class="p">(</span><span class="n">mutex_</span><span class="p">)</span> <span class="o">=</span> <span class="mi">0</span><span class="p">;</span>
+</span><span class="p">};</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Step 2 - Fix Warnings</p>
+<ul class="simple">
+<li>In the above example - <code class="docutils literal notranslate"><span class="pre">Foo::get</span></code> will produce a compiler warning! To fix it, lock before returning bar</li>
+</ul>
+<div class="highlight-cpp notranslate"><div class="highlight"><pre><span></span><span class="kt">void</span> <span class="nf">get</span><span class="p">()</span> <span class="k">const</span> <span class="p">{</span>
+<span class="hll">  <span class="n">std</span><span class="o">::</span><span class="n">lock_guard</span><span class="o">&lt;</span><span class="n">std</span><span class="o">::</span><span class="n">mutex</span><span class="o">&gt;</span> <span class="n">lock</span><span class="p">(</span><span class="n">mutex_</span><span class="p">);</span>
+</span>  <span class="k">return</span> <span class="n">bar</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+</li>
+<li><p class="first">Step 3 - (Optional but Recommended) Refactor Existing Code to Private-Mutex Pattern</p>
+<p>A recommended pattern in threaded C++ code is to always keep your <code class="docutils literal notranslate"><span class="pre">mutex</span></code> as a <code class="docutils literal notranslate"><span class="pre">private:</span></code> member of the data structure. This makes data safety the concern of the containing structure, offloading that responsibility from users of the structure and minimizing the surface area of affected code.</p>
+<p>Making your locks private may require rethinking the interfaces to your data. This is a great exercise - here are a few things to consider</p>
+<ul class="simple">
+<li>You may want to provide specialized interfaces for performing analysis that requires complex locking logic, e.g. counting members in a filtered set of a mutex-guarded map structure, instead of actually returning the underlying structure to consumers</li>
+<li>Consider copying to avoid blocking, where the amount of data is small. This can let other threads get on with accessing the shared data, which can potentially lead to better overall performance.</li>
+</ul>
+</li>
+<li><p class="first">Step 4 - (Optional) Enable Negative Capability Analysis</p>
+<p><a class="reference external" href="https://clang.llvm.org/docs/ThreadSafetyAnalysis.html#negative-capabilities">https://clang.llvm.org/docs/ThreadSafetyAnalysis.html#negative-capabilities</a></p>
+<p>Negative Capability Analysis lets you specify “this lock must not be held when calling this function”. It can reveal potential deadlock cases that other annotations cannot.</p>
+<ul class="simple">
+<li>Where you specified <code class="docutils literal notranslate"><span class="pre">-Wthread-safety</span></code>, add the additional flag <code class="docutils literal notranslate"><span class="pre">-Wthread-safety-negative</span></code></li>
+<li>On any function that acquires a lock, use the <code class="docutils literal notranslate"><span class="pre">RCPPUTILS_TSA_REQUIRES(!mutex)</span></code> pattern</li>
+</ul>
+</li>
+</ul>
+</li>
+<li><p class="first">How to run the analysis</p>
+<ul class="simple">
+<li>The ROS CI build farm runs a nightly job with <code class="docutils literal notranslate"><span class="pre">libcxx</span></code>, which will surface any issues in the ROS2 core stack by being marked “Unstable” when Thread Safety Analysis raises warnings</li>
+<li>For local runs, you have the following options, all equivalent<ul>
+<li>Use the colcon <a class="reference external" href="https://github.com/colcon/colcon-mixin-repository/blob/master/clang-libcxx.mixin">clang-libcxx mixin</a><ul>
+<li><code class="docutils literal notranslate"><span class="pre">colcon</span> <span class="pre">build</span> <span class="pre">--mixin</span> <span class="pre">clang-libcxx</span></code></li>
+<li>You may only use this if you have <a class="reference external" href="https://github.com/colcon/colcon-mixin-repository/blob/master/README.md">configured mixins for your colcon installation</a></li>
+</ul>
+</li>
+<li>Passing compiler to CMake<ul>
+<li><code class="docutils literal notranslate"><span class="pre">colcon</span> <span class="pre">build</span> <span class="pre">--cmake-args</span> <span class="pre">-DCMAKE_C_COMPILER=clang</span> <span class="pre">-DCMAKE_CXX_COMPILER=clang++</span> <span class="pre">-DCMAKE_CXX_FLAGS='-stdlib=libc++</span> <span class="pre">-D_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS'</span> <span class="pre">-DFORCE_BUILD_VENDOR_PKG=ON</span> <span class="pre">--no-warn-unused-cli</span></code></li>
+</ul>
+</li>
+<li>Overriding system compiler<ul>
+<li><code class="docutils literal notranslate"><span class="pre">CC=clang</span> <span class="pre">CXX=clang++</span> <span class="pre">colcon</span> <span class="pre">build</span> <span class="pre">--cmake-args</span> <span class="pre">-DCMAKE_CXX_FLAGS='-stdlib=libc++</span> <span class="pre">-D_LIBCPP_ENABLE_THREAD_SAFETY_ANNOTATIONS'</span> <span class="pre">-DFORCE_BUILD_VENDOR_PKG=ON</span> <span class="pre">--no-warn-unused-cli</span></code></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+<p><strong>Resulting Context:</strong></p>
+<ul class="simple">
+<li>Potential deadlocks and race conditions will be surfaced at compile time, when using Clang and <code class="docutils literal notranslate"><span class="pre">libcxx</span></code></li>
+</ul>
+</div>
 <div class="section" id="dynamic-analysis-data-races-deadlocks">
 <h2>Dynamic analysis (data races &amp; deadlocks)<a class="headerlink" href="#dynamic-analysis-data-races-deadlocks" title="Permalink to this headline">¶</a></h2>
 <p><strong>Context:</strong></p>
@@ -1694,7 +1816,7 @@ endif<span class="o">()</span>
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2019-03-14</em>
+          <em>generated on 2019-03-27</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
