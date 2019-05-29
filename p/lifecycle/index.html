@@ -567,7 +567,7 @@ topic_monitor
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-05-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-05-29
         </span>
       </td>
     </tr>
@@ -637,7 +637,360 @@ topic_monitor
               <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://github.com/ros2/demos/tree/master/lifecycle/README.rst" title="Open in git repository">lifecycle/README.rst</a></div>
               <div class="panel-body">
                     <div class="rendered-markdown">
-<p>Could not convert RST to MD: No such file or directory - pandoc</p>
+<h1 id="introduction">Introduction</h1>
+
+<p>ROS2 introduces the concept of managed nodes, also called
+<code>LifecycleNode</code>s. In the following tutorial, we explain the purpose of
+these nodes, what makes them different from regular nodes and how they
+comply to a lifecycle management. Managed nodes are scoped within a
+state machine of a finite amount of states. These states can be changed
+by invoking a transition id which indicates the succeeding consecutive
+state. The state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS2 design
+page</a>.</p>
+
+<p>Our implementation differentiates between <code>Primary States</code> and
+<code>Transition States</code>. Primary States are supposed to be steady states in
+which any node can do the respected task. On the other hand, Transition
+States are meant as temporary intermediate states attached to a
+transition. The result of these intermediate states are used to indicate
+whether a transition between two primary states is considered successful
+or not. Thus, any managed node can be in one of the following states:</p>
+
+<p>Primary States (steady states):</p>
+
+<ul>
+<li>  unconfigured</li>
+<li>  inactive</li>
+<li>  active</li>
+<li>  shutdown</li>
+</ul>
+
+<p>Transition States (intermediate states):</p>
+
+<ul>
+<li>  configuring</li>
+<li>  activating</li>
+<li>  deactivating</li>
+<li>  cleaningup</li>
+<li>  shuttingdown</li>
+</ul>
+
+<p>The possible transitions to invoke are:</p>
+
+<ul>
+<li>  configure</li>
+<li>  activate</li>
+<li>  deactivate</li>
+<li>  cleanup</li>
+<li>  shutdown</li>
+</ul>
+
+<p>For a more verbose explanation on the applied state machine, we refer to
+the design page which provides an in-detail explanation about each state
+and transition.</p>
+
+<h1 id="the-demo">The demo</h1>
+
+<h2 id="whats-happening">What's happening</h2>
+
+<p>The demo is split into 3 different separate applications.</p>
+
+<ul>
+<li>  lifecycle_talker</li>
+<li>  lifecycle_listener</li>
+<li>  lifecycle_service_client</li>
+</ul>
+
+<p>The <code>lifecycle_talker</code> represents a managed node and publishes according
+to which state the node is in. We split the tasks of the talker node
+into separate pieces and execute them as followed.</p>
+
+<ol>
+<li> configuring: We initialize our publisher and timer</li>
+<li> activate: We activate the publisher and timer in order to enable a
+publishing</li>
+<li> deactivate: We stop the publisher and timer</li>
+<li> cleanup: We destroy the publisher and timer</li>
+</ol>
+
+<p>The principle is implemented in this demo as the typical talker/listener
+demo. However, imaging a real scenario with attached hardware which may
+have a rather long booting phase, i.e. a laser or camera. One could
+image bringing up the device driver in the configuring state, start and
+stop only the publishing of the device's data and only in the
+cleanup/shutdown phase actually shutdown the device.</p>
+
+<p>The <code>lifecycle_listener</code> is a simple listener which shows the
+characteristics of the lifecycle talker. The talker enables the message
+publishing only in the active state and thus making the listener
+receiving only messages when the talker is in an active state.</p>
+
+<p>The <code>lifecycle_service_client</code> is a script calling different transitions
+on the <code>lifecycle_talker</code>. This is meant as the external user
+controlling the lifecycle of nodes.</p>
+
+<h1 id="run-the-demo">Run the demo</h1>
+
+<p>In order to run this demo, we open three terminals and source our ROS2
+environment variables either from the binary distributions or the
+workspace we compiled from source.</p>
+
+<p>Alternatively, these three programs can be run together in the same
+terminal using the launch file (as of ROS 2 Bouncy):</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">ros2 launch lifecycle lifecycle_demo.launch.py
+
+</code></pre></div>
+<p>If we look at the output of the <code>lifecycle_talker</code>, we notice that
+nothing seems to happen. And this does make sense, since every node
+starts as <code>unconfigured</code>. The lifecycle_talker is not configured yet
+and in our example, no publishers and timers are created yet. The same
+behavior can be seen for the <code>lifecycle_listener</code>, which is less
+surprising given that no publishers are available at this moment. The
+interesting part starts with the third terminal. In there we launch our
+<code>lifecycle_service_client</code> which is responsible for changing the states
+of the <code>lifecycle_talker</code>.</p>
+
+<h2 id="triggering-transition-1-configure">Triggering transition 1 (configure)</h2>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_client] Transition 1 successfully triggered.
+[lc_client] Node lc_talker has current state inactive.
+
+</code></pre></div>
+<p>makes the lifecycle talker change its state to inactive. Inactive means
+that all publishers and timers are created and configured. However, the
+node is still not active. Therefore no messages are getting published.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_talker] on_configure() is called.
+Lifecycle publisher is currently inactive. Messages are not published.
+...
+
+</code></pre></div>
+<p>The lifecycle listener on the same time receives a notification as it
+listens to every state change notification of the lifecycle talker. In
+fact, the listener receives two consecutive notifications. One for
+changing from the primary state "unconfigured" to "configuring". Because
+the configuring step was successful within the lifecycle talker, a
+second notification from "configuring" to "inactive".</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_listener] notify callback: Transition from state unconfigured to configuring
+[lc_listener] notify callback: Transition from state configuring to inactive
+
+</code></pre></div>
+<h2 id="triggering-transition-2-activate">Triggering transition 2 (activate)</h2>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_client] Transition 2 successfully triggered.
+[lc_client] Node lc_talker has current state active.
+
+</code></pre></div>
+<p>makes the lifecycle talker change its state to active. That means all
+publishers and timers are now activated and herefore the messages are
+now getting published.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_talker] on_activate() is called.
+[lc_talker] Lifecycle publisher is active. Publishing: [Lifecycle HelloWorld #11]
+[lc_talker] Lifecycle publisher is active. Publishing: [Lifecycle HelloWorld #12]
+...
+
+</code></pre></div>
+<p>The lifecycle listener receives the same set of notifications as before.
+Lifecycle talker changed its state from inactive to active.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_listener]: notify callback: Transition from state inactive to activating
+[lc_listener]: notify callback: Transition from state activating to active
+
+</code></pre></div>
+<p>The difference to the transition event before is that our listener now
+also receives the actual published data.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_listener] data_callback: Lifecycle HelloWorld #11
+[lc_listener] data_callback: Lifecycle HelloWorld #12
+...
+
+</code></pre></div>
+<p>Please note that the index of the published message is already at 11.
+The purpose of this demo is to show that even though we call <code>publish</code>
+at every state of the lifecycle talker, only when the state in active,
+the messages are actually published. As for the beta1, all other
+messages are getting ignored. This behavior may change in future
+versions in order to provide better error handling.</p>
+
+<p>For the rest of the demo, you will see similar output as we deactivate
+and activate the lifecycle talker and finally shut it down.</p>
+
+<h1 id="the-demo-code">The demo code</h1>
+
+<h2 id="lifecycle_talker-lifecycle_listener-and-lifecycle_service_client">lifecycle_talker, lifecycle_listener and lifecycle_service_client</h2>
+
+<p>If we have a look at the code, there is one significant change for the
+lifecycle talker compared to a regular talker. Our node does not inherit
+from the regular <code>rclcpp::node::Node</code> but from
+<code>rclcpp_lifecycle::LifecycleNode</code>.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">class LifecycleTalker : public rclcpp_lifecycle::LifecycleNode
+
+</code></pre></div>
+<p>Every child of LifecycleNodes have a set of callbacks provided. These
+callbacks go along with the applied state machine attached to it. These
+callbacks are:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .c" data-lang=".sourceCode .c">rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+on_configure(const rclcpp_lifecycle::State &amp; previous_state)
+
+rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+on_activate(const rclcpp_lifecycle::State &amp; previous_state)
+
+rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+on_deactivate(const rclcpp_lifecycle::State &amp; previous_state)
+
+rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+on_cleanup(const rclcpp_lifecycle::State &amp; previous_state)
+
+rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+on_shutdown(const rclcpp_lifecycle::State &amp; previous_state)
+
+</code></pre></div>
+<p>In the following we assume that we are inside the namespace
+<code>rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface</code> to shorten
+the name of the return type. All these callbacks have a positive default
+return value (<code>return CallbackReturn::SUCCESS</code>). This allows a lifecycle
+node to change its state even though no explicit callback function was
+overwritten. There is one other callback function for error handling.
+Whenever a state transition throws an uncaught exception, we call
+<code>on_error</code>.</p>
+
+<ul>
+<li>  <code>CallbackReturn on_error(const rclcpp_lifecycle::State &amp; previous_state)</code>
+</li>
+</ul>
+
+<p>This gives room for executing a custom error handling. Only (!) in the
+case that this function returns <code>CallbackReturn::SUCCESS</code>, the state
+machine transitions to the state <code>unconfigured</code>. By default, the
+<code>on_error</code> returns <code>CallbackReturn::FAILURE</code> and the state machine
+transitions into <code>finalized</code>.</p>
+
+<p>At the same time, every lifecycle node has by default 5 different
+communication interfaces.</p>
+
+<ul>
+<li>  Publisher <code>&lt;node_name&gt;__transition_event</code>: publishes in case a
+transition is happening.</li>
+</ul>
+
+<p>This allows users to get notified of transition events within the
+network.</p>
+
+<ul>
+<li>  Service <code>&lt;node_name&gt;__get_state</code>: query about the current state of
+the node.</li>
+</ul>
+
+<p>Return either a primary or transition state.</p>
+
+<ul>
+<li>  Service <code>&lt;node_name&gt;__change_state</code>: triggers a transition for the
+current node.</li>
+</ul>
+
+<p>This service call takes a transition id. Only in the case, that this
+transition ID is a valid transition of the current state, the transition
+is fulfilled. All other cases are getting ignored.</p>
+
+<ul>
+<li>  Service <code>&lt;node_name&gt;__get_available_states</code>: This is meant to be an
+introspection tool.</li>
+</ul>
+
+<p>It returns a list of all possible states this node can be.</p>
+
+<ul>
+<li>  Service <code>&lt;node_name&gt;__get_available_transitions</code>: Same as above,
+meant to an introspection tool.</li>
+</ul>
+
+<p>It returns a list of all possible transitions this node can execute.</p>
+
+<h2 id="ros2-lifecycle-command-line-interface">ros2 lifecycle command line interface</h2>
+
+<p>The <code>lifecycle_service_client</code> application is a fixed order script for
+this demo purpose only. It explains the use and the API calls made for
+this lifecycle implementation, but may be inconvenient to use otherwise.
+For this reason we implemented a command line tool which lets you
+dynamically change states or various nodes.</p>
+
+<p>In the case you want to get the current state of the <code>lc_talker</code> node,
+you would call:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 lifecycle get /lc_talker
+unconfigured [1]
+
+</code></pre></div>
+<p>The next step would be to execute a state change:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 lifecycle set /lc_talker configure
+Transitioning successful
+
+</code></pre></div>
+<p>In order to see what states are currently available:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 lifecycle list lc_talker
+- configure [1]
+  Start: unconfigured
+  Goal: configuring
+- shutdown [5]
+  Start: unconfigured
+  Goal: shuttingdown
+
+</code></pre></div>
+<p>In this case we see that currently, the available transitions are
+<code>configure</code> and <code>shutdown</code>. The complete state machine can be viewed
+with the following command, which can be helpful for debugging or
+visualization purposes:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 lifecycle list lc_talker -a
+- configure [1]
+  Start: unconfigured
+  Goal: configuring
+- transition_success [10]
+  Start: configuring
+  Goal: inactive
+- transition_failure [11]
+  Start: configuring
+  Goal: unconfigured
+- transition_error [12]
+  Start: configuring
+  Goal: errorprocessing
+
+[...]
+
+- transition_error [62]
+  Start: errorprocessing
+  Goal: finalized
+
+</code></pre></div>
+<p>All of the above commands are nothing else than calling the lifecycle
+node's services. With that being said, we can also call these services
+directly with the ros2 command line interface:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 service call /lc_talker/get_state lifecycle_msgs/GetState
+requester: making request: lifecycle_msgs.srv.GetState_Request()
+
+response:
+lifecycle_msgs.srv.GetState_Response(current_state=lifecycle_msgs.msg.State(id=1, label='unconfigured'))
+
+</code></pre></div>
+<p>In order to trigger a transition, we call the <code>change_state</code> service</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 service call /lc_talker/change_state lifecycle_msgs/ChangeState "{transition: {id: 2}}"
+requester: making request: lifecycle_msgs.srv.ChangeState_Request(transition=lifecycle_msgs.msg.Transition(id=2, label=''))
+
+response:
+lifecycle_msgs.srv.ChangeState_Response(success=True)
+
+</code></pre></div>
+<p>It is slightly less convenient, because you have to know the IDs which
+correspond to each transition. You can find them though in the
+lifecycle_msgs package.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 msg show lifecycle_msgs/Transition
+
+</code></pre></div>
+<h1 id="outlook">Outlook</h1>
+
+<p>The above description points to the current state of the development as
+for beta1. The future todo list for this topic comprises:</p>
+
+<ul>
+<li>  Python lifecycle nodes</li>
+<li>  Lifecycle manager: A global node, handling and dispatching trigger
+requests for multiple nodes.</li>
+<li>  LifeyclceSubscriber/LifecycleWalltimer/... add more lifecycle
+controlled entities.</li>
+</ul>
 </div>
               </div>
             </div>
@@ -652,7 +1005,81 @@ topic_monitor
           <div class="panel-body">
             
               <div class="rendered-markdown">
-<p>Could not convert RST to MD: No such file or directory - pandoc</p>
+<h1 id="changelog-for-package-lifecycle">Changelog for package lifecycle</h1>
+
+<h2 id="0-7-4-2019-05-20">0.7.4 (2019-05-20)</h2>
+
+<ul>
+<li>  Add lifecycle rostest
+(<a href="https://github.com/ros2/demos/issues/336">#336</a>)</li>
+<li>  Contributors: Michel Hidalgo</li>
+</ul>
+
+<h2 id="0-7-3-2019-05-10">0.7.3 (2019-05-10)</h2>
+
+<h2 id="0-7-2-2019-05-08">0.7.2 (2019-05-08)</h2>
+
+<ul>
+<li>  changes to avoid deprecated API's
+(<a href="https://github.com/ros2/demos/issues/332">#332</a>)</li>
+<li>  Corrected publish calls with shared_ptr signature
+(<a href="https://github.com/ros2/demos/issues/327">#327</a>)</li>
+<li>  Contributors: William Woodall, ivanpauno</li>
+</ul>
+
+<h2 id="0-7-1-2019-04-26">0.7.1 (2019-04-26)</h2>
+
+<h2 id="0-7-0-2019-04-14">0.7.0 (2019-04-14)</h2>
+
+<ul>
+<li>  Updated for NodeOptions Node constructor.
+(<a href="https://github.com/ros2/demos/issues/308">#308</a>)</li>
+<li>  Contributors: Michael Carroll</li>
+</ul>
+
+<h2 id="0-6-2-2019-01-15">0.6.2 (2019-01-15)</h2>
+
+<ul>
+<li>  Added readme.rst (<a href="https://github.com/ros2/demos/issues/300">#300</a>)</li>
+<li>  Contributors: Karsten Knese</li>
+</ul>
+
+<h2 id="0-6-1-2018-12-13">0.6.1 (2018-12-13)</h2>
+
+<h2 id="0-6-0-2018-12-07">0.6.0 (2018-12-07)</h2>
+
+<ul>
+<li>  Cleaned up lifecycle demo
+(<a href="https://github.com/ros2/demos/issues/283">#283</a>)</li>
+<li>  Updated for refactoring in rclcpp
+(<a href="https://github.com/ros2/demos/issues/276">#276</a>)</li>
+<li>  Added semicolons to all RCLCPP and RCUTILS macros.
+(<a href="https://github.com/ros2/demos/issues/278">#278</a>)</li>
+<li>  Fixed typo in comment
+(<a href="https://github.com/ros2/demos/issues/270">#270</a>)</li>
+<li>  Contributors: Chris Lalancette, Karsten Knese, Yutaka Kondo</li>
+</ul>
+
+<h2 id="0-5-1-2018-06-28">0.5.1 (2018-06-28)</h2>
+
+<h2 id="0-5-0-2018-06-27">0.5.0 (2018-06-27)</h2>
+
+<ul>
+<li>  Converted launch files to the new launch style.
+(<a href="https://github.com/ros2/demos/issues/262">#262</a>)</li>
+<li>  Updated to support remapping arguments to python nodes by passing
+unused arguments to rclpy from argparse.
+(<a href="https://github.com/ros2/demos/issues/252">#252</a>)</li>
+<li>  Updated to handle change in signature to <code>get_service_name</code>.
+(<a href="https://github.com/ros2/demos/issues/245">#245</a>)</li>
+<li>  Updated launch files to account for the "old launch" getting
+renamespaced as <code>launch</code> -&gt; <code>launch.legacy</code>.
+(<a href="https://github.com/ros2/demos/issues/239">#239</a>)</li>
+<li>  Updated service client demos to handle multiple requests.
+(<a href="https://github.com/ros2/demos/issues/228">#228</a>)</li>
+<li>  Contributors: Geoffrey Biggs, Kevin Allen, Shane Loretz, William
+Woodall, dhood</li>
+</ul>
 </div>
             
           </div>
@@ -1434,7 +1861,360 @@ topic_monitor
               <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://github.com/ros2/demos/tree/crystal/lifecycle/README.rst" title="Open in git repository">lifecycle/README.rst</a></div>
               <div class="panel-body">
                     <div class="rendered-markdown">
-<p>Could not convert RST to MD: No such file or directory - pandoc</p>
+<h1 id="introduction">Introduction</h1>
+
+<p>ROS2 introduces the concept of managed nodes, also called
+<code>LifecycleNode</code>s. In the following tutorial, we explain the purpose of
+these nodes, what makes them different from regular nodes and how they
+comply to a lifecycle management. Managed nodes are scoped within a
+state machine of a finite amount of states. These states can be changed
+by invoking a transition id which indicates the succeeding consecutive
+state. The state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS2 design
+page</a>.</p>
+
+<p>Our implementation differentiates between <code>Primary States</code> and
+<code>Transition States</code>. Primary States are supposed to be steady states in
+which any node can do the respected task. On the other hand, Transition
+States are meant as temporary intermediate states attached to a
+transition. The result of these intermediate states are used to indicate
+whether a transition between two primary states is considered successful
+or not. Thus, any managed node can be in one of the following states:</p>
+
+<p>Primary States (steady states):</p>
+
+<ul>
+<li>  unconfigured</li>
+<li>  inactive</li>
+<li>  active</li>
+<li>  shutdown</li>
+</ul>
+
+<p>Transition States (intermediate states):</p>
+
+<ul>
+<li>  configuring</li>
+<li>  activating</li>
+<li>  deactivating</li>
+<li>  cleaningup</li>
+<li>  shuttingdown</li>
+</ul>
+
+<p>The possible transitions to invoke are:</p>
+
+<ul>
+<li>  configure</li>
+<li>  activate</li>
+<li>  deactivate</li>
+<li>  cleanup</li>
+<li>  shutdown</li>
+</ul>
+
+<p>For a more verbose explanation on the applied state machine, we refer to
+the design page which provides an in-detail explanation about each state
+and transition.</p>
+
+<h1 id="the-demo">The demo</h1>
+
+<h2 id="whats-happening">What's happening</h2>
+
+<p>The demo is split into 3 different separate applications.</p>
+
+<ul>
+<li>  lifecycle_talker</li>
+<li>  lifecycle_listener</li>
+<li>  lifecycle_service_client</li>
+</ul>
+
+<p>The <code>lifecycle_talker</code> represents a managed node and publishes according
+to which state the node is in. We split the tasks of the talker node
+into separate pieces and execute them as followed.</p>
+
+<ol>
+<li> configuring: We initialize our publisher and timer</li>
+<li> activate: We activate the publisher and timer in order to enable a
+publishing</li>
+<li> deactivate: We stop the publisher and timer</li>
+<li> cleanup: We destroy the publisher and timer</li>
+</ol>
+
+<p>The principle is implemented in this demo as the typical talker/listener
+demo. However, imaging a real scenario with attached hardware which may
+have a rather long booting phase, i.e. a laser or camera. One could
+image bringing up the device driver in the configuring state, start and
+stop only the publishing of the device's data and only in the
+cleanup/shutdown phase actually shutdown the device.</p>
+
+<p>The <code>lifecycle_listener</code> is a simple listener which shows the
+characteristics of the lifecycle talker. The talker enables the message
+publishing only in the active state and thus making the listener
+receiving only messages when the talker is in an active state.</p>
+
+<p>The <code>lifecycle_service_client</code> is a script calling different transitions
+on the <code>lifecycle_talker</code>. This is meant as the external user
+controlling the lifecycle of nodes.</p>
+
+<h1 id="run-the-demo">Run the demo</h1>
+
+<p>In order to run this demo, we open three terminals and source our ROS2
+environment variables either from the binary distributions or the
+workspace we compiled from source.</p>
+
+<p>Alternatively, these three programs can be run together in the same
+terminal using the launch file (as of ROS 2 Bouncy):</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">ros2 launch lifecycle lifecycle_demo.launch.py
+
+</code></pre></div>
+<p>If we look at the output of the <code>lifecycle_talker</code>, we notice that
+nothing seems to happen. And this does make sense, since every node
+starts as <code>unconfigured</code>. The lifecycle_talker is not configured yet
+and in our example, no publishers and timers are created yet. The same
+behavior can be seen for the <code>lifecycle_listener</code>, which is less
+surprising given that no publishers are available at this moment. The
+interesting part starts with the third terminal. In there we launch our
+<code>lifecycle_service_client</code> which is responsible for changing the states
+of the <code>lifecycle_talker</code>.</p>
+
+<h2 id="triggering-transition-1-configure">Triggering transition 1 (configure)</h2>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_client] Transition 1 successfully triggered.
+[lc_client] Node lc_talker has current state inactive.
+
+</code></pre></div>
+<p>makes the lifecycle talker change its state to inactive. Inactive means
+that all publishers and timers are created and configured. However, the
+node is still not active. Therefore no messages are getting published.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_talker] on_configure() is called.
+Lifecycle publisher is currently inactive. Messages are not published.
+...
+
+</code></pre></div>
+<p>The lifecycle listener on the same time receives a notification as it
+listens to every state change notification of the lifecycle talker. In
+fact, the listener receives two consecutive notifications. One for
+changing from the primary state "unconfigured" to "configuring". Because
+the configuring step was successful within the lifecycle talker, a
+second notification from "configuring" to "inactive".</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_listener] notify callback: Transition from state unconfigured to configuring
+[lc_listener] notify callback: Transition from state configuring to inactive
+
+</code></pre></div>
+<h2 id="triggering-transition-2-activate">Triggering transition 2 (activate)</h2>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_client] Transition 2 successfully triggered.
+[lc_client] Node lc_talker has current state active.
+
+</code></pre></div>
+<p>makes the lifecycle talker change its state to active. That means all
+publishers and timers are now activated and herefore the messages are
+now getting published.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_talker] on_activate() is called.
+[lc_talker] Lifecycle publisher is active. Publishing: [Lifecycle HelloWorld #11]
+[lc_talker] Lifecycle publisher is active. Publishing: [Lifecycle HelloWorld #12]
+...
+
+</code></pre></div>
+<p>The lifecycle listener receives the same set of notifications as before.
+Lifecycle talker changed its state from inactive to active.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_listener]: notify callback: Transition from state inactive to activating
+[lc_listener]: notify callback: Transition from state activating to active
+
+</code></pre></div>
+<p>The difference to the transition event before is that our listener now
+also receives the actual published data.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_listener] data_callback: Lifecycle HelloWorld #11
+[lc_listener] data_callback: Lifecycle HelloWorld #12
+...
+
+</code></pre></div>
+<p>Please note that the index of the published message is already at 11.
+The purpose of this demo is to show that even though we call <code>publish</code>
+at every state of the lifecycle talker, only when the state in active,
+the messages are actually published. As for the beta1, all other
+messages are getting ignored. This behavior may change in future
+versions in order to provide better error handling.</p>
+
+<p>For the rest of the demo, you will see similar output as we deactivate
+and activate the lifecycle talker and finally shut it down.</p>
+
+<h1 id="the-demo-code">The demo code</h1>
+
+<h2 id="lifecycle_talker-lifecycle_listener-and-lifecycle_service_client">lifecycle_talker, lifecycle_listener and lifecycle_service_client</h2>
+
+<p>If we have a look at the code, there is one significant change for the
+lifecycle talker compared to a regular talker. Our node does not inherit
+from the regular <code>rclcpp::node::Node</code> but from
+<code>rclcpp_lifecycle::LifecycleNode</code>.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">class LifecycleTalker : public rclcpp_lifecycle::LifecycleNode
+
+</code></pre></div>
+<p>Every child of LifecycleNodes have a set of callbacks provided. These
+callbacks go along with the applied state machine attached to it. These
+callbacks are:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .c" data-lang=".sourceCode .c">rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+on_configure(const rclcpp_lifecycle::State &amp; previous_state)
+
+rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+on_activate(const rclcpp_lifecycle::State &amp; previous_state)
+
+rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+on_deactivate(const rclcpp_lifecycle::State &amp; previous_state)
+
+rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+on_cleanup(const rclcpp_lifecycle::State &amp; previous_state)
+
+rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+on_shutdown(const rclcpp_lifecycle::State &amp; previous_state)
+
+</code></pre></div>
+<p>In the following we assume that we are inside the namespace
+<code>rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface</code> to shorten
+the name of the return type. All these callbacks have a positive default
+return value (<code>return CallbackReturn::SUCCESS</code>). This allows a lifecycle
+node to change its state even though no explicit callback function was
+overwritten. There is one other callback function for error handling.
+Whenever a state transition throws an uncaught exception, we call
+<code>on_error</code>.</p>
+
+<ul>
+<li>  <code>CallbackReturn on_error(const rclcpp_lifecycle::State &amp; previous_state)</code>
+</li>
+</ul>
+
+<p>This gives room for executing a custom error handling. Only (!) in the
+case that this function returns <code>CallbackReturn::SUCCESS</code>, the state
+machine transitions to the state <code>unconfigured</code>. By default, the
+<code>on_error</code> returns <code>CallbackReturn::FAILURE</code> and the state machine
+transitions into <code>finalized</code>.</p>
+
+<p>At the same time, every lifecycle node has by default 5 different
+communication interfaces.</p>
+
+<ul>
+<li>  Publisher <code>&lt;node_name&gt;__transition_event</code>: publishes in case a
+transition is happening.</li>
+</ul>
+
+<p>This allows users to get notified of transition events within the
+network.</p>
+
+<ul>
+<li>  Service <code>&lt;node_name&gt;__get_state</code>: query about the current state of
+the node.</li>
+</ul>
+
+<p>Return either a primary or transition state.</p>
+
+<ul>
+<li>  Service <code>&lt;node_name&gt;__change_state</code>: triggers a transition for the
+current node.</li>
+</ul>
+
+<p>This service call takes a transition id. Only in the case, that this
+transition ID is a valid transition of the current state, the transition
+is fulfilled. All other cases are getting ignored.</p>
+
+<ul>
+<li>  Service <code>&lt;node_name&gt;__get_available_states</code>: This is meant to be an
+introspection tool.</li>
+</ul>
+
+<p>It returns a list of all possible states this node can be.</p>
+
+<ul>
+<li>  Service <code>&lt;node_name&gt;__get_available_transitions</code>: Same as above,
+meant to an introspection tool.</li>
+</ul>
+
+<p>It returns a list of all possible transitions this node can execute.</p>
+
+<h2 id="ros2-lifecycle-command-line-interface">ros2 lifecycle command line interface</h2>
+
+<p>The <code>lifecycle_service_client</code> application is a fixed order script for
+this demo purpose only. It explains the use and the API calls made for
+this lifecycle implementation, but may be inconvenient to use otherwise.
+For this reason we implemented a command line tool which lets you
+dynamically change states or various nodes.</p>
+
+<p>In the case you want to get the current state of the <code>lc_talker</code> node,
+you would call:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 lifecycle get /lc_talker
+unconfigured [1]
+
+</code></pre></div>
+<p>The next step would be to execute a state change:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 lifecycle set /lc_talker configure
+Transitioning successful
+
+</code></pre></div>
+<p>In order to see what states are currently available:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 lifecycle list lc_talker
+- configure [1]
+  Start: unconfigured
+  Goal: configuring
+- shutdown [5]
+  Start: unconfigured
+  Goal: shuttingdown
+
+</code></pre></div>
+<p>In this case we see that currently, the available transitions are
+<code>configure</code> and <code>shutdown</code>. The complete state machine can be viewed
+with the following command, which can be helpful for debugging or
+visualization purposes:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 lifecycle list lc_talker -a
+- configure [1]
+  Start: unconfigured
+  Goal: configuring
+- transition_success [10]
+  Start: configuring
+  Goal: inactive
+- transition_failure [11]
+  Start: configuring
+  Goal: unconfigured
+- transition_error [12]
+  Start: configuring
+  Goal: errorprocessing
+
+[...]
+
+- transition_error [62]
+  Start: errorprocessing
+  Goal: finalized
+
+</code></pre></div>
+<p>All of the above commands are nothing else than calling the lifecycle
+node's services. With that being said, we can also call these services
+directly with the ros2 command line interface:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 service call /lc_talker/get_state lifecycle_msgs/GetState
+requester: making request: lifecycle_msgs.srv.GetState_Request()
+
+response:
+lifecycle_msgs.srv.GetState_Response(current_state=lifecycle_msgs.msg.State(id=1, label='unconfigured'))
+
+</code></pre></div>
+<p>In order to trigger a transition, we call the <code>change_state</code> service</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 service call /lc_talker/change_state lifecycle_msgs/ChangeState "{transition: {id: 2}}"
+requester: making request: lifecycle_msgs.srv.ChangeState_Request(transition=lifecycle_msgs.msg.Transition(id=2, label=''))
+
+response:
+lifecycle_msgs.srv.ChangeState_Response(success=True)
+
+</code></pre></div>
+<p>It is slightly less convenient, because you have to know the IDs which
+correspond to each transition. You can find them though in the
+lifecycle_msgs package.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 msg show lifecycle_msgs/Transition
+
+</code></pre></div>
+<h1 id="outlook">Outlook</h1>
+
+<p>The above description points to the current state of the development as
+for beta1. The future todo list for this topic comprises:</p>
+
+<ul>
+<li>  Python lifecycle nodes</li>
+<li>  Lifecycle manager: A global node, handling and dispatching trigger
+requests for multiple nodes.</li>
+<li>  LifeyclceSubscriber/LifecycleWalltimer/... add more lifecycle
+controlled entities.</li>
+</ul>
 </div>
               </div>
             </div>
@@ -1449,7 +2229,51 @@ topic_monitor
           <div class="panel-body">
             
               <div class="rendered-markdown">
-<p>Could not convert RST to MD: No such file or directory - pandoc</p>
+<h1 id="changelog-for-package-lifecycle">Changelog for package lifecycle</h1>
+
+<h2 id="0-6-2-2019-01-15">0.6.2 (2019-01-15)</h2>
+
+<ul>
+<li>  Added readme.rst (<a href="https://github.com/ros2/demos/issues/300">#300</a>)</li>
+<li>  Contributors: Karsten Knese</li>
+</ul>
+
+<h2 id="0-6-1-2018-12-13">0.6.1 (2018-12-13)</h2>
+
+<h2 id="0-6-0-2018-12-07">0.6.0 (2018-12-07)</h2>
+
+<ul>
+<li>  Cleaned up lifecycle demo
+(<a href="https://github.com/ros2/demos/issues/283">#283</a>)</li>
+<li>  Updated for refactoring in rclcpp
+(<a href="https://github.com/ros2/demos/issues/276">#276</a>)</li>
+<li>  Added semicolons to all RCLCPP and RCUTILS macros.
+(<a href="https://github.com/ros2/demos/issues/278">#278</a>)</li>
+<li>  Fixed typo in comment
+(<a href="https://github.com/ros2/demos/issues/270">#270</a>)</li>
+<li>  Contributors: Chris Lalancette, Karsten Knese, Yutaka Kondo</li>
+</ul>
+
+<h2 id="0-5-1-2018-06-28">0.5.1 (2018-06-28)</h2>
+
+<h2 id="0-5-0-2018-06-27">0.5.0 (2018-06-27)</h2>
+
+<ul>
+<li>  Converted launch files to the new launch style.
+(<a href="https://github.com/ros2/demos/issues/262">#262</a>)</li>
+<li>  Updated to support remapping arguments to python nodes by passing
+unused arguments to rclpy from argparse.
+(<a href="https://github.com/ros2/demos/issues/252">#252</a>)</li>
+<li>  Updated to handle change in signature to <code>get_service_name</code>.
+(<a href="https://github.com/ros2/demos/issues/245">#245</a>)</li>
+<li>  Updated launch files to account for the "old launch" getting
+renamespaced as <code>launch</code> -&gt; <code>launch.legacy</code>.
+(<a href="https://github.com/ros2/demos/issues/239">#239</a>)</li>
+<li>  Updated service client demos to handle multiple requests.
+(<a href="https://github.com/ros2/demos/issues/228">#228</a>)</li>
+<li>  Contributors: Geoffrey Biggs, Kevin Allen, Shane Loretz, William
+Woodall, dhood</li>
+</ul>
 </div>
             
           </div>
@@ -2211,7 +3035,305 @@ topic_monitor
               <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://github.com/ros2/demos/tree/bouncy/lifecycle/README.rst" title="Open in git repository">lifecycle/README.rst</a></div>
               <div class="panel-body">
                     <div class="rendered-markdown">
-<p>Could not convert RST to MD: No such file or directory - pandoc</p>
+<h1 id="introduction">Introduction</h1>
+
+<p>ROS2 introduces the concept of managed nodes, also called
+<code>LifecycleNode</code>s. In the following tutorial, we explain the purpose of
+these nodes, what makes them different from regular nodes and how they
+comply to a lifecycle management. Managed nodes are scoped within a
+state machine of a finite amount of states. These states can be changed
+by invoking a transition id which indicates the succeeding consecutive
+state. The state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS2 design
+page</a>.</p>
+
+<p>Our implementation differentiates between <code>Primary States</code> and
+<code>Transition States</code>. Primary States are supposed to be steady states in
+which any node can do the respected task. On the other hand, Transition
+States are meant as temporary intermediate states attached to a
+transition. The result of these intermediate states are used to indicate
+whether a transition between two primary states is considered successful
+or not. Thus, any managed node can be in one of the following states:</p>
+
+<p>Primary States (steady states):</p>
+
+<ul>
+<li>  unconfigured</li>
+<li>  inactive</li>
+<li>  active</li>
+<li>  shutdown</li>
+</ul>
+
+<p>Transition States (intermediate states):</p>
+
+<ul>
+<li>  configuring</li>
+<li>  activating</li>
+<li>  deactivating</li>
+<li>  cleaningup</li>
+<li>  shuttingdown</li>
+</ul>
+
+<p>The possible transitions to invoke are:</p>
+
+<ul>
+<li>  configure</li>
+<li>  activate</li>
+<li>  deactivate</li>
+<li>  cleanup</li>
+<li>  shutdown</li>
+</ul>
+
+<p>For a more verbose explanation on the applied state machine, we refer to
+the design page which provides an in-detail explanation about each state
+and transition.</p>
+
+<h1 id="the-demo">The demo</h1>
+
+<h2 id="whats-happening">What's happening</h2>
+
+<p>The demo is split into 3 different separate applications.</p>
+
+<ul>
+<li>  lifecycle_talker</li>
+<li>  lifecycle_listener</li>
+<li>  lifecycle_service_client</li>
+</ul>
+
+<p>The <code>lifecycle_talker</code> represents a managed node and publishes according
+to which state the node is in. We split the tasks of the talker node
+into separate pieces and execute them as followed.</p>
+
+<ol>
+<li> configuring: We initialize our publisher and timer</li>
+<li> activate: We activate the publisher and timer in order to enable a
+publishing</li>
+<li> deactivate: We stop the publisher and timer</li>
+<li> cleanup: We destroy the publisher and timer</li>
+</ol>
+
+<p>The principle is implemented in this demo as the typical talker/listener
+demo. However, imaging a real scenario with attached hardware which may
+have a rather long booting phase, i.e. a laser or camera. One could
+image bringing up the device driver in the configuring state, start and
+stop only the publishing of the device's data and only in the
+cleanup/shutdown phase actually shutdown the device.</p>
+
+<p>The <code>lifecycle_listener</code> is a simple listener which shows the
+characteristics of the lifecycle talker. The talker enables the message
+publishing only in the active state and thus making the listener
+receiving only messages when the talker is in an active state.</p>
+
+<p>The <code>lifecycle_service_client</code> is a script calling different transitions
+on the <code>lifecycle_talker</code>. This is meant as the external user
+controlling the lifecycle of nodes.</p>
+
+<h1 id="run-the-demo">Run the demo</h1>
+
+<p>In order to run this demo, we open three terminals and source our ROS2
+environment variables either from the binary distributions or the
+workspace we compiled from source.</p>
+
+<p>Alternatively, these three programs can be run together in the same
+terminal using the launch file (as of ROS 2 Bouncy):</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">ros2 launch lifecycle lifecycle_demo.launch.py
+
+</code></pre></div>
+<p>If we look at the output of the <code>lifecycle_talker</code>, we notice that
+nothing seems to happen. And this does make sense, since every node
+starts as <code>unconfigured</code>. The lifecycle_talker is not configured yet
+and in our example, no publishers and timers are created yet. The same
+behavior can be seen for the <code>lifecycle_listener</code>, which is less
+surprising given that no publishers are available at this moment. The
+interesting part starts with the third terminal. In there we launch our
+<code>lifecycle_service_client</code> which is responsible for changing the states
+of the <code>lifecycle_talker</code>.</p>
+
+<h2 id="triggering-transition-1-configure">Triggering transition 1 (configure)</h2>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_client] Transition 1 successfully triggered.
+[lc_client] Node lc_talker has current state inactive.
+
+</code></pre></div>
+<p>makes the lifecycle talker change its state to inactive. Inactive means
+that all publishers and timers are created and configured. However, the
+node is still not active. Therefore no messages are getting published.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_talker] on_configure() is called.
+Lifecycle publisher is currently inactive. Messages are not published.
+...
+
+</code></pre></div>
+<p>The lifecycle listener on the same time receives a notification as it
+listens to every state change notification of the lifecycle talker. In
+fact, the listener receives two consecutive notifications. One for
+changing from the primary state "unconfigured" to "configuring". Because
+the configuring step was successful within the lifecycle talker, a
+second notification from "configuring" to "inactive".</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_listener] notify callback: Transition from state unconfigured to configuring
+[lc_listener] notify callback: Transition from state configuring to inactive
+
+</code></pre></div>
+<h2 id="triggering-transition-2-activate">Triggering transition 2 (activate)</h2>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_client] Transition 2 successfully triggered.
+[lc_client] Node lc_talker has current state active.
+
+</code></pre></div>
+<p>makes the lifecycle talker change its state to active. Active means that
+all publishers and timers are now activated. Therefore the messages are
+now getting published.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_talker] on_activate() is called.
+[lc_talker] Lifecycle publisher is active. Publishing: [Lifecycle HelloWorld #11]
+[lc_talker] Lifecycle publisher is active. Publishing: [Lifecycle HelloWorld #12]
+...
+
+</code></pre></div>
+<p>The lifecycle listener receives the same set of notifications as before.
+Lifecycle talker changed its state from inactive to active.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_listener] notify callback: Transition from state unconfigured to configuring
+[lc_listener] notify callback: Transition from state configuring to inactive
+
+</code></pre></div>
+<p>The difference to the transition event before is that our listener now
+also receives the actual published data.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">[lc_listener] data_callback: Lifecycle HelloWorld #11
+[lc_listener] data_callback: Lifecycle HelloWorld #12
+...
+
+</code></pre></div>
+<p>Please note that the index of the published message is already at 11.
+The purpose of this demo is to show that even though we call <code>publish</code>
+at every state of the lifecycle talker, only when the state in active,
+the messages are actually published. As for the beta1, all other
+messages are getting ignored. This behavior may change in future
+versions in order to provide better error handling.</p>
+
+<p>For the rest of the demo, you will see similar output as we deactivate
+and activate the lifecycle talker and finally shut it down.</p>
+
+<h1 id="the-demo-code">The demo code</h1>
+
+<h2 id="lifecycle_talker-lifecycle_listener-and-lifecycle_service_client">lifecycle_talker, lifecycle_listener and lifecycle_service_client</h2>
+
+<p>If we have a look at the code, there is one significant change for the
+lifecycle talker compared to a regular talker. Our node does not inherit
+from the regular <code>rclcpp::node::Node</code> but from
+<code>rclcpp_lifecycle::LifecycleNode</code>.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">class LifecycleTalker : public rclcpp_lifecycle::LifecycleNode
+
+</code></pre></div>
+<p>Every child of LifecycleNodes have a set of callbacks provided. These
+callbacks go along with the applied state machine attached to it. These
+callbacks are:</p>
+
+<ul>
+<li>  <code>rcl_lifecycle_ret_t on_configure(const rclcpp_lifecycle::State &amp; previous_state)</code>
+</li>
+<li>  <code>rcl_lifecycle_ret_t on_activate(const rclcpp_lifecycle::State &amp; previous_state)</code>
+</li>
+<li>  <code>rcl_lifecycle_ret_t on_deactivate(const rclcpp_lifecycle::State &amp; previous_state)</code>
+</li>
+<li>  <code>rcl_lifecycle_ret_t on_cleanup(const rclcpp_lifecycle::State &amp; previous_state)</code>
+</li>
+<li>  <code>rcl_lifecycle_ret_t on_shutdown(const rclcpp_lifecycle::State &amp; previous_state)</code>
+</li>
+</ul>
+
+<p>All these callbacks have a positive default return value
+(<code>return RCL_LIFECYCLE_RET_OK</code>). This allows a lifecycle node to change
+its state even though no explicit callback function was overwritten.
+There is one other callback function for error handling. Whenever a
+state transition throws an uncaught exception, we call <code>on_error</code>.</p>
+
+<ul>
+<li>  <code>rcl_lifecycle_ret_t on_error(const rclcpp_lifecycle::State &amp; previous_state)</code>
+</li>
+</ul>
+
+<p>This gives room for executing a custom error handling. Only (!) in the
+case that this function returns <code>RCL_LIFECYCLE_RET_OK</code>, the state
+machine transitions to the state <code>unconfigured</code>. By default, the
+<code>on_error</code> returns <code>RCL_LIFECYCLE_RET_ERROR</code> and the state machine
+transitions into <code>finalized</code>.</p>
+
+<p>At the same time, every lifecycle node has by default 5 different
+communication interfaces.</p>
+
+<p>* Publisher <code>&lt;node_name&gt;__transition_event</code>: publishes in case a
+transition is happening. This allows users to get notified of transition
+events within the network.</p>
+
+<p>* Service <code>&lt;node_name&gt;__get_state</code>: query about the current state of
+the node. Return either a primary or transition state.</p>
+
+<p>* Service <code>&lt;node_name&gt;__change_state</code>: triggers a transition for the
+current node. This service call takes a transition id. Only in the case,
+that this transition ID is a valid transition of the current state, the
+transition is fulfilled. All other cases are getting ignored.</p>
+
+<p>* Service <code>&lt;node_name&gt;__get_available_states</code>: This is meant to be an
+introspection tool. It returns a list of all possible states this node
+can be.</p>
+
+<p>* Service <code>&lt;node_name&gt;__get_available_transitions</code>: Same as above,
+meant to an introspection tool. It returns a list of all possible
+transitions this node can execute.</p>
+
+<h2 id="lifecycle_service_client_py-py">lifecycle_service_client_py.py</h2>
+
+<p>The <code>lifecycle_service_client</code> application is a fixed order script for
+this demo purpose only. It explains the use and the API calls made for
+this lifecycle implementation, but may be inconvenient to use otherwise.
+For this reason, we implemented a separate python script, which lets you
+dynamically change states or various nodes.</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 run lifecycle lifecycle_service_client_py.py
+usage: lifecycle_service_client_py.py [-h]
+                                      [--change-state-args {configure,cleanup,shutdown,activate,deactivate}]
+                                      {change_state,get_state,get_available_states,get_available_transitions}
+                                      node
+
+</code></pre></div>
+<p>In the case you want to get the current state of the <code>lc_talker</code> node,
+you'd call:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 run lifecycle lifecycle_service_client_py.py get_state lc_talker
+lc_talker is in state unconfigured(1)
+
+</code></pre></div>
+<p>The next step would be to execute a state change:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 run lifecycle lifecycle_service_client_py.py change_state --change-state-args configure lc_talker
+
+</code></pre></div>
+<p>All of the above commands are nothing else than calling the lifecycle
+node's services. With that being said, we can also call these services
+directly with the ros2 command line interface:</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 service call /lc_talker/get_state lifecycle_msgs/GetState "{node_name: lc_talker}"
+requester: making request: lifecycle_msgs.srv.GetState_Request(node_name='lc_talker')
+
+response:
+lifecycle_msgs.srv.GetState_Response(current_state=lifecycle_msgs.msg.State(id=1, label='unconfigured'))
+
+</code></pre></div>
+<p>In order to trigger a transition, we call the <code>change_state</code> service</p>
+<div class="highlight"><pre><code class="language-.sourceCode .bash" data-lang=".sourceCode .bash">$ ros2 service call /lc_talker/change_state lifecycle_msgs/ChangeState "{node_name: lc_talker, transition: {id: 2}}"
+requester: making request: lifecycle_msgs.srv.ChangeState_Request(node_name='lc_talker', transition=lifecycle_msgs.msg.Transition(id=2, label=''))
+
+response:
+lifecycle_msgs.srv.ChangeState_Response(success=True)
+
+</code></pre></div>
+<p>It is slightly less convenient, because you have to know the IDs which
+correspond to each transition. You can find them though in the
+lifecycle_msgs package.</p>
+
+<h1 id="outlook">Outlook</h1>
+
+<p>The above description points to the current state of the development as
+for beta1. The future todo list for this topic comprises:</p>
+
+<ul>
+<li>  Python lifecycle nodes</li>
+<li>  Lifecycle manager: A global node, handling and dispatching trigger
+requests for multiple nodes.</li>
+<li>  LifeyclceSubscriber/LifecycleWalltimer/... add more lifecycle
+controlled entities.</li>
+</ul>
 </div>
               </div>
             </div>
@@ -2226,7 +3348,28 @@ topic_monitor
           <div class="panel-body">
             
               <div class="rendered-markdown">
-<p>Could not convert RST to MD: No such file or directory - pandoc</p>
+<h1 id="changelog-for-package-lifecycle">Changelog for package lifecycle</h1>
+
+<h2 id="0-5-1-2018-06-28">0.5.1 (2018-06-28)</h2>
+
+<h2 id="0-5-0-2018-06-27">0.5.0 (2018-06-27)</h2>
+
+<ul>
+<li>  Converted launch files to the new launch style.
+(<a href="https://github.com/ros2/demos/issues/262">#262</a>)</li>
+<li>  Updated to support remapping arguments to python nodes by passing
+unused arguments to rclpy from argparse.
+(<a href="https://github.com/ros2/demos/issues/252">#252</a>)</li>
+<li>  Updated to handle change in signature to <code>get_service_name</code>.
+(<a href="https://github.com/ros2/demos/issues/245">#245</a>)</li>
+<li>  Updated launch files to account for the "old launch" getting
+renamespaced as <code>launch</code> -&gt; <code>launch.legacy</code>.
+(<a href="https://github.com/ros2/demos/issues/239">#239</a>)</li>
+<li>  Updated service client demos to handle multiple requests.
+(<a href="https://github.com/ros2/demos/issues/228">#228</a>)</li>
+<li>  Contributors: Geoffrey Biggs, Kevin Allen, Shane Loretz, William
+Woodall, dhood</li>
+</ul>
 </div>
             
           </div>
@@ -3472,7 +4615,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2019-05-28</em>
+          <em>generated on 2019-05-29</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">

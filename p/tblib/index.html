@@ -571,7 +571,530 @@ tblib
               <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://github.com/ionelmc/python-tblib/tree/master/./README.rst" title="Open in git repository">README.rst</a></div>
               <div class="panel-body">
                     <div class="rendered-markdown">
-<p>Could not convert RST to MD: No such file or directory - pandoc</p>
+<h1 id="overview">Overview</h1>
+
+<p>Traceback serialization library.</p>
+
+<ul>
+<li>  Free software: BSD license</li>
+</ul>
+
+<p>It allows you to:</p>
+
+<ul>
+<li>  <a href="https://docs.python.org/3/library/pickle.html">Pickle</a> tracebacks
+and raise exceptions with pickled tracebacks in different processes.
+This allows better error handling when running code over multiple
+processes (imagine multiprocessing, billiard, futures, celery etc).</li>
+<li>  Create traceback objects from strings (the <code>from_string</code> method).
+<em>No pickling is used</em>.</li>
+<li>  Serialize tracebacks to/from plain dicts (the <code>from_dict</code> and
+<code>to_dict</code> methods). <em>No pickling is used</em>.</li>
+<li>  Raise the tracebacks created from the aforementioned sources.</li>
+</ul>
+
+<p><strong>Again, note that using the pickle support is completely optional. You
+are solely responsible for security problems should you decide to use
+the pickle support.</strong></p>
+
+<h2 id="installation">Installation</h2>
+<div class="highlight"><pre><code class="language-" data-lang="">pip install tblib
+</code></pre></div>
+<h2 id="documentation">Documentation</h2>
+
+<h3 id="pickling-tracebacks">Pickling tracebacks</h3>
+
+<p><strong>Note</strong>: The traceback objects that come out are stripped of some
+attributes (like variables). But you'll be able to raise exceptions with
+those tracebacks or print them - that should cover 99% of the usecases.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib import pickling_support
+&gt;&gt;&gt; pickling_support.install()
+&gt;&gt;&gt; import pickle, sys
+&gt;&gt;&gt; def inner_0():
+...     raise Exception('fail')
+...
+&gt;&gt;&gt; def inner_1():
+...     inner_0()
+...
+&gt;&gt;&gt; def inner_2():
+...     inner_1()
+...
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     s1 = pickle.dumps(sys.exc_info())
+...
+&gt;&gt;&gt; len(s1) &gt; 1
+True
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     s2 = pickle.dumps(sys.exc_info(), protocol=pickle.HIGHEST_PROTOCOL)
+...
+&gt;&gt;&gt; len(s2) &gt; 1
+True
+
+&gt;&gt;&gt; try:
+...     import cPickle
+... except ImportError:
+...     import pickle as cPickle
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     s3 = cPickle.dumps(sys.exc_info(), protocol=pickle.HIGHEST_PROTOCOL)
+...
+&gt;&gt;&gt; len(s3) &gt; 1
+True
+</code></pre></div>
+<h3 id="unpickling">Unpickling</h3>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; pickle.loads(s1)
+(&lt;...Exception'&gt;, Exception('fail'...), &lt;traceback object at ...&gt;)
+
+&gt;&gt;&gt; pickle.loads(s2)
+(&lt;...Exception'&gt;, Exception('fail'...), &lt;traceback object at ...&gt;)
+
+&gt;&gt;&gt; pickle.loads(s3)
+(&lt;...Exception'&gt;, Exception('fail'...), &lt;traceback object at ...&gt;)
+</code></pre></div>
+<h3 id="raising">Raising</h3>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from six import reraise
+&gt;&gt;&gt; reraise(*pickle.loads(s1))
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[14]&gt;", line 1, in &lt;module&gt;
+    reraise(*pickle.loads(s2))
+  File "&lt;doctest README.rst[8]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+&gt;&gt;&gt; reraise(*pickle.loads(s2))
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[14]&gt;", line 1, in &lt;module&gt;
+    reraise(*pickle.loads(s2))
+  File "&lt;doctest README.rst[8]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+&gt;&gt;&gt; reraise(*pickle.loads(s3))
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[14]&gt;", line 1, in &lt;module&gt;
+    reraise(*pickle.loads(s2))
+  File "&lt;doctest README.rst[8]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<h4 id="what-if-we-have-a-local-stack-does-it-show-correctly">What if we have a local stack, does it show correctly ?</h4>
+
+<p>Yes it does:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; exc_info = pickle.loads(s3)
+&gt;&gt;&gt; def local_0():
+...     reraise(*exc_info)
+...
+&gt;&gt;&gt; def local_1():
+...     local_0()
+...
+&gt;&gt;&gt; def local_2():
+...     local_1()
+...
+&gt;&gt;&gt; local_2()
+Traceback (most recent call last):
+  File "...doctest.py", line ..., in __run
+    compileflags, 1) in test.globs
+  File "&lt;doctest README.rst[24]&gt;", line 1, in &lt;module&gt;
+    local_2()
+  File "&lt;doctest README.rst[23]&gt;", line 2, in local_2
+    local_1()
+  File "&lt;doctest README.rst[22]&gt;", line 2, in local_1
+    local_0()
+  File "&lt;doctest README.rst[21]&gt;", line 2, in local_0
+    reraise(*exc_info)
+  File "&lt;doctest README.rst[11]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<h4 id="it-also-supports-more-contrived-scenarios">It also supports more contrived scenarios</h4>
+
+<p>Like tracebacks with syntax errors:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib import Traceback
+&gt;&gt;&gt; from examples import bad_syntax
+&gt;&gt;&gt; try:
+...     bad_syntax()
+... except:
+...     et, ev, tb = sys.exc_info()
+...     tb = Traceback(tb)
+...
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[58]&gt;", line 1, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "&lt;doctest README.rst[57]&gt;", line 2, in &lt;module&gt;
+    bad_syntax()
+  File "...tests...examples.py", line 18, in bad_syntax
+    import badsyntax
+  File "...tests...badsyntax.py", line 5
+    is very bad
+     ^
+SyntaxError: invalid syntax
+</code></pre></div>
+<p>Or other import failures:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from examples import bad_module
+&gt;&gt;&gt; try:
+...     bad_module()
+... except:
+...     et, ev, tb = sys.exc_info()
+...     tb = Traceback(tb)
+...
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[61]&gt;", line 1, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "&lt;doctest README.rst[60]&gt;", line 2, in &lt;module&gt;
+    bad_module()
+  File "...tests...examples.py", line 23, in bad_module
+    import badmodule
+  File "...tests...badmodule.py", line 3, in &lt;module&gt;
+    raise Exception("boom!")
+Exception: boom!
+</code></pre></div>
+<p>Or a traceback that's caused by exceeding the recursion limit (here
+we're forcing the type and value to have consistency across platforms):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; def f(): f()
+&gt;&gt;&gt; try:
+...    f()
+... except RuntimeError:
+...    et, ev, tb = sys.exc_info()
+...    tb = Traceback(tb)
+...
+&gt;&gt;&gt; reraise(RuntimeError, RuntimeError("maximum recursion depth exceeded"), tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[32]&gt;", line 1, in f
+    def f(): f()
+  File "&lt;doctest README.rst[32]&gt;", line 1, in f
+    def f(): f()
+  File "&lt;doctest README.rst[32]&gt;", line 1, in f
+    def f(): f()
+  ...
+RuntimeError: maximum recursion depth exceeded
+</code></pre></div>
+<h3 id="reference">Reference</h3>
+
+<h4 id="tblib-traceback">tblib.Traceback</h4>
+
+<p>It is used by the <code>pickling_support</code>. You can use it too if you want
+more flexibility:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib import Traceback
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     et, ev, tb = sys.exc_info()
+...     tb = Traceback(tb)
+...
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[21]&gt;", line 6, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "&lt;doctest README.rst[21]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<h5 id="tblib-traceback-to_dict">tblib.Traceback.to_dict</h5>
+
+<p>You can use the <code>to_dict</code> method and the <code>from_dict</code> classmethod to
+convert a Traceback into and from a dictionary serializable by the
+stdlib json.JSONDecoder:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; import json
+&gt;&gt;&gt; from pprint import pprint
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     et, ev, tb = sys.exc_info()
+...     tb = Traceback(tb)
+...     tb_dict = tb.to_dict()
+...     pprint(tb_dict)
+{'tb_frame': {'f_code': {'co_filename': '&lt;doctest README.rst[...]&gt;',
+                         'co_name': '&lt;module&gt;'},
+              'f_globals': {'__name__': '__main__'}},
+ 'tb_lineno': 2,
+ 'tb_next': {'tb_frame': {'f_code': {'co_filename': ...
+                                     'co_name': 'inner_2'},
+                          'f_globals': {'__name__': '__main__'}},
+             'tb_lineno': 2,
+             'tb_next': {'tb_frame': {'f_code': {'co_filename': ...
+                                                 'co_name': 'inner_1'},
+                                      'f_globals': {'__name__': '__main__'}},
+                         'tb_lineno': 2,
+                         'tb_next': {'tb_frame': {'f_code': {'co_filename': ...
+                                                             'co_name': 'inner_0'},
+                                                  'f_globals': {'__name__': '__main__'}},
+                                     'tb_lineno': 2,
+                                     'tb_next': None}}}}
+</code></pre></div>
+<h5 id="tblib-traceback-from_dict">tblib.Traceback.from_dict</h5>
+
+<p>Building on the previous example:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; tb_json = json.dumps(tb_dict)
+&gt;&gt;&gt; tb = Traceback.from_dict(json.loads(tb_json))
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[21]&gt;", line 6, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "&lt;doctest README.rst[21]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<h5 id="tblib-traceback-from_string">tblib.Traceback.from_string</h5>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; tb = Traceback.from_string("""
+... File "skipped.py", line 123, in func_123
+... Traceback (most recent call last):
+...   File "tests/examples.py", line 2, in func_a
+...     func_b()
+...   File "tests/examples.py", line 6, in func_b
+...     func_c()
+...   File "tests/examples.py", line 10, in func_c
+...     func_d()
+...   File "tests/examples.py", line 14, in func_d
+... Doesn't: matter
+... """)
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[42]&gt;", line 6, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "...examples.py", line 2, in func_a
+    func_b()
+  File "...examples.py", line 6, in func_b
+    func_c()
+  File "...examples.py", line 10, in func_c
+    func_d()
+  File "...examples.py", line 14, in func_d
+    raise Exception("Guessing time !")
+Exception: fail
+</code></pre></div>
+<p>If you use the <code>strict=False</code> option then parsing is a bit more lax:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; tb = Traceback.from_string("""
+... File "bogus.py", line 123, in bogus
+... Traceback (most recent call last):
+...  File "tests/examples.py", line 2, in func_a
+...   func_b()
+...    File "tests/examples.py", line 6, in func_b
+...     func_c()
+...    File "tests/examples.py", line 10, in func_c
+...   func_d()
+...  File "tests/examples.py", line 14, in func_d
+... Doesn't: matter
+... """, strict=False)
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[42]&gt;", line 6, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "bogus.py", line 123, in bogus
+  File "...examples.py", line 2, in func_a
+    func_b()
+  File "...examples.py", line 6, in func_b
+    func_c()
+  File "...examples.py", line 10, in func_c
+    func_d()
+  File "...examples.py", line 14, in func_d
+    raise Exception("Guessing time !")
+Exception: fail
+</code></pre></div>
+<h4 id="tblib-decorators-return_error">tblib.decorators.return_error</h4>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib.decorators import return_error
+&gt;&gt;&gt; inner_2r = return_error(inner_2)
+&gt;&gt;&gt; e = inner_2r()
+&gt;&gt;&gt; e
+&lt;tblib.decorators.Error object at ...&gt;
+&gt;&gt;&gt; e.reraise()
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[26]&gt;", line 1, in &lt;module&gt;
+    e.reraise()
+  File "...tblib...decorators.py", line 19, in reraise
+    reraise(self.exc_type, self.exc_value, self.traceback)
+  File "...tblib...decorators.py", line 25, in return_exceptions_wrapper
+    return func(*args, **kwargs)
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<p>How's this useful? Imagine you're using multiprocessing like this:</p>
+<div class="highlight"><pre><code class="language-" data-lang=""># Note that Python 3.4 and later will show the remote traceback (but as a string sadly) so we skip testing this.
+&gt;&gt;&gt; import traceback
+&gt;&gt;&gt; from multiprocessing import Pool
+&gt;&gt;&gt; from examples import func_a
+&gt;&gt;&gt; pool = Pool()  # doctest: +SKIP
+&gt;&gt;&gt; try:  # doctest: +SKIP
+...     for i in pool.map(func_a, range(5)):
+...         print(i)
+... except:
+...     print(traceback.format_exc())
+...
+Traceback (most recent call last):
+  File "&lt;doctest README.rst[...]&gt;", line 2, in &lt;module&gt;
+    for i in pool.map(func_a, range(5)):
+  File "...multiprocessing...pool.py", line ..., in map
+    ...
+  File "...multiprocessing...pool.py", line ..., in get
+    ...
+Exception: Guessing time !
+&lt;BLANKLINE&gt;
+&gt;&gt;&gt; pool.terminate()  # doctest: +SKIP
+</code></pre></div>
+<p>Not very useful is it? Let's sort this out:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib.decorators import apply_with_return_error, Error
+&gt;&gt;&gt; from itertools import repeat
+&gt;&gt;&gt; pool = Pool()
+&gt;&gt;&gt; try:
+...     for i in pool.map(apply_with_return_error, zip(repeat(func_a), range(5))):
+...         if isinstance(i, Error):
+...             i.reraise()
+...         else:
+...             print(i)
+... except:
+...     print(traceback.format_exc())
+...
+Traceback (most recent call last):
+  File "&lt;doctest README.rst[...]&gt;", line 4, in &lt;module&gt;
+    i.reraise()
+  File "...tblib...decorators.py", line ..., in reraise
+    reraise(self.exc_type, self.exc_value, self.traceback)
+  File "...tblib...decorators.py", line ..., in return_exceptions_wrapper
+    return func(*args, **kwargs)
+  File "...tblib...decorators.py", line ..., in apply_with_return_error
+    return args[0](*args[1:])
+  File "...examples.py", line 2, in func_a
+    func_b()
+  File "...examples.py", line 6, in func_b
+    func_c()
+  File "...examples.py", line 10, in func_c
+    func_d()
+  File "...examples.py", line 14, in func_d
+    raise Exception("Guessing time !")
+Exception: Guessing time !
+&lt;BLANKLINE&gt;
+&gt;&gt;&gt; pool.terminate()
+</code></pre></div>
+<p>Much better !</p>
+
+<h5 id="what-if-we-have-a-local-call-stack">What if we have a local call stack ?</h5>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; def local_0():
+...     pool = Pool()
+...     try:
+...         for i in pool.map(apply_with_return_error, zip(repeat(func_a), range(5))):
+...             if isinstance(i, Error):
+...                 i.reraise()
+...             else:
+...                 print(i)
+...     finally:
+...         pool.close()
+...
+&gt;&gt;&gt; def local_1():
+...     local_0()
+...
+&gt;&gt;&gt; def local_2():
+...     local_1()
+...
+&gt;&gt;&gt; try:
+...     local_2()
+... except:
+...     print(traceback.format_exc())
+Traceback (most recent call last):
+  File "&lt;doctest README.rst[...]&gt;", line 2, in &lt;module&gt;
+    local_2()
+  File "&lt;doctest README.rst[...]&gt;", line 2, in local_2
+    local_1()
+  File "&lt;doctest README.rst[...]&gt;", line 2, in local_1
+    local_0()
+  File "&lt;doctest README.rst[...]&gt;", line 6, in local_0
+    i.reraise()
+  File "...tblib...decorators.py", line 20, in reraise
+    reraise(self.exc_type, self.exc_value, self.traceback)
+  File "...tblib...decorators.py", line 27, in return_exceptions_wrapper
+    return func(*args, **kwargs)
+  File "...tblib...decorators.py", line 47, in apply_with_return_error
+    return args[0](*args[1:])
+  File "...tests...examples.py", line 2, in func_a
+    func_b()
+  File "...tests...examples.py", line 6, in func_b
+    func_c()
+  File "...tests...examples.py", line 10, in func_c
+    func_d()
+  File "...tests...examples.py", line 14, in func_d
+    raise Exception("Guessing time !")
+Exception: Guessing time !
+&lt;BLANKLINE&gt;
+</code></pre></div>
+<h5 id="other-weird-stuff">Other weird stuff</h5>
+
+<p>Clearing traceback works (Python 3.4 and up):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; tb = Traceback.from_string("""
+... File "skipped.py", line 123, in func_123
+... Traceback (most recent call last):
+...   File "tests/examples.py", line 2, in func_a
+...     func_b()
+...   File "tests/examples.py", line 6, in func_b
+...     func_c()
+...   File "tests/examples.py", line 10, in func_c
+...     func_d()
+...   File "tests/examples.py", line 14, in func_d
+... Doesn't: matter
+... """)
+&gt;&gt;&gt; import traceback, sys
+&gt;&gt;&gt; if sys.version_info &gt; (3, 4):
+...     traceback.clear_frames(tb)
+</code></pre></div>
+<h2 id="credits">Credits</h2>
+
+<ul>
+<li>  <a href="https://github.com/mitsuhiko/jinja2">mitsuhiko/jinja2</a> for figuring
+a way to create traceback objects.</li>
+</ul>
 </div>
               </div>
             </div>
@@ -586,7 +1109,63 @@ tblib
           <div class="panel-body">
             
               <div class="rendered-markdown">
-<p>Could not convert RST to MD: No such file or directory - pandoc</p>
+<h1 id="changelog">Changelog</h1>
+
+<h2 id="1-4-0-2019-05-02">1.4.0 (2019-05-02)</h2>
+
+<ul>
+<li>  Remove support for end of life Python 3.3.</li>
+<li>  Fixed tests for Python 3.7. Contributed by Elliott Sales de Andrade
+in <a href="https://github.com/ionelmc/python-tblib/issues/36">#36</a>.</li>
+<li>  Fixed compatibility issue with Twised
+(<code>twisted.python.failure.Failure</code> expected a <code>co_code</code> attribute).</li>
+</ul>
+
+<h2 id="1-3-2-2017-04-09">1.3.2 (2017-04-09)</h2>
+
+<ul>
+<li>  Add support for PyPy3.5-5.7.1-beta. Previously
+<code>AttributeError: 'Frame' object has no attribute 'clear'</code> could
+be raised. See PyPy issue
+<a href="https://bitbucket.org/pypy/pypy/issues/2532/pypy3-attributeerror-frame-object-has-no">#2532</a>.</li>
+</ul>
+
+<h2 id="1-3-1-2017-03-27">1.3.1 (2017-03-27)</h2>
+
+<ul>
+<li>  Fixed handling for tracebacks due to exceeding the recursion limit.
+Fixes <a href="https://github.com/ionelmc/python-tblib/issues/15">#15</a>.</li>
+</ul>
+
+<h2 id="1-3-0-2016-03-08">1.3.0 (2016-03-08)</h2>
+
+<ul>
+<li>  Added <code>Traceback.from_string</code>.</li>
+</ul>
+
+<h2 id="1-2-0-2015-12-18">1.2.0 (2015-12-18)</h2>
+
+<ul>
+<li>  Fixed handling for tracebacks from generators and other internal
+improvements and optimizations. Contributed by DRayX in
+<a href="https://github.com/ionelmc/python-tblib/issues/10">#10</a> and
+<a href="https://github.com/ionelmc/python-tblib/pull/11">#11</a>.</li>
+</ul>
+
+<h2 id="1-1-0-2015-07-27">1.1.0 (2015-07-27)</h2>
+
+<ul>
+<li>  Added support for Python 2.6. Contributed by Arcadiy Ivanov in
+<a href="https://github.com/ionelmc/python-tblib/pull/8">#8</a>.</li>
+</ul>
+
+<h2 id="1-0-0-2015-03-30">1.0.0 (2015-03-30)</h2>
+
+<ul>
+<li>  Added <code>to_dict</code> method and <code>from_dict</code> classmethod on Tracebacks.
+Contributed by beckjake in
+<a href="https://github.com/ionelmc/python-tblib/pull/5">#5</a>.</li>
+</ul>
 </div>
             
           </div>
@@ -1174,7 +1753,530 @@ tblib
               <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://github.com/ionelmc/python-tblib/tree/master/./README.rst" title="Open in git repository">README.rst</a></div>
               <div class="panel-body">
                     <div class="rendered-markdown">
-<p>Could not convert RST to MD: No such file or directory - pandoc</p>
+<h1 id="overview">Overview</h1>
+
+<p>Traceback serialization library.</p>
+
+<ul>
+<li>  Free software: BSD license</li>
+</ul>
+
+<p>It allows you to:</p>
+
+<ul>
+<li>  <a href="https://docs.python.org/3/library/pickle.html">Pickle</a> tracebacks
+and raise exceptions with pickled tracebacks in different processes.
+This allows better error handling when running code over multiple
+processes (imagine multiprocessing, billiard, futures, celery etc).</li>
+<li>  Create traceback objects from strings (the <code>from_string</code> method).
+<em>No pickling is used</em>.</li>
+<li>  Serialize tracebacks to/from plain dicts (the <code>from_dict</code> and
+<code>to_dict</code> methods). <em>No pickling is used</em>.</li>
+<li>  Raise the tracebacks created from the aforementioned sources.</li>
+</ul>
+
+<p><strong>Again, note that using the pickle support is completely optional. You
+are solely responsible for security problems should you decide to use
+the pickle support.</strong></p>
+
+<h2 id="installation">Installation</h2>
+<div class="highlight"><pre><code class="language-" data-lang="">pip install tblib
+</code></pre></div>
+<h2 id="documentation">Documentation</h2>
+
+<h3 id="pickling-tracebacks">Pickling tracebacks</h3>
+
+<p><strong>Note</strong>: The traceback objects that come out are stripped of some
+attributes (like variables). But you'll be able to raise exceptions with
+those tracebacks or print them - that should cover 99% of the usecases.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib import pickling_support
+&gt;&gt;&gt; pickling_support.install()
+&gt;&gt;&gt; import pickle, sys
+&gt;&gt;&gt; def inner_0():
+...     raise Exception('fail')
+...
+&gt;&gt;&gt; def inner_1():
+...     inner_0()
+...
+&gt;&gt;&gt; def inner_2():
+...     inner_1()
+...
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     s1 = pickle.dumps(sys.exc_info())
+...
+&gt;&gt;&gt; len(s1) &gt; 1
+True
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     s2 = pickle.dumps(sys.exc_info(), protocol=pickle.HIGHEST_PROTOCOL)
+...
+&gt;&gt;&gt; len(s2) &gt; 1
+True
+
+&gt;&gt;&gt; try:
+...     import cPickle
+... except ImportError:
+...     import pickle as cPickle
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     s3 = cPickle.dumps(sys.exc_info(), protocol=pickle.HIGHEST_PROTOCOL)
+...
+&gt;&gt;&gt; len(s3) &gt; 1
+True
+</code></pre></div>
+<h3 id="unpickling">Unpickling</h3>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; pickle.loads(s1)
+(&lt;...Exception'&gt;, Exception('fail'...), &lt;traceback object at ...&gt;)
+
+&gt;&gt;&gt; pickle.loads(s2)
+(&lt;...Exception'&gt;, Exception('fail'...), &lt;traceback object at ...&gt;)
+
+&gt;&gt;&gt; pickle.loads(s3)
+(&lt;...Exception'&gt;, Exception('fail'...), &lt;traceback object at ...&gt;)
+</code></pre></div>
+<h3 id="raising">Raising</h3>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from six import reraise
+&gt;&gt;&gt; reraise(*pickle.loads(s1))
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[14]&gt;", line 1, in &lt;module&gt;
+    reraise(*pickle.loads(s2))
+  File "&lt;doctest README.rst[8]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+&gt;&gt;&gt; reraise(*pickle.loads(s2))
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[14]&gt;", line 1, in &lt;module&gt;
+    reraise(*pickle.loads(s2))
+  File "&lt;doctest README.rst[8]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+&gt;&gt;&gt; reraise(*pickle.loads(s3))
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[14]&gt;", line 1, in &lt;module&gt;
+    reraise(*pickle.loads(s2))
+  File "&lt;doctest README.rst[8]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<h4 id="what-if-we-have-a-local-stack-does-it-show-correctly">What if we have a local stack, does it show correctly ?</h4>
+
+<p>Yes it does:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; exc_info = pickle.loads(s3)
+&gt;&gt;&gt; def local_0():
+...     reraise(*exc_info)
+...
+&gt;&gt;&gt; def local_1():
+...     local_0()
+...
+&gt;&gt;&gt; def local_2():
+...     local_1()
+...
+&gt;&gt;&gt; local_2()
+Traceback (most recent call last):
+  File "...doctest.py", line ..., in __run
+    compileflags, 1) in test.globs
+  File "&lt;doctest README.rst[24]&gt;", line 1, in &lt;module&gt;
+    local_2()
+  File "&lt;doctest README.rst[23]&gt;", line 2, in local_2
+    local_1()
+  File "&lt;doctest README.rst[22]&gt;", line 2, in local_1
+    local_0()
+  File "&lt;doctest README.rst[21]&gt;", line 2, in local_0
+    reraise(*exc_info)
+  File "&lt;doctest README.rst[11]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<h4 id="it-also-supports-more-contrived-scenarios">It also supports more contrived scenarios</h4>
+
+<p>Like tracebacks with syntax errors:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib import Traceback
+&gt;&gt;&gt; from examples import bad_syntax
+&gt;&gt;&gt; try:
+...     bad_syntax()
+... except:
+...     et, ev, tb = sys.exc_info()
+...     tb = Traceback(tb)
+...
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[58]&gt;", line 1, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "&lt;doctest README.rst[57]&gt;", line 2, in &lt;module&gt;
+    bad_syntax()
+  File "...tests...examples.py", line 18, in bad_syntax
+    import badsyntax
+  File "...tests...badsyntax.py", line 5
+    is very bad
+     ^
+SyntaxError: invalid syntax
+</code></pre></div>
+<p>Or other import failures:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from examples import bad_module
+&gt;&gt;&gt; try:
+...     bad_module()
+... except:
+...     et, ev, tb = sys.exc_info()
+...     tb = Traceback(tb)
+...
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[61]&gt;", line 1, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "&lt;doctest README.rst[60]&gt;", line 2, in &lt;module&gt;
+    bad_module()
+  File "...tests...examples.py", line 23, in bad_module
+    import badmodule
+  File "...tests...badmodule.py", line 3, in &lt;module&gt;
+    raise Exception("boom!")
+Exception: boom!
+</code></pre></div>
+<p>Or a traceback that's caused by exceeding the recursion limit (here
+we're forcing the type and value to have consistency across platforms):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; def f(): f()
+&gt;&gt;&gt; try:
+...    f()
+... except RuntimeError:
+...    et, ev, tb = sys.exc_info()
+...    tb = Traceback(tb)
+...
+&gt;&gt;&gt; reraise(RuntimeError, RuntimeError("maximum recursion depth exceeded"), tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[32]&gt;", line 1, in f
+    def f(): f()
+  File "&lt;doctest README.rst[32]&gt;", line 1, in f
+    def f(): f()
+  File "&lt;doctest README.rst[32]&gt;", line 1, in f
+    def f(): f()
+  ...
+RuntimeError: maximum recursion depth exceeded
+</code></pre></div>
+<h3 id="reference">Reference</h3>
+
+<h4 id="tblib-traceback">tblib.Traceback</h4>
+
+<p>It is used by the <code>pickling_support</code>. You can use it too if you want
+more flexibility:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib import Traceback
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     et, ev, tb = sys.exc_info()
+...     tb = Traceback(tb)
+...
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[21]&gt;", line 6, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "&lt;doctest README.rst[21]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<h5 id="tblib-traceback-to_dict">tblib.Traceback.to_dict</h5>
+
+<p>You can use the <code>to_dict</code> method and the <code>from_dict</code> classmethod to
+convert a Traceback into and from a dictionary serializable by the
+stdlib json.JSONDecoder:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; import json
+&gt;&gt;&gt; from pprint import pprint
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     et, ev, tb = sys.exc_info()
+...     tb = Traceback(tb)
+...     tb_dict = tb.to_dict()
+...     pprint(tb_dict)
+{'tb_frame': {'f_code': {'co_filename': '&lt;doctest README.rst[...]&gt;',
+                         'co_name': '&lt;module&gt;'},
+              'f_globals': {'__name__': '__main__'}},
+ 'tb_lineno': 2,
+ 'tb_next': {'tb_frame': {'f_code': {'co_filename': ...
+                                     'co_name': 'inner_2'},
+                          'f_globals': {'__name__': '__main__'}},
+             'tb_lineno': 2,
+             'tb_next': {'tb_frame': {'f_code': {'co_filename': ...
+                                                 'co_name': 'inner_1'},
+                                      'f_globals': {'__name__': '__main__'}},
+                         'tb_lineno': 2,
+                         'tb_next': {'tb_frame': {'f_code': {'co_filename': ...
+                                                             'co_name': 'inner_0'},
+                                                  'f_globals': {'__name__': '__main__'}},
+                                     'tb_lineno': 2,
+                                     'tb_next': None}}}}
+</code></pre></div>
+<h5 id="tblib-traceback-from_dict">tblib.Traceback.from_dict</h5>
+
+<p>Building on the previous example:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; tb_json = json.dumps(tb_dict)
+&gt;&gt;&gt; tb = Traceback.from_dict(json.loads(tb_json))
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[21]&gt;", line 6, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "&lt;doctest README.rst[21]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<h5 id="tblib-traceback-from_string">tblib.Traceback.from_string</h5>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; tb = Traceback.from_string("""
+... File "skipped.py", line 123, in func_123
+... Traceback (most recent call last):
+...   File "tests/examples.py", line 2, in func_a
+...     func_b()
+...   File "tests/examples.py", line 6, in func_b
+...     func_c()
+...   File "tests/examples.py", line 10, in func_c
+...     func_d()
+...   File "tests/examples.py", line 14, in func_d
+... Doesn't: matter
+... """)
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[42]&gt;", line 6, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "...examples.py", line 2, in func_a
+    func_b()
+  File "...examples.py", line 6, in func_b
+    func_c()
+  File "...examples.py", line 10, in func_c
+    func_d()
+  File "...examples.py", line 14, in func_d
+    raise Exception("Guessing time !")
+Exception: fail
+</code></pre></div>
+<p>If you use the <code>strict=False</code> option then parsing is a bit more lax:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; tb = Traceback.from_string("""
+... File "bogus.py", line 123, in bogus
+... Traceback (most recent call last):
+...  File "tests/examples.py", line 2, in func_a
+...   func_b()
+...    File "tests/examples.py", line 6, in func_b
+...     func_c()
+...    File "tests/examples.py", line 10, in func_c
+...   func_d()
+...  File "tests/examples.py", line 14, in func_d
+... Doesn't: matter
+... """, strict=False)
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[42]&gt;", line 6, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "bogus.py", line 123, in bogus
+  File "...examples.py", line 2, in func_a
+    func_b()
+  File "...examples.py", line 6, in func_b
+    func_c()
+  File "...examples.py", line 10, in func_c
+    func_d()
+  File "...examples.py", line 14, in func_d
+    raise Exception("Guessing time !")
+Exception: fail
+</code></pre></div>
+<h4 id="tblib-decorators-return_error">tblib.decorators.return_error</h4>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib.decorators import return_error
+&gt;&gt;&gt; inner_2r = return_error(inner_2)
+&gt;&gt;&gt; e = inner_2r()
+&gt;&gt;&gt; e
+&lt;tblib.decorators.Error object at ...&gt;
+&gt;&gt;&gt; e.reraise()
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[26]&gt;", line 1, in &lt;module&gt;
+    e.reraise()
+  File "...tblib...decorators.py", line 19, in reraise
+    reraise(self.exc_type, self.exc_value, self.traceback)
+  File "...tblib...decorators.py", line 25, in return_exceptions_wrapper
+    return func(*args, **kwargs)
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<p>How's this useful? Imagine you're using multiprocessing like this:</p>
+<div class="highlight"><pre><code class="language-" data-lang=""># Note that Python 3.4 and later will show the remote traceback (but as a string sadly) so we skip testing this.
+&gt;&gt;&gt; import traceback
+&gt;&gt;&gt; from multiprocessing import Pool
+&gt;&gt;&gt; from examples import func_a
+&gt;&gt;&gt; pool = Pool()  # doctest: +SKIP
+&gt;&gt;&gt; try:  # doctest: +SKIP
+...     for i in pool.map(func_a, range(5)):
+...         print(i)
+... except:
+...     print(traceback.format_exc())
+...
+Traceback (most recent call last):
+  File "&lt;doctest README.rst[...]&gt;", line 2, in &lt;module&gt;
+    for i in pool.map(func_a, range(5)):
+  File "...multiprocessing...pool.py", line ..., in map
+    ...
+  File "...multiprocessing...pool.py", line ..., in get
+    ...
+Exception: Guessing time !
+&lt;BLANKLINE&gt;
+&gt;&gt;&gt; pool.terminate()  # doctest: +SKIP
+</code></pre></div>
+<p>Not very useful is it? Let's sort this out:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib.decorators import apply_with_return_error, Error
+&gt;&gt;&gt; from itertools import repeat
+&gt;&gt;&gt; pool = Pool()
+&gt;&gt;&gt; try:
+...     for i in pool.map(apply_with_return_error, zip(repeat(func_a), range(5))):
+...         if isinstance(i, Error):
+...             i.reraise()
+...         else:
+...             print(i)
+... except:
+...     print(traceback.format_exc())
+...
+Traceback (most recent call last):
+  File "&lt;doctest README.rst[...]&gt;", line 4, in &lt;module&gt;
+    i.reraise()
+  File "...tblib...decorators.py", line ..., in reraise
+    reraise(self.exc_type, self.exc_value, self.traceback)
+  File "...tblib...decorators.py", line ..., in return_exceptions_wrapper
+    return func(*args, **kwargs)
+  File "...tblib...decorators.py", line ..., in apply_with_return_error
+    return args[0](*args[1:])
+  File "...examples.py", line 2, in func_a
+    func_b()
+  File "...examples.py", line 6, in func_b
+    func_c()
+  File "...examples.py", line 10, in func_c
+    func_d()
+  File "...examples.py", line 14, in func_d
+    raise Exception("Guessing time !")
+Exception: Guessing time !
+&lt;BLANKLINE&gt;
+&gt;&gt;&gt; pool.terminate()
+</code></pre></div>
+<p>Much better !</p>
+
+<h5 id="what-if-we-have-a-local-call-stack">What if we have a local call stack ?</h5>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; def local_0():
+...     pool = Pool()
+...     try:
+...         for i in pool.map(apply_with_return_error, zip(repeat(func_a), range(5))):
+...             if isinstance(i, Error):
+...                 i.reraise()
+...             else:
+...                 print(i)
+...     finally:
+...         pool.close()
+...
+&gt;&gt;&gt; def local_1():
+...     local_0()
+...
+&gt;&gt;&gt; def local_2():
+...     local_1()
+...
+&gt;&gt;&gt; try:
+...     local_2()
+... except:
+...     print(traceback.format_exc())
+Traceback (most recent call last):
+  File "&lt;doctest README.rst[...]&gt;", line 2, in &lt;module&gt;
+    local_2()
+  File "&lt;doctest README.rst[...]&gt;", line 2, in local_2
+    local_1()
+  File "&lt;doctest README.rst[...]&gt;", line 2, in local_1
+    local_0()
+  File "&lt;doctest README.rst[...]&gt;", line 6, in local_0
+    i.reraise()
+  File "...tblib...decorators.py", line 20, in reraise
+    reraise(self.exc_type, self.exc_value, self.traceback)
+  File "...tblib...decorators.py", line 27, in return_exceptions_wrapper
+    return func(*args, **kwargs)
+  File "...tblib...decorators.py", line 47, in apply_with_return_error
+    return args[0](*args[1:])
+  File "...tests...examples.py", line 2, in func_a
+    func_b()
+  File "...tests...examples.py", line 6, in func_b
+    func_c()
+  File "...tests...examples.py", line 10, in func_c
+    func_d()
+  File "...tests...examples.py", line 14, in func_d
+    raise Exception("Guessing time !")
+Exception: Guessing time !
+&lt;BLANKLINE&gt;
+</code></pre></div>
+<h5 id="other-weird-stuff">Other weird stuff</h5>
+
+<p>Clearing traceback works (Python 3.4 and up):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; tb = Traceback.from_string("""
+... File "skipped.py", line 123, in func_123
+... Traceback (most recent call last):
+...   File "tests/examples.py", line 2, in func_a
+...     func_b()
+...   File "tests/examples.py", line 6, in func_b
+...     func_c()
+...   File "tests/examples.py", line 10, in func_c
+...     func_d()
+...   File "tests/examples.py", line 14, in func_d
+... Doesn't: matter
+... """)
+&gt;&gt;&gt; import traceback, sys
+&gt;&gt;&gt; if sys.version_info &gt; (3, 4):
+...     traceback.clear_frames(tb)
+</code></pre></div>
+<h2 id="credits">Credits</h2>
+
+<ul>
+<li>  <a href="https://github.com/mitsuhiko/jinja2">mitsuhiko/jinja2</a> for figuring
+a way to create traceback objects.</li>
+</ul>
 </div>
               </div>
             </div>
@@ -1189,7 +2291,63 @@ tblib
           <div class="panel-body">
             
               <div class="rendered-markdown">
-<p>Could not convert RST to MD: No such file or directory - pandoc</p>
+<h1 id="changelog">Changelog</h1>
+
+<h2 id="1-4-0-2019-05-02">1.4.0 (2019-05-02)</h2>
+
+<ul>
+<li>  Remove support for end of life Python 3.3.</li>
+<li>  Fixed tests for Python 3.7. Contributed by Elliott Sales de Andrade
+in <a href="https://github.com/ionelmc/python-tblib/issues/36">#36</a>.</li>
+<li>  Fixed compatibility issue with Twised
+(<code>twisted.python.failure.Failure</code> expected a <code>co_code</code> attribute).</li>
+</ul>
+
+<h2 id="1-3-2-2017-04-09">1.3.2 (2017-04-09)</h2>
+
+<ul>
+<li>  Add support for PyPy3.5-5.7.1-beta. Previously
+<code>AttributeError: 'Frame' object has no attribute 'clear'</code> could
+be raised. See PyPy issue
+<a href="https://bitbucket.org/pypy/pypy/issues/2532/pypy3-attributeerror-frame-object-has-no">#2532</a>.</li>
+</ul>
+
+<h2 id="1-3-1-2017-03-27">1.3.1 (2017-03-27)</h2>
+
+<ul>
+<li>  Fixed handling for tracebacks due to exceeding the recursion limit.
+Fixes <a href="https://github.com/ionelmc/python-tblib/issues/15">#15</a>.</li>
+</ul>
+
+<h2 id="1-3-0-2016-03-08">1.3.0 (2016-03-08)</h2>
+
+<ul>
+<li>  Added <code>Traceback.from_string</code>.</li>
+</ul>
+
+<h2 id="1-2-0-2015-12-18">1.2.0 (2015-12-18)</h2>
+
+<ul>
+<li>  Fixed handling for tracebacks from generators and other internal
+improvements and optimizations. Contributed by DRayX in
+<a href="https://github.com/ionelmc/python-tblib/issues/10">#10</a> and
+<a href="https://github.com/ionelmc/python-tblib/pull/11">#11</a>.</li>
+</ul>
+
+<h2 id="1-1-0-2015-07-27">1.1.0 (2015-07-27)</h2>
+
+<ul>
+<li>  Added support for Python 2.6. Contributed by Arcadiy Ivanov in
+<a href="https://github.com/ionelmc/python-tblib/pull/8">#8</a>.</li>
+</ul>
+
+<h2 id="1-0-0-2015-03-30">1.0.0 (2015-03-30)</h2>
+
+<ul>
+<li>  Added <code>to_dict</code> method and <code>from_dict</code> classmethod on Tracebacks.
+Contributed by beckjake in
+<a href="https://github.com/ionelmc/python-tblib/pull/5">#5</a>.</li>
+</ul>
 </div>
             
           </div>
@@ -1746,7 +2904,530 @@ tblib
               <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://github.com/ionelmc/python-tblib/tree/master/./README.rst" title="Open in git repository">README.rst</a></div>
               <div class="panel-body">
                     <div class="rendered-markdown">
-<p>Could not convert RST to MD: No such file or directory - pandoc</p>
+<h1 id="overview">Overview</h1>
+
+<p>Traceback serialization library.</p>
+
+<ul>
+<li>  Free software: BSD license</li>
+</ul>
+
+<p>It allows you to:</p>
+
+<ul>
+<li>  <a href="https://docs.python.org/3/library/pickle.html">Pickle</a> tracebacks
+and raise exceptions with pickled tracebacks in different processes.
+This allows better error handling when running code over multiple
+processes (imagine multiprocessing, billiard, futures, celery etc).</li>
+<li>  Create traceback objects from strings (the <code>from_string</code> method).
+<em>No pickling is used</em>.</li>
+<li>  Serialize tracebacks to/from plain dicts (the <code>from_dict</code> and
+<code>to_dict</code> methods). <em>No pickling is used</em>.</li>
+<li>  Raise the tracebacks created from the aforementioned sources.</li>
+</ul>
+
+<p><strong>Again, note that using the pickle support is completely optional. You
+are solely responsible for security problems should you decide to use
+the pickle support.</strong></p>
+
+<h2 id="installation">Installation</h2>
+<div class="highlight"><pre><code class="language-" data-lang="">pip install tblib
+</code></pre></div>
+<h2 id="documentation">Documentation</h2>
+
+<h3 id="pickling-tracebacks">Pickling tracebacks</h3>
+
+<p><strong>Note</strong>: The traceback objects that come out are stripped of some
+attributes (like variables). But you'll be able to raise exceptions with
+those tracebacks or print them - that should cover 99% of the usecases.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib import pickling_support
+&gt;&gt;&gt; pickling_support.install()
+&gt;&gt;&gt; import pickle, sys
+&gt;&gt;&gt; def inner_0():
+...     raise Exception('fail')
+...
+&gt;&gt;&gt; def inner_1():
+...     inner_0()
+...
+&gt;&gt;&gt; def inner_2():
+...     inner_1()
+...
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     s1 = pickle.dumps(sys.exc_info())
+...
+&gt;&gt;&gt; len(s1) &gt; 1
+True
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     s2 = pickle.dumps(sys.exc_info(), protocol=pickle.HIGHEST_PROTOCOL)
+...
+&gt;&gt;&gt; len(s2) &gt; 1
+True
+
+&gt;&gt;&gt; try:
+...     import cPickle
+... except ImportError:
+...     import pickle as cPickle
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     s3 = cPickle.dumps(sys.exc_info(), protocol=pickle.HIGHEST_PROTOCOL)
+...
+&gt;&gt;&gt; len(s3) &gt; 1
+True
+</code></pre></div>
+<h3 id="unpickling">Unpickling</h3>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; pickle.loads(s1)
+(&lt;...Exception'&gt;, Exception('fail'...), &lt;traceback object at ...&gt;)
+
+&gt;&gt;&gt; pickle.loads(s2)
+(&lt;...Exception'&gt;, Exception('fail'...), &lt;traceback object at ...&gt;)
+
+&gt;&gt;&gt; pickle.loads(s3)
+(&lt;...Exception'&gt;, Exception('fail'...), &lt;traceback object at ...&gt;)
+</code></pre></div>
+<h3 id="raising">Raising</h3>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from six import reraise
+&gt;&gt;&gt; reraise(*pickle.loads(s1))
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[14]&gt;", line 1, in &lt;module&gt;
+    reraise(*pickle.loads(s2))
+  File "&lt;doctest README.rst[8]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+&gt;&gt;&gt; reraise(*pickle.loads(s2))
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[14]&gt;", line 1, in &lt;module&gt;
+    reraise(*pickle.loads(s2))
+  File "&lt;doctest README.rst[8]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+&gt;&gt;&gt; reraise(*pickle.loads(s3))
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[14]&gt;", line 1, in &lt;module&gt;
+    reraise(*pickle.loads(s2))
+  File "&lt;doctest README.rst[8]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<h4 id="what-if-we-have-a-local-stack-does-it-show-correctly">What if we have a local stack, does it show correctly ?</h4>
+
+<p>Yes it does:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; exc_info = pickle.loads(s3)
+&gt;&gt;&gt; def local_0():
+...     reraise(*exc_info)
+...
+&gt;&gt;&gt; def local_1():
+...     local_0()
+...
+&gt;&gt;&gt; def local_2():
+...     local_1()
+...
+&gt;&gt;&gt; local_2()
+Traceback (most recent call last):
+  File "...doctest.py", line ..., in __run
+    compileflags, 1) in test.globs
+  File "&lt;doctest README.rst[24]&gt;", line 1, in &lt;module&gt;
+    local_2()
+  File "&lt;doctest README.rst[23]&gt;", line 2, in local_2
+    local_1()
+  File "&lt;doctest README.rst[22]&gt;", line 2, in local_1
+    local_0()
+  File "&lt;doctest README.rst[21]&gt;", line 2, in local_0
+    reraise(*exc_info)
+  File "&lt;doctest README.rst[11]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<h4 id="it-also-supports-more-contrived-scenarios">It also supports more contrived scenarios</h4>
+
+<p>Like tracebacks with syntax errors:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib import Traceback
+&gt;&gt;&gt; from examples import bad_syntax
+&gt;&gt;&gt; try:
+...     bad_syntax()
+... except:
+...     et, ev, tb = sys.exc_info()
+...     tb = Traceback(tb)
+...
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[58]&gt;", line 1, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "&lt;doctest README.rst[57]&gt;", line 2, in &lt;module&gt;
+    bad_syntax()
+  File "...tests...examples.py", line 18, in bad_syntax
+    import badsyntax
+  File "...tests...badsyntax.py", line 5
+    is very bad
+     ^
+SyntaxError: invalid syntax
+</code></pre></div>
+<p>Or other import failures:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from examples import bad_module
+&gt;&gt;&gt; try:
+...     bad_module()
+... except:
+...     et, ev, tb = sys.exc_info()
+...     tb = Traceback(tb)
+...
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[61]&gt;", line 1, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "&lt;doctest README.rst[60]&gt;", line 2, in &lt;module&gt;
+    bad_module()
+  File "...tests...examples.py", line 23, in bad_module
+    import badmodule
+  File "...tests...badmodule.py", line 3, in &lt;module&gt;
+    raise Exception("boom!")
+Exception: boom!
+</code></pre></div>
+<p>Or a traceback that's caused by exceeding the recursion limit (here
+we're forcing the type and value to have consistency across platforms):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; def f(): f()
+&gt;&gt;&gt; try:
+...    f()
+... except RuntimeError:
+...    et, ev, tb = sys.exc_info()
+...    tb = Traceback(tb)
+...
+&gt;&gt;&gt; reraise(RuntimeError, RuntimeError("maximum recursion depth exceeded"), tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[32]&gt;", line 1, in f
+    def f(): f()
+  File "&lt;doctest README.rst[32]&gt;", line 1, in f
+    def f(): f()
+  File "&lt;doctest README.rst[32]&gt;", line 1, in f
+    def f(): f()
+  ...
+RuntimeError: maximum recursion depth exceeded
+</code></pre></div>
+<h3 id="reference">Reference</h3>
+
+<h4 id="tblib-traceback">tblib.Traceback</h4>
+
+<p>It is used by the <code>pickling_support</code>. You can use it too if you want
+more flexibility:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib import Traceback
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     et, ev, tb = sys.exc_info()
+...     tb = Traceback(tb)
+...
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[21]&gt;", line 6, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "&lt;doctest README.rst[21]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<h5 id="tblib-traceback-to_dict">tblib.Traceback.to_dict</h5>
+
+<p>You can use the <code>to_dict</code> method and the <code>from_dict</code> classmethod to
+convert a Traceback into and from a dictionary serializable by the
+stdlib json.JSONDecoder:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; import json
+&gt;&gt;&gt; from pprint import pprint
+&gt;&gt;&gt; try:
+...     inner_2()
+... except:
+...     et, ev, tb = sys.exc_info()
+...     tb = Traceback(tb)
+...     tb_dict = tb.to_dict()
+...     pprint(tb_dict)
+{'tb_frame': {'f_code': {'co_filename': '&lt;doctest README.rst[...]&gt;',
+                         'co_name': '&lt;module&gt;'},
+              'f_globals': {'__name__': '__main__'}},
+ 'tb_lineno': 2,
+ 'tb_next': {'tb_frame': {'f_code': {'co_filename': ...
+                                     'co_name': 'inner_2'},
+                          'f_globals': {'__name__': '__main__'}},
+             'tb_lineno': 2,
+             'tb_next': {'tb_frame': {'f_code': {'co_filename': ...
+                                                 'co_name': 'inner_1'},
+                                      'f_globals': {'__name__': '__main__'}},
+                         'tb_lineno': 2,
+                         'tb_next': {'tb_frame': {'f_code': {'co_filename': ...
+                                                             'co_name': 'inner_0'},
+                                                  'f_globals': {'__name__': '__main__'}},
+                                     'tb_lineno': 2,
+                                     'tb_next': None}}}}
+</code></pre></div>
+<h5 id="tblib-traceback-from_dict">tblib.Traceback.from_dict</h5>
+
+<p>Building on the previous example:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; tb_json = json.dumps(tb_dict)
+&gt;&gt;&gt; tb = Traceback.from_dict(json.loads(tb_json))
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[21]&gt;", line 6, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "&lt;doctest README.rst[21]&gt;", line 2, in &lt;module&gt;
+    inner_2()
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<h5 id="tblib-traceback-from_string">tblib.Traceback.from_string</h5>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; tb = Traceback.from_string("""
+... File "skipped.py", line 123, in func_123
+... Traceback (most recent call last):
+...   File "tests/examples.py", line 2, in func_a
+...     func_b()
+...   File "tests/examples.py", line 6, in func_b
+...     func_c()
+...   File "tests/examples.py", line 10, in func_c
+...     func_d()
+...   File "tests/examples.py", line 14, in func_d
+... Doesn't: matter
+... """)
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[42]&gt;", line 6, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "...examples.py", line 2, in func_a
+    func_b()
+  File "...examples.py", line 6, in func_b
+    func_c()
+  File "...examples.py", line 10, in func_c
+    func_d()
+  File "...examples.py", line 14, in func_d
+    raise Exception("Guessing time !")
+Exception: fail
+</code></pre></div>
+<p>If you use the <code>strict=False</code> option then parsing is a bit more lax:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; tb = Traceback.from_string("""
+... File "bogus.py", line 123, in bogus
+... Traceback (most recent call last):
+...  File "tests/examples.py", line 2, in func_a
+...   func_b()
+...    File "tests/examples.py", line 6, in func_b
+...     func_c()
+...    File "tests/examples.py", line 10, in func_c
+...   func_d()
+...  File "tests/examples.py", line 14, in func_d
+... Doesn't: matter
+... """, strict=False)
+&gt;&gt;&gt; reraise(et, ev, tb.as_traceback())
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[42]&gt;", line 6, in &lt;module&gt;
+    reraise(et, ev, tb.as_traceback())
+  File "bogus.py", line 123, in bogus
+  File "...examples.py", line 2, in func_a
+    func_b()
+  File "...examples.py", line 6, in func_b
+    func_c()
+  File "...examples.py", line 10, in func_c
+    func_d()
+  File "...examples.py", line 14, in func_d
+    raise Exception("Guessing time !")
+Exception: fail
+</code></pre></div>
+<h4 id="tblib-decorators-return_error">tblib.decorators.return_error</h4>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib.decorators import return_error
+&gt;&gt;&gt; inner_2r = return_error(inner_2)
+&gt;&gt;&gt; e = inner_2r()
+&gt;&gt;&gt; e
+&lt;tblib.decorators.Error object at ...&gt;
+&gt;&gt;&gt; e.reraise()
+Traceback (most recent call last):
+  ...
+  File "&lt;doctest README.rst[26]&gt;", line 1, in &lt;module&gt;
+    e.reraise()
+  File "...tblib...decorators.py", line 19, in reraise
+    reraise(self.exc_type, self.exc_value, self.traceback)
+  File "...tblib...decorators.py", line 25, in return_exceptions_wrapper
+    return func(*args, **kwargs)
+  File "&lt;doctest README.rst[5]&gt;", line 2, in inner_2
+    inner_1()
+  File "&lt;doctest README.rst[4]&gt;", line 2, in inner_1
+    inner_0()
+  File "&lt;doctest README.rst[3]&gt;", line 2, in inner_0
+    raise Exception('fail')
+Exception: fail
+</code></pre></div>
+<p>How's this useful? Imagine you're using multiprocessing like this:</p>
+<div class="highlight"><pre><code class="language-" data-lang=""># Note that Python 3.4 and later will show the remote traceback (but as a string sadly) so we skip testing this.
+&gt;&gt;&gt; import traceback
+&gt;&gt;&gt; from multiprocessing import Pool
+&gt;&gt;&gt; from examples import func_a
+&gt;&gt;&gt; pool = Pool()  # doctest: +SKIP
+&gt;&gt;&gt; try:  # doctest: +SKIP
+...     for i in pool.map(func_a, range(5)):
+...         print(i)
+... except:
+...     print(traceback.format_exc())
+...
+Traceback (most recent call last):
+  File "&lt;doctest README.rst[...]&gt;", line 2, in &lt;module&gt;
+    for i in pool.map(func_a, range(5)):
+  File "...multiprocessing...pool.py", line ..., in map
+    ...
+  File "...multiprocessing...pool.py", line ..., in get
+    ...
+Exception: Guessing time !
+&lt;BLANKLINE&gt;
+&gt;&gt;&gt; pool.terminate()  # doctest: +SKIP
+</code></pre></div>
+<p>Not very useful is it? Let's sort this out:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; from tblib.decorators import apply_with_return_error, Error
+&gt;&gt;&gt; from itertools import repeat
+&gt;&gt;&gt; pool = Pool()
+&gt;&gt;&gt; try:
+...     for i in pool.map(apply_with_return_error, zip(repeat(func_a), range(5))):
+...         if isinstance(i, Error):
+...             i.reraise()
+...         else:
+...             print(i)
+... except:
+...     print(traceback.format_exc())
+...
+Traceback (most recent call last):
+  File "&lt;doctest README.rst[...]&gt;", line 4, in &lt;module&gt;
+    i.reraise()
+  File "...tblib...decorators.py", line ..., in reraise
+    reraise(self.exc_type, self.exc_value, self.traceback)
+  File "...tblib...decorators.py", line ..., in return_exceptions_wrapper
+    return func(*args, **kwargs)
+  File "...tblib...decorators.py", line ..., in apply_with_return_error
+    return args[0](*args[1:])
+  File "...examples.py", line 2, in func_a
+    func_b()
+  File "...examples.py", line 6, in func_b
+    func_c()
+  File "...examples.py", line 10, in func_c
+    func_d()
+  File "...examples.py", line 14, in func_d
+    raise Exception("Guessing time !")
+Exception: Guessing time !
+&lt;BLANKLINE&gt;
+&gt;&gt;&gt; pool.terminate()
+</code></pre></div>
+<p>Much better !</p>
+
+<h5 id="what-if-we-have-a-local-call-stack">What if we have a local call stack ?</h5>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; def local_0():
+...     pool = Pool()
+...     try:
+...         for i in pool.map(apply_with_return_error, zip(repeat(func_a), range(5))):
+...             if isinstance(i, Error):
+...                 i.reraise()
+...             else:
+...                 print(i)
+...     finally:
+...         pool.close()
+...
+&gt;&gt;&gt; def local_1():
+...     local_0()
+...
+&gt;&gt;&gt; def local_2():
+...     local_1()
+...
+&gt;&gt;&gt; try:
+...     local_2()
+... except:
+...     print(traceback.format_exc())
+Traceback (most recent call last):
+  File "&lt;doctest README.rst[...]&gt;", line 2, in &lt;module&gt;
+    local_2()
+  File "&lt;doctest README.rst[...]&gt;", line 2, in local_2
+    local_1()
+  File "&lt;doctest README.rst[...]&gt;", line 2, in local_1
+    local_0()
+  File "&lt;doctest README.rst[...]&gt;", line 6, in local_0
+    i.reraise()
+  File "...tblib...decorators.py", line 20, in reraise
+    reraise(self.exc_type, self.exc_value, self.traceback)
+  File "...tblib...decorators.py", line 27, in return_exceptions_wrapper
+    return func(*args, **kwargs)
+  File "...tblib...decorators.py", line 47, in apply_with_return_error
+    return args[0](*args[1:])
+  File "...tests...examples.py", line 2, in func_a
+    func_b()
+  File "...tests...examples.py", line 6, in func_b
+    func_c()
+  File "...tests...examples.py", line 10, in func_c
+    func_d()
+  File "...tests...examples.py", line 14, in func_d
+    raise Exception("Guessing time !")
+Exception: Guessing time !
+&lt;BLANKLINE&gt;
+</code></pre></div>
+<h5 id="other-weird-stuff">Other weird stuff</h5>
+
+<p>Clearing traceback works (Python 3.4 and up):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">&gt;&gt;&gt; tb = Traceback.from_string("""
+... File "skipped.py", line 123, in func_123
+... Traceback (most recent call last):
+...   File "tests/examples.py", line 2, in func_a
+...     func_b()
+...   File "tests/examples.py", line 6, in func_b
+...     func_c()
+...   File "tests/examples.py", line 10, in func_c
+...     func_d()
+...   File "tests/examples.py", line 14, in func_d
+... Doesn't: matter
+... """)
+&gt;&gt;&gt; import traceback, sys
+&gt;&gt;&gt; if sys.version_info &gt; (3, 4):
+...     traceback.clear_frames(tb)
+</code></pre></div>
+<h2 id="credits">Credits</h2>
+
+<ul>
+<li>  <a href="https://github.com/mitsuhiko/jinja2">mitsuhiko/jinja2</a> for figuring
+a way to create traceback objects.</li>
+</ul>
 </div>
               </div>
             </div>
@@ -1761,7 +3442,63 @@ tblib
           <div class="panel-body">
             
               <div class="rendered-markdown">
-<p>Could not convert RST to MD: No such file or directory - pandoc</p>
+<h1 id="changelog">Changelog</h1>
+
+<h2 id="1-4-0-2019-05-02">1.4.0 (2019-05-02)</h2>
+
+<ul>
+<li>  Remove support for end of life Python 3.3.</li>
+<li>  Fixed tests for Python 3.7. Contributed by Elliott Sales de Andrade
+in <a href="https://github.com/ionelmc/python-tblib/issues/36">#36</a>.</li>
+<li>  Fixed compatibility issue with Twised
+(<code>twisted.python.failure.Failure</code> expected a <code>co_code</code> attribute).</li>
+</ul>
+
+<h2 id="1-3-2-2017-04-09">1.3.2 (2017-04-09)</h2>
+
+<ul>
+<li>  Add support for PyPy3.5-5.7.1-beta. Previously
+<code>AttributeError: 'Frame' object has no attribute 'clear'</code> could
+be raised. See PyPy issue
+<a href="https://bitbucket.org/pypy/pypy/issues/2532/pypy3-attributeerror-frame-object-has-no">#2532</a>.</li>
+</ul>
+
+<h2 id="1-3-1-2017-03-27">1.3.1 (2017-03-27)</h2>
+
+<ul>
+<li>  Fixed handling for tracebacks due to exceeding the recursion limit.
+Fixes <a href="https://github.com/ionelmc/python-tblib/issues/15">#15</a>.</li>
+</ul>
+
+<h2 id="1-3-0-2016-03-08">1.3.0 (2016-03-08)</h2>
+
+<ul>
+<li>  Added <code>Traceback.from_string</code>.</li>
+</ul>
+
+<h2 id="1-2-0-2015-12-18">1.2.0 (2015-12-18)</h2>
+
+<ul>
+<li>  Fixed handling for tracebacks from generators and other internal
+improvements and optimizations. Contributed by DRayX in
+<a href="https://github.com/ionelmc/python-tblib/issues/10">#10</a> and
+<a href="https://github.com/ionelmc/python-tblib/pull/11">#11</a>.</li>
+</ul>
+
+<h2 id="1-1-0-2015-07-27">1.1.0 (2015-07-27)</h2>
+
+<ul>
+<li>  Added support for Python 2.6. Contributed by Arcadiy Ivanov in
+<a href="https://github.com/ionelmc/python-tblib/pull/8">#8</a>.</li>
+</ul>
+
+<h2 id="1-0-0-2015-03-30">1.0.0 (2015-03-30)</h2>
+
+<ul>
+<li>  Added <code>to_dict</code> method and <code>from_dict</code> classmethod on Tracebacks.
+Contributed by beckjake in
+<a href="https://github.com/ionelmc/python-tblib/pull/5">#5</a>.</li>
+</ul>
 </div>
             
           </div>
@@ -2070,7 +3807,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2019-05-28</em>
+          <em>generated on 2019-05-29</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
