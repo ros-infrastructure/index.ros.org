@@ -367,7 +367,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-12
         </span>
       </td>
     </tr>
@@ -541,20 +541,25 @@ tool available in the "Zivid Tools" package to confirm that your system has been
 that the camera is discovered by your PC. You can also open Zivid Studio and connect to the camera.
 Close Zivid Studio before continuing with the rest of this guide.</p>
 
-<p>Launch sample_capture_cpp to test that everything is working:</p>
+<p>Launch <code>sample_capture_assistant.py</code> to test that everything is working:</p>
 <div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nb">cd</span> ~/catkin_ws <span class="o">&amp;&amp;</span> <span class="nb">source </span>devel/setup.bash
-roslaunch zivid_samples sample.launch <span class="nb">type</span>:<span class="o">=</span>sample_capture_cpp
+roslaunch zivid_samples sample.launch <span class="nb">type</span>:<span class="o">=</span>sample_capture_assistant.py
 
 </code></pre></div>
-<p>This launch file starts the <code>zivid_camera</code> driver node, the <code>sample_capture_cpp</code> node, as well as
+<p>This will start the <code>zivid_camera</code> driver node, the
+<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/scripts/sample_capture_assistant.py">sample_capture_assistant.py</a> node, as well as
 <a href="https://wiki.ros.org/rviz">rviz</a> to visualize the point cloud and the 2D color and depth images
-and <a href="https://wiki.ros.org/rqt_reconfigure">rqt_reconfigure</a> to adjust the camera settings.</p>
+and <a href="https://wiki.ros.org/rqt_reconfigure">rqt_reconfigure</a> to view or change capture settings.</p>
 
-<p>The <code>sample_capture_cpp</code> node will first configure the capture settings of the camera and then
-trigger captures repeatedly. If everything is working, the output should be visible in rviz. Try to
-adjust the exposure time or the iris in rqt_reconfigure and observe that the visualization in
-rviz changes. Note: sometimes it is necessary to click "Refresh" in rqt_reconfigure to load the
-configuration tree.</p>
+<p>The <code>sample_capture_assistant.py</code> node will first call the
+<a href="https://github.com/zivid/zivid-ros/tree/master/#capture_assistantsuggest_settings">capture_assistant/suggest_settings</a> service to find suggested
+capture settings for your particular scene, then call the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service to
+capture using those settings. If everything is working, the point cloud, color image and depth image
+should be visible in rviz.</p>
+
+<p>You can adjust the maximum capture time by changing variable <code>max_capture_time</code> in
+<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/scripts/sample_capture_assistant.py">sample_capture_assistant.py</a> and
+re-launching the sample.</p>
 
 <p align="center">
     <img src="https://www.zivid.com/software/zivid-ros/ros_rviz_miscobjects.png?" width="750" height="445">
@@ -616,7 +621,8 @@ develop without access to hardware. The file camera returns the same point cloud
 defines the maximum number of frames that can be a part of a 3D HDR capture. All <code>capture/frame_&lt;n&gt;</code>
 nodes are by default enabled=false (see section <a href="https://github.com/zivid/zivid-ros/tree/master/#configuration">Configuration</a>). If you need to
 perform 3D HDR capture with more than 10 enabled frames then increase this number. Otherwise it can
-be left as default.</p>
+be left as default. We do not recommend lowering this setting, especially if you are using the
+<a href="https://github.com/zivid/zivid-ros/tree/master/#capture_assistantsuggest_settings">capture_assistant/suggest_settings</a> service.</p>
 </blockquote>
 
 <p><code>serial_number</code> (string, default: "")</p>
@@ -629,82 +635,119 @@ This parameter is optional. By default the driver will connect to the first avai
 
 <h2 id="services">Services</h2>
 
-<p><code>capture</code> (<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/Capture.srv">zivid_camera/Capture</a>)</p>
+<h3 id="capture_assistant-suggest_settings">capture_assistant/suggest_settings</h3>
+
+<p><a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/CaptureAssistantSuggestSettings.srv">zivid_camera/CaptureAssistantSuggestSettings.srv</a></p>
+
+<p>Invoke this service to analyze your scene and find suggested settings for your particular scene,
+camera distance, ambient lighting conditions, etc. The suggested settings are configured on this
+node and accessible via dynamic_reconfigure, see section <a href="https://github.com/zivid/zivid-ros/tree/master/#configuration">Configuration</a>. When this
+service has returned you can invoke the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service to trigger a 3D capture using
+these suggested settings.</p>
+
+<p>This service has two parameters:</p>
+
+<p><code>max_capture_time</code> (duration):</p>
 
 <blockquote>
+<p>Specify the maximum capture time for the settings suggested by the Capture Assistant. A longer
+capture time may be required to get good data for more challenging scenes. Minimum value is
+0.2 sec and maximum value is 10.0 sec.</p>
+</blockquote>
+
+<p><code>ambient_light_frequency</code> (uint8):</p>
+
+<blockquote>
+<p>Possible values are: <code>AMBIENT_LIGHT_FREQUENCY_NONE</code>, <code>AMBIENT_LIGHT_FREQUENCY_50HZ</code>,
+<code>AMBIENT_LIGHT_FREQUENCY_60HZ</code>. Can be used to ensure that the suggested settings are compatible
+with the frequency of the ambient light in the scene. If ambient light is unproblematic, use
+<code>AMBIENT_LIGHT_FREQUENCY_NONE</code> for optimal performance. Default is <code>AMBIENT_LIGHT_FREQUENCY_NONE</code>.</p>
+</blockquote>
+
+<p>See <a href="https://github.com/zivid/zivid-ros/tree/master/#sample-capture-assistant">Sample Capture Assistant</a> for code example.</p>
+
+<h3 id="capture">capture</h3>
+
+<p><a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/Capture.srv">zivid_camera/Capture.srv</a></p>
+
 <p>Invoke this service to trigger a 3D capture. See section <a href="https://github.com/zivid/zivid-ros/tree/master/#configuration">Configuration</a> for how to
-configure the 3D capture settings. The resulting point cloud is published on topic <code>points</code>, color image
-is published on topic <code>color/image_color</code>, and depth image is published on topic <code>depth/image_raw</code>.
-Camera calibration is published on topics <code>color/camera_info</code> and <code>depth/camera_info</code>.</p>
-</blockquote>
+configure the 3D capture settings. The resulting point cloud is published on topic <a href="https://github.com/zivid/zivid-ros/tree/master/#points">points</a>,
+color image is published on topic <a href="https://github.com/zivid/zivid-ros/tree/master/#colorimage_color">color/image_color</a>, and depth image is published
+on topic <a href="https://github.com/zivid/zivid-ros/tree/master/depthimage_raw">depth/image_raw</a>. Camera calibration is published on topics
+<a href="https://github.com/zivid/zivid-ros/tree/master/#colorcamera_info">color/camera_info</a> and <a href="https://github.com/zivid/zivid-ros/tree/master/#depthcamera_info">depth/camera_info</a>.</p>
 
-<p><code>capture_2d</code> (<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/Capture2D.srv">zivid_camera/Capture2D</a>)</p>
+<p>See <a href="https://github.com/zivid/zivid-ros/tree/master/#sample-capture">Sample Capture</a> for code example.</p>
 
-<blockquote>
+<h3 id="capture_2d">capture_2d</h3>
+
+<p><a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/Capture2D.srv">zivid_camera/Capture2D.srv</a></p>
+
 <p>Invoke this service to trigger a 2D capture. See section <a href="https://github.com/zivid/zivid-ros/tree/master/#configuration">Configuration</a> for how to
-configure the 2D capture settings. The resulting 2D image is published to topic <code>color/image_color</code>.
-Note: 2D RGB image is also published as a part of 3D capture (see <code>capture</code> above.)</p>
-</blockquote>
+configure the 2D capture settings. The resulting 2D image is published to topic
+<a href="https://github.com/zivid/zivid-ros/tree/master/#colorimage_color">color/image_color</a>. Note: 2D RGB image is also published as a part of 3D
+capture, see <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a>.</p>
 
-<p><code>camera_info/model_name</code> (<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/CameraInfoModelName.srv">zivid_camera/CameraInfoModelName</a>)</p>
+<p>See <a href="https://github.com/zivid/zivid-ros/tree/master/#sample-capture-2d">Sample Capture 2D</a> for code example.</p>
 
-<blockquote>
+<h3 id="camera_info-model_name">camera_info/model_name</h3>
+
+<p><a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/CameraInfoModelName.srv">zivid_camera/CameraInfoModelName.srv</a></p>
+
 <p>Returns the camera's model name.</p>
-</blockquote>
 
-<p><code>camera_info/serial_number</code> (<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/CameraInfoSerialNumber.srv">zivid_camera/CameraInfoSerialNumber</a>)</p>
+<h3 id="camera_info-serial_number">camera_info/serial_number</h3>
 
-<blockquote>
+<p><a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/CameraInfoSerialNumber.srv">zivid_camera/CameraInfoSerialNumber.srv</a></p>
+
 <p>Returns the camera's serial number.</p>
-</blockquote>
 
-<p><code>is_connected</code> (<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/IsConnected.srv">zivid_camera/IsConnected</a>)</p>
+<h3 id="is_connected">is_connected</h3>
 
-<blockquote>
+<p><a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/IsConnected.srv">zivid_camera/IsConnected.srv</a></p>
+
 <p>Returns if the camera is currently in <code>Connected</code> state (from the perspective of the ROS driver).
-The connection status is updated by the driver every 10 seconds and before each <code>capture</code> service
+The connection status is updated by the driver every 10 seconds and before each <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service
 call. If the camera is not in <code>Connected</code> state the driver will attempt to re-connect to the camera
 when it detects that the camera is available. This can happen if the camera is power-cycled or the
 USB cable is unplugged and then replugged.</p>
-</blockquote>
 
 <h2 id="topics">Topics</h2>
 
-<p><code>color/camera_info</code> (<a href="http://docs.ros.org/api/sensor_msgs/html/msg/CameraInfo.html">sensor_msgs/CameraInfo</a>)</p>
+<h3 id="color-camera_info">color/camera_info</h3>
 
-<blockquote>
+<p><a href="http://docs.ros.org/api/sensor_msgs/html/msg/CameraInfo.html">sensor_msgs/CameraInfo</a></p>
+
 <p>Camera calibration and metadata.</p>
-</blockquote>
 
-<p><code>color/image_color</code> (<a href="http://docs.ros.org/api/sensor_msgs/html/msg/Image.html">sensor_msgs/Image</a>)</p>
+<h3 id="color-image_color">color/image_color</h3>
 
-<blockquote>
-<p>Color/RGB image. For 3D captures (triggered via <code>capture</code> service) the image is encoded as "rgb8".
-For 2D captures (triggered via <code>capture_2d</code> service) the image is encoded as "rgba8", where the
-alpha channel is always 255.</p>
-</blockquote>
+<p><a href="http://docs.ros.org/api/sensor_msgs/html/msg/Image.html">sensor_msgs/Image</a></p>
 
-<p><code>depth/camera_info</code> (<a href="http://docs.ros.org/api/sensor_msgs/html/msg/CameraInfo.html">sensor_msgs/CameraInfo</a>)</p>
+<p>Color/RGB image. For 3D captures (<a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service) the image is encoded as "rgb8". For
+2D captures (<a href="https://github.com/zivid/zivid-ros/tree/master/#capture_2d">capture_2d</a> service) the image is encoded as "rgba8", where the alpha
+channel is always 255.</p>
 
-<blockquote>
+<h3 id="depth-camera_info">depth/camera_info</h3>
+
+<p><a href="http://docs.ros.org/api/sensor_msgs/html/msg/CameraInfo.html">sensor_msgs/CameraInfo</a></p>
+
 <p>Camera calibration and metadata.</p>
-</blockquote>
 
-<p><code>depth/image_raw</code> (<a href="http://docs.ros.org/api/sensor_msgs/html/msg/Image.html">sensor_msgs/Image</a>)</p>
+<h3 id="depth-image_raw">depth/image_raw</h3>
 
-<blockquote>
+<p><a href="http://docs.ros.org/api/sensor_msgs/html/msg/Image.html">sensor_msgs/Image</a></p>
+
 <p>Depth image. Each pixel contains the z-value (along the camera Z axis) in meters.
 The image is encoded as 32-bit float. Pixels where z-value is missing are NaN.</p>
-</blockquote>
 
-<p><code>points</code> (<a href="http://docs.ros.org/api/sensor_msgs/html/msg/PointCloud2.html">sensor_msgs/PointCloud2</a>)</p>
+<h3 id="points">points</h3>
 
-<blockquote>
-<p>Point cloud data. Each time a capture is invoked the resulting point cloud is published
+<p><a href="http://docs.ros.org/api/sensor_msgs/html/msg/PointCloud2.html">sensor_msgs/PointCloud2</a></p>
+
+<p>Point cloud data. Each time <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> is invoked the resulting point cloud is published
 on this topic. The included point fields are x, y, z (in meters), c (contrast value),
 and r, g, b (colors). The output is in the camera's optical frame, where x is right, y is
 down and z is forward.</p>
-</blockquote>
 
 <h2 id="configuration">Configuration</h2>
 
@@ -714,22 +757,19 @@ and combining the captures into one high-quality point cloud. For more informati
 <a href="https://zivid.atlassian.net/wiki/spaces/ZividKB/pages/428143/HDR+Imaging+for+Challenging+Objects">knowledge base</a>.</p>
 
 <p>The capture settings available in the <code>zivid_camera</code> node matches the settings in the Zivid API.
-To become more familiar with the available settings and what they do, see the API reference for the
+To become more familiar with the different settings and what they do, see the API reference for the
 <a href="http://www.zivid.com/hubfs/softwarefiles/releases/1.7.0+a115eaa4-4/doc/cpp/classZivid_1_1Settings.html">Settings</a>
 and <a href="http://www.zivid.com/hubfs/softwarefiles/releases/1.7.0+a115eaa4-4/doc/cpp/classZivid_1_1Settings2D.html">Settings2D</a>
 classes, or use Zivid Studio.</p>
 
-<p>The settings can be configured using <a href="https://wiki.ros.org/dynamic_reconfigure">dynamic_reconfigure</a>.
-Use <a href="https://wiki.ros.org/rqt_reconfigure">rqt_reconfigure</a> to view or change the settings using a GUI.</p>
+<p>The settings can be viewed and configured using <a href="https://wiki.ros.org/dynamic_reconfigure">dynamic_reconfigure</a>.
+Use <a href="https://wiki.ros.org/rqt_reconfigure">rqt_reconfigure</a> to view/change the settings using a GUI:</p>
 <div class="highlight"><pre><code class="language-bash" data-lang="bash">rosrun rqt_reconfigure rqt_reconfigure
 
 </code></pre></div>
-<p>Note that the min, max and default value of the settings can change dependent on what Zivid camera
-model you are using. Therefore you should <strong>not</strong> use the static <code>__getMin()__</code>, <code>__getMax()__</code> and
-<code>__getDefault()__</code> methods of the auto-generated C++ config classes (<code>zivid_camera::CaptureGeneralConfig</code>,
-<code>zivid_camera::CaptureFrameConfig</code> and <code>zivid_camera::Capture2DFrameConfig</code>). Instead, you should
-query the server for the default values using <code>dynamic_reconfigure::Client&lt;T&gt;::getDefaultConfiguration()</code>.
-See the <a href="https://github.com/zivid/zivid-ros/tree/master/#samples">C++ samples</a> for how to do this.</p>
+<p>If you want to experiment with the capture settings, launch the <a href="https://github.com/zivid/zivid-ros/tree/master/#sample-capture">Sample Capture</a> sample,
+which will capture in a loop forever, and use <a href="https://wiki.ros.org/rqt_reconfigure">rqt_reconfigure</a>
+to adjust the settings.</p>
 
 <p>The available capture settings are organized into a hierarchy of configuration nodes. 3D settings are available
 under the <code>/capture</code> namespace, while 2D settings are available under <code>/capture_2d</code>.</p>
@@ -747,15 +787,26 @@ under the <code>/capture</code> namespace, while 2D settings are available under
     /frame_0
 
 </code></pre></div>
+<p><strong>Note:</strong> The Capture Assistant feature can be used to find optimized 3D capture settings for your
+scene. Refer to service <a href="https://github.com/zivid/zivid-ros/tree/master/#capture_assistantsuggest_settings">capture_assistant/suggest_settings</a>.</p>
+
+<p><strong>Note for C++ users:</strong> The min, max and default values of the settings can change dependent on what
+Zivid camera model you are using. Therefore you should <strong>not</strong> use the static <code>__getMin()__</code>,
+<code>__getMax()__</code> and <code>__getDefault()__</code> methods of the auto-generated C++ config classes
+(<code>zivid_camera::CaptureGeneralConfig</code>, <code>zivid_camera::CaptureFrameConfig</code> and
+<code>zivid_camera::Capture2DFrameConfig</code>). Instead, you should query the server for the default values
+using <code>dynamic_reconfigure::Client&lt;T&gt;::getDefaultConfiguration()</code>. See the <a href="https://github.com/zivid/zivid-ros/tree/master/#samples">C++ samples</a>
+for how to do this.</p>
+
 <h3 id="frame-settings-for-3d">Frame settings for 3D</h3>
 
 <p><code>capture/frame_&lt;n&gt;/</code> contains settings for an individual frame. By default <code>&lt;n&gt;</code> can be 0 to 9 for a
 total of 10 frames. The total number of frames can be configured using the launch parameter <code>num_capture_frames</code>
 (see section <a href="https://github.com/zivid/zivid-ros/tree/master/#launch-parameters-advanced">Launch Parameters</a> above).</p>
 
-<p><code>capture/frame_&lt;n&gt;/enabled</code> controls if frame <code>&lt;n&gt;</code> will be included when the <code>capture/</code> service is
-invoked. If only one frame is enabled the <code>capture/</code> service performs a 3D single-capture. If more than
-one frame is enabled the <code>capture/</code> service will perform a 3D HDR-capture. By default enabled is false.
+<p><code>capture/frame_&lt;n&gt;/enabled</code> controls if frame <code>&lt;n&gt;</code> will be included when the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service is
+invoked. If only one frame is enabled the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service performs a 3D single-capture. If more than
+one frame is enabled the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service will perform a 3D HDR-capture. By default enabled is false.
 In order to capture a point cloud at least one frame needs to be enabled.</p>
 
 <table>
@@ -875,9 +926,9 @@ In order to capture a point cloud at least one frame needs to be enabled.</p>
 
 <h3 id="frame-settings-for-2d">Frame settings for 2D</h3>
 
-<p>2D settings are available under <code>capture_2d/frame_0/</code>. To trigger a 2D capture, invoke the <code>capture_2d</code>
+<p>2D settings are available under <code>capture_2d/frame_0/</code>. To trigger a 2D capture, invoke the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture_2d">capture_2d</a>
 service. Note that <code>capture_2d/frame_0/enabled</code> is default false, and must be set to true before
-calling <code>capture_2d</code> service, otherwise the service will return an error.</p>
+calling the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture_2d">capture_2d</a> service, otherwise the service will return an error.</p>
 
 <table>
 <thead>
@@ -927,10 +978,29 @@ calling <code>capture_2d</code> service, otherwise the service will return an er
 <p>In the <code>zivid_samples</code> package we have added samples in C++ and Python that demonstrate how to use
 the Zivid ROS driver. These samples can be used as a starting point for your project.</p>
 
+<h3 id="sample-capture-assistant">Sample Capture Assistant</h3>
+
+<p>This sample shows how to use the Capture Assistant to capture with suggested settings for your
+particular scene. This sample first calls the
+<a href="https://github.com/zivid/zivid-ros/tree/master/#capture_assistantsuggest_settings">capture_assistant/suggest_settings</a> service to get the suggested
+settings. It then calls the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service to invoke the 3D capture using those settings.</p>
+
+<p>Source code: <a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/src/sample_capture_assistant.cpp">C++</a>, <a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/scripts/sample_capture_assistant.py">Python</a></p>
+
+<p>Using roslaunch (also launches <code>roscore</code>, <code>zivid_camera</code>, <code>rviz</code> and <code>rqt_reconfigure</code>):</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">roslaunch zivid_samples sample.launch <span class="nb">type</span>:<span class="o">=</span>sample_capture_assistant_cpp
+roslaunch zivid_samples sample.launch <span class="nb">type</span>:<span class="o">=</span>sample_capture_assistant.py
+
+</code></pre></div>
+<p>Using rosrun (when <code>roscore</code> and <code>zivid_camera</code> are running):</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">rosrun zivid_samples sample_capture_assistant_cpp
+rosrun zivid_samples sample_capture_assistant.py
+
+</code></pre></div>
 <h3 id="sample-capture">Sample Capture</h3>
 
 <p>This sample performs single 3D captures repeatedly. This sample shows how to <a href="https://github.com/zivid/zivid-ros/tree/master/#configuration">configure</a>
-the capture settings, how to subscribe to the <code>points</code> topic, and how to invoke the <code>capture</code> service.</p>
+the capture settings, how to subscribe to the <a href="https://github.com/zivid/zivid-ros/tree/master/#points">points</a> topic, and how to invoke the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service.</p>
 
 <p>Source code: <a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/src/sample_capture.cpp">C++</a>, <a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/scripts/sample_capture.py">Python</a></p>
 
@@ -947,8 +1017,8 @@ rosrun zivid_samples sample_capture.py
 <h3 id="sample-capture-2d">Sample Capture 2D</h3>
 
 <p>This sample performs 2D captures repeatedly. This sample shows how to <a href="https://github.com/zivid/zivid-ros/tree/master/#configuration">configure</a>
-the 2D capture settings, how to subscribe to the <code>color/image_color</code> topic, and how to invoke
-the <code>capture_2d</code> service.</p>
+the 2D capture settings, how to subscribe to the <a href="https://github.com/zivid/zivid-ros/tree/master/#colorimage_color">color/image_color</a> topic, and
+how to invoke the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture_2d">capture_2d</a> service.</p>
 
 <p>Source code: <a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/src/sample_capture_2d.cpp">C++</a>, <a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/scripts/sample_capture_2d.py">Python</a></p>
 
@@ -989,7 +1059,7 @@ unique namespaces per node:</p>
 
 </code></pre></div>
 <p>By default the zivid_camera node will connect to the first available/unused camera. We recommend that
-you first start the first node, wait for it to be ready (for example, by waiting for the <code>capture</code>
+you first start the first node, wait for it to be ready (for example, by waiting for the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a>
 service to be available), then start the second node. This avoids any race conditions where both nodes
 may try to connect to the same camera at the same time.</p>
 
@@ -1083,7 +1153,7 @@ grant agreement No 732287. For more information, visit <a href="http://rosin-pro
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-12
         </span>
       </td>
     </tr>
@@ -1257,20 +1327,25 @@ tool available in the "Zivid Tools" package to confirm that your system has been
 that the camera is discovered by your PC. You can also open Zivid Studio and connect to the camera.
 Close Zivid Studio before continuing with the rest of this guide.</p>
 
-<p>Launch sample_capture_cpp to test that everything is working:</p>
+<p>Launch <code>sample_capture_assistant.py</code> to test that everything is working:</p>
 <div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nb">cd</span> ~/catkin_ws <span class="o">&amp;&amp;</span> <span class="nb">source </span>devel/setup.bash
-roslaunch zivid_samples sample.launch <span class="nb">type</span>:<span class="o">=</span>sample_capture_cpp
+roslaunch zivid_samples sample.launch <span class="nb">type</span>:<span class="o">=</span>sample_capture_assistant.py
 
 </code></pre></div>
-<p>This launch file starts the <code>zivid_camera</code> driver node, the <code>sample_capture_cpp</code> node, as well as
+<p>This will start the <code>zivid_camera</code> driver node, the
+<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/scripts/sample_capture_assistant.py">sample_capture_assistant.py</a> node, as well as
 <a href="https://wiki.ros.org/rviz">rviz</a> to visualize the point cloud and the 2D color and depth images
-and <a href="https://wiki.ros.org/rqt_reconfigure">rqt_reconfigure</a> to adjust the camera settings.</p>
+and <a href="https://wiki.ros.org/rqt_reconfigure">rqt_reconfigure</a> to view or change capture settings.</p>
 
-<p>The <code>sample_capture_cpp</code> node will first configure the capture settings of the camera and then
-trigger captures repeatedly. If everything is working, the output should be visible in rviz. Try to
-adjust the exposure time or the iris in rqt_reconfigure and observe that the visualization in
-rviz changes. Note: sometimes it is necessary to click "Refresh" in rqt_reconfigure to load the
-configuration tree.</p>
+<p>The <code>sample_capture_assistant.py</code> node will first call the
+<a href="https://github.com/zivid/zivid-ros/tree/master/#capture_assistantsuggest_settings">capture_assistant/suggest_settings</a> service to find suggested
+capture settings for your particular scene, then call the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service to
+capture using those settings. If everything is working, the point cloud, color image and depth image
+should be visible in rviz.</p>
+
+<p>You can adjust the maximum capture time by changing variable <code>max_capture_time</code> in
+<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/scripts/sample_capture_assistant.py">sample_capture_assistant.py</a> and
+re-launching the sample.</p>
 
 <p align="center">
     <img src="https://www.zivid.com/software/zivid-ros/ros_rviz_miscobjects.png?" width="750" height="445">
@@ -1332,7 +1407,8 @@ develop without access to hardware. The file camera returns the same point cloud
 defines the maximum number of frames that can be a part of a 3D HDR capture. All <code>capture/frame_&lt;n&gt;</code>
 nodes are by default enabled=false (see section <a href="https://github.com/zivid/zivid-ros/tree/master/#configuration">Configuration</a>). If you need to
 perform 3D HDR capture with more than 10 enabled frames then increase this number. Otherwise it can
-be left as default.</p>
+be left as default. We do not recommend lowering this setting, especially if you are using the
+<a href="https://github.com/zivid/zivid-ros/tree/master/#capture_assistantsuggest_settings">capture_assistant/suggest_settings</a> service.</p>
 </blockquote>
 
 <p><code>serial_number</code> (string, default: "")</p>
@@ -1345,82 +1421,119 @@ This parameter is optional. By default the driver will connect to the first avai
 
 <h2 id="services">Services</h2>
 
-<p><code>capture</code> (<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/Capture.srv">zivid_camera/Capture</a>)</p>
+<h3 id="capture_assistant-suggest_settings">capture_assistant/suggest_settings</h3>
+
+<p><a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/CaptureAssistantSuggestSettings.srv">zivid_camera/CaptureAssistantSuggestSettings.srv</a></p>
+
+<p>Invoke this service to analyze your scene and find suggested settings for your particular scene,
+camera distance, ambient lighting conditions, etc. The suggested settings are configured on this
+node and accessible via dynamic_reconfigure, see section <a href="https://github.com/zivid/zivid-ros/tree/master/#configuration">Configuration</a>. When this
+service has returned you can invoke the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service to trigger a 3D capture using
+these suggested settings.</p>
+
+<p>This service has two parameters:</p>
+
+<p><code>max_capture_time</code> (duration):</p>
 
 <blockquote>
+<p>Specify the maximum capture time for the settings suggested by the Capture Assistant. A longer
+capture time may be required to get good data for more challenging scenes. Minimum value is
+0.2 sec and maximum value is 10.0 sec.</p>
+</blockquote>
+
+<p><code>ambient_light_frequency</code> (uint8):</p>
+
+<blockquote>
+<p>Possible values are: <code>AMBIENT_LIGHT_FREQUENCY_NONE</code>, <code>AMBIENT_LIGHT_FREQUENCY_50HZ</code>,
+<code>AMBIENT_LIGHT_FREQUENCY_60HZ</code>. Can be used to ensure that the suggested settings are compatible
+with the frequency of the ambient light in the scene. If ambient light is unproblematic, use
+<code>AMBIENT_LIGHT_FREQUENCY_NONE</code> for optimal performance. Default is <code>AMBIENT_LIGHT_FREQUENCY_NONE</code>.</p>
+</blockquote>
+
+<p>See <a href="https://github.com/zivid/zivid-ros/tree/master/#sample-capture-assistant">Sample Capture Assistant</a> for code example.</p>
+
+<h3 id="capture">capture</h3>
+
+<p><a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/Capture.srv">zivid_camera/Capture.srv</a></p>
+
 <p>Invoke this service to trigger a 3D capture. See section <a href="https://github.com/zivid/zivid-ros/tree/master/#configuration">Configuration</a> for how to
-configure the 3D capture settings. The resulting point cloud is published on topic <code>points</code>, color image
-is published on topic <code>color/image_color</code>, and depth image is published on topic <code>depth/image_raw</code>.
-Camera calibration is published on topics <code>color/camera_info</code> and <code>depth/camera_info</code>.</p>
-</blockquote>
+configure the 3D capture settings. The resulting point cloud is published on topic <a href="https://github.com/zivid/zivid-ros/tree/master/#points">points</a>,
+color image is published on topic <a href="https://github.com/zivid/zivid-ros/tree/master/#colorimage_color">color/image_color</a>, and depth image is published
+on topic <a href="https://github.com/zivid/zivid-ros/tree/master/depthimage_raw">depth/image_raw</a>. Camera calibration is published on topics
+<a href="https://github.com/zivid/zivid-ros/tree/master/#colorcamera_info">color/camera_info</a> and <a href="https://github.com/zivid/zivid-ros/tree/master/#depthcamera_info">depth/camera_info</a>.</p>
 
-<p><code>capture_2d</code> (<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/Capture2D.srv">zivid_camera/Capture2D</a>)</p>
+<p>See <a href="https://github.com/zivid/zivid-ros/tree/master/#sample-capture">Sample Capture</a> for code example.</p>
 
-<blockquote>
+<h3 id="capture_2d">capture_2d</h3>
+
+<p><a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/Capture2D.srv">zivid_camera/Capture2D.srv</a></p>
+
 <p>Invoke this service to trigger a 2D capture. See section <a href="https://github.com/zivid/zivid-ros/tree/master/#configuration">Configuration</a> for how to
-configure the 2D capture settings. The resulting 2D image is published to topic <code>color/image_color</code>.
-Note: 2D RGB image is also published as a part of 3D capture (see <code>capture</code> above.)</p>
-</blockquote>
+configure the 2D capture settings. The resulting 2D image is published to topic
+<a href="https://github.com/zivid/zivid-ros/tree/master/#colorimage_color">color/image_color</a>. Note: 2D RGB image is also published as a part of 3D
+capture, see <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a>.</p>
 
-<p><code>camera_info/model_name</code> (<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/CameraInfoModelName.srv">zivid_camera/CameraInfoModelName</a>)</p>
+<p>See <a href="https://github.com/zivid/zivid-ros/tree/master/#sample-capture-2d">Sample Capture 2D</a> for code example.</p>
 
-<blockquote>
+<h3 id="camera_info-model_name">camera_info/model_name</h3>
+
+<p><a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/CameraInfoModelName.srv">zivid_camera/CameraInfoModelName.srv</a></p>
+
 <p>Returns the camera's model name.</p>
-</blockquote>
 
-<p><code>camera_info/serial_number</code> (<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/CameraInfoSerialNumber.srv">zivid_camera/CameraInfoSerialNumber</a>)</p>
+<h3 id="camera_info-serial_number">camera_info/serial_number</h3>
 
-<blockquote>
+<p><a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/CameraInfoSerialNumber.srv">zivid_camera/CameraInfoSerialNumber.srv</a></p>
+
 <p>Returns the camera's serial number.</p>
-</blockquote>
 
-<p><code>is_connected</code> (<a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/IsConnected.srv">zivid_camera/IsConnected</a>)</p>
+<h3 id="is_connected">is_connected</h3>
 
-<blockquote>
+<p><a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_camera/srv/IsConnected.srv">zivid_camera/IsConnected.srv</a></p>
+
 <p>Returns if the camera is currently in <code>Connected</code> state (from the perspective of the ROS driver).
-The connection status is updated by the driver every 10 seconds and before each <code>capture</code> service
+The connection status is updated by the driver every 10 seconds and before each <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service
 call. If the camera is not in <code>Connected</code> state the driver will attempt to re-connect to the camera
 when it detects that the camera is available. This can happen if the camera is power-cycled or the
 USB cable is unplugged and then replugged.</p>
-</blockquote>
 
 <h2 id="topics">Topics</h2>
 
-<p><code>color/camera_info</code> (<a href="http://docs.ros.org/api/sensor_msgs/html/msg/CameraInfo.html">sensor_msgs/CameraInfo</a>)</p>
+<h3 id="color-camera_info">color/camera_info</h3>
 
-<blockquote>
+<p><a href="http://docs.ros.org/api/sensor_msgs/html/msg/CameraInfo.html">sensor_msgs/CameraInfo</a></p>
+
 <p>Camera calibration and metadata.</p>
-</blockquote>
 
-<p><code>color/image_color</code> (<a href="http://docs.ros.org/api/sensor_msgs/html/msg/Image.html">sensor_msgs/Image</a>)</p>
+<h3 id="color-image_color">color/image_color</h3>
 
-<blockquote>
-<p>Color/RGB image. For 3D captures (triggered via <code>capture</code> service) the image is encoded as "rgb8".
-For 2D captures (triggered via <code>capture_2d</code> service) the image is encoded as "rgba8", where the
-alpha channel is always 255.</p>
-</blockquote>
+<p><a href="http://docs.ros.org/api/sensor_msgs/html/msg/Image.html">sensor_msgs/Image</a></p>
 
-<p><code>depth/camera_info</code> (<a href="http://docs.ros.org/api/sensor_msgs/html/msg/CameraInfo.html">sensor_msgs/CameraInfo</a>)</p>
+<p>Color/RGB image. For 3D captures (<a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service) the image is encoded as "rgb8". For
+2D captures (<a href="https://github.com/zivid/zivid-ros/tree/master/#capture_2d">capture_2d</a> service) the image is encoded as "rgba8", where the alpha
+channel is always 255.</p>
 
-<blockquote>
+<h3 id="depth-camera_info">depth/camera_info</h3>
+
+<p><a href="http://docs.ros.org/api/sensor_msgs/html/msg/CameraInfo.html">sensor_msgs/CameraInfo</a></p>
+
 <p>Camera calibration and metadata.</p>
-</blockquote>
 
-<p><code>depth/image_raw</code> (<a href="http://docs.ros.org/api/sensor_msgs/html/msg/Image.html">sensor_msgs/Image</a>)</p>
+<h3 id="depth-image_raw">depth/image_raw</h3>
 
-<blockquote>
+<p><a href="http://docs.ros.org/api/sensor_msgs/html/msg/Image.html">sensor_msgs/Image</a></p>
+
 <p>Depth image. Each pixel contains the z-value (along the camera Z axis) in meters.
 The image is encoded as 32-bit float. Pixels where z-value is missing are NaN.</p>
-</blockquote>
 
-<p><code>points</code> (<a href="http://docs.ros.org/api/sensor_msgs/html/msg/PointCloud2.html">sensor_msgs/PointCloud2</a>)</p>
+<h3 id="points">points</h3>
 
-<blockquote>
-<p>Point cloud data. Each time a capture is invoked the resulting point cloud is published
+<p><a href="http://docs.ros.org/api/sensor_msgs/html/msg/PointCloud2.html">sensor_msgs/PointCloud2</a></p>
+
+<p>Point cloud data. Each time <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> is invoked the resulting point cloud is published
 on this topic. The included point fields are x, y, z (in meters), c (contrast value),
 and r, g, b (colors). The output is in the camera's optical frame, where x is right, y is
 down and z is forward.</p>
-</blockquote>
 
 <h2 id="configuration">Configuration</h2>
 
@@ -1430,22 +1543,19 @@ and combining the captures into one high-quality point cloud. For more informati
 <a href="https://zivid.atlassian.net/wiki/spaces/ZividKB/pages/428143/HDR+Imaging+for+Challenging+Objects">knowledge base</a>.</p>
 
 <p>The capture settings available in the <code>zivid_camera</code> node matches the settings in the Zivid API.
-To become more familiar with the available settings and what they do, see the API reference for the
+To become more familiar with the different settings and what they do, see the API reference for the
 <a href="http://www.zivid.com/hubfs/softwarefiles/releases/1.7.0+a115eaa4-4/doc/cpp/classZivid_1_1Settings.html">Settings</a>
 and <a href="http://www.zivid.com/hubfs/softwarefiles/releases/1.7.0+a115eaa4-4/doc/cpp/classZivid_1_1Settings2D.html">Settings2D</a>
 classes, or use Zivid Studio.</p>
 
-<p>The settings can be configured using <a href="https://wiki.ros.org/dynamic_reconfigure">dynamic_reconfigure</a>.
-Use <a href="https://wiki.ros.org/rqt_reconfigure">rqt_reconfigure</a> to view or change the settings using a GUI.</p>
+<p>The settings can be viewed and configured using <a href="https://wiki.ros.org/dynamic_reconfigure">dynamic_reconfigure</a>.
+Use <a href="https://wiki.ros.org/rqt_reconfigure">rqt_reconfigure</a> to view/change the settings using a GUI:</p>
 <div class="highlight"><pre><code class="language-bash" data-lang="bash">rosrun rqt_reconfigure rqt_reconfigure
 
 </code></pre></div>
-<p>Note that the min, max and default value of the settings can change dependent on what Zivid camera
-model you are using. Therefore you should <strong>not</strong> use the static <code>__getMin()__</code>, <code>__getMax()__</code> and
-<code>__getDefault()__</code> methods of the auto-generated C++ config classes (<code>zivid_camera::CaptureGeneralConfig</code>,
-<code>zivid_camera::CaptureFrameConfig</code> and <code>zivid_camera::Capture2DFrameConfig</code>). Instead, you should
-query the server for the default values using <code>dynamic_reconfigure::Client&lt;T&gt;::getDefaultConfiguration()</code>.
-See the <a href="https://github.com/zivid/zivid-ros/tree/master/#samples">C++ samples</a> for how to do this.</p>
+<p>If you want to experiment with the capture settings, launch the <a href="https://github.com/zivid/zivid-ros/tree/master/#sample-capture">Sample Capture</a> sample,
+which will capture in a loop forever, and use <a href="https://wiki.ros.org/rqt_reconfigure">rqt_reconfigure</a>
+to adjust the settings.</p>
 
 <p>The available capture settings are organized into a hierarchy of configuration nodes. 3D settings are available
 under the <code>/capture</code> namespace, while 2D settings are available under <code>/capture_2d</code>.</p>
@@ -1463,15 +1573,26 @@ under the <code>/capture</code> namespace, while 2D settings are available under
     /frame_0
 
 </code></pre></div>
+<p><strong>Note:</strong> The Capture Assistant feature can be used to find optimized 3D capture settings for your
+scene. Refer to service <a href="https://github.com/zivid/zivid-ros/tree/master/#capture_assistantsuggest_settings">capture_assistant/suggest_settings</a>.</p>
+
+<p><strong>Note for C++ users:</strong> The min, max and default values of the settings can change dependent on what
+Zivid camera model you are using. Therefore you should <strong>not</strong> use the static <code>__getMin()__</code>,
+<code>__getMax()__</code> and <code>__getDefault()__</code> methods of the auto-generated C++ config classes
+(<code>zivid_camera::CaptureGeneralConfig</code>, <code>zivid_camera::CaptureFrameConfig</code> and
+<code>zivid_camera::Capture2DFrameConfig</code>). Instead, you should query the server for the default values
+using <code>dynamic_reconfigure::Client&lt;T&gt;::getDefaultConfiguration()</code>. See the <a href="https://github.com/zivid/zivid-ros/tree/master/#samples">C++ samples</a>
+for how to do this.</p>
+
 <h3 id="frame-settings-for-3d">Frame settings for 3D</h3>
 
 <p><code>capture/frame_&lt;n&gt;/</code> contains settings for an individual frame. By default <code>&lt;n&gt;</code> can be 0 to 9 for a
 total of 10 frames. The total number of frames can be configured using the launch parameter <code>num_capture_frames</code>
 (see section <a href="https://github.com/zivid/zivid-ros/tree/master/#launch-parameters-advanced">Launch Parameters</a> above).</p>
 
-<p><code>capture/frame_&lt;n&gt;/enabled</code> controls if frame <code>&lt;n&gt;</code> will be included when the <code>capture/</code> service is
-invoked. If only one frame is enabled the <code>capture/</code> service performs a 3D single-capture. If more than
-one frame is enabled the <code>capture/</code> service will perform a 3D HDR-capture. By default enabled is false.
+<p><code>capture/frame_&lt;n&gt;/enabled</code> controls if frame <code>&lt;n&gt;</code> will be included when the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service is
+invoked. If only one frame is enabled the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service performs a 3D single-capture. If more than
+one frame is enabled the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service will perform a 3D HDR-capture. By default enabled is false.
 In order to capture a point cloud at least one frame needs to be enabled.</p>
 
 <table>
@@ -1591,9 +1712,9 @@ In order to capture a point cloud at least one frame needs to be enabled.</p>
 
 <h3 id="frame-settings-for-2d">Frame settings for 2D</h3>
 
-<p>2D settings are available under <code>capture_2d/frame_0/</code>. To trigger a 2D capture, invoke the <code>capture_2d</code>
+<p>2D settings are available under <code>capture_2d/frame_0/</code>. To trigger a 2D capture, invoke the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture_2d">capture_2d</a>
 service. Note that <code>capture_2d/frame_0/enabled</code> is default false, and must be set to true before
-calling <code>capture_2d</code> service, otherwise the service will return an error.</p>
+calling the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture_2d">capture_2d</a> service, otherwise the service will return an error.</p>
 
 <table>
 <thead>
@@ -1643,10 +1764,29 @@ calling <code>capture_2d</code> service, otherwise the service will return an er
 <p>In the <code>zivid_samples</code> package we have added samples in C++ and Python that demonstrate how to use
 the Zivid ROS driver. These samples can be used as a starting point for your project.</p>
 
+<h3 id="sample-capture-assistant">Sample Capture Assistant</h3>
+
+<p>This sample shows how to use the Capture Assistant to capture with suggested settings for your
+particular scene. This sample first calls the
+<a href="https://github.com/zivid/zivid-ros/tree/master/#capture_assistantsuggest_settings">capture_assistant/suggest_settings</a> service to get the suggested
+settings. It then calls the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service to invoke the 3D capture using those settings.</p>
+
+<p>Source code: <a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/src/sample_capture_assistant.cpp">C++</a>, <a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/scripts/sample_capture_assistant.py">Python</a></p>
+
+<p>Using roslaunch (also launches <code>roscore</code>, <code>zivid_camera</code>, <code>rviz</code> and <code>rqt_reconfigure</code>):</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">roslaunch zivid_samples sample.launch <span class="nb">type</span>:<span class="o">=</span>sample_capture_assistant_cpp
+roslaunch zivid_samples sample.launch <span class="nb">type</span>:<span class="o">=</span>sample_capture_assistant.py
+
+</code></pre></div>
+<p>Using rosrun (when <code>roscore</code> and <code>zivid_camera</code> are running):</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">rosrun zivid_samples sample_capture_assistant_cpp
+rosrun zivid_samples sample_capture_assistant.py
+
+</code></pre></div>
 <h3 id="sample-capture">Sample Capture</h3>
 
 <p>This sample performs single 3D captures repeatedly. This sample shows how to <a href="https://github.com/zivid/zivid-ros/tree/master/#configuration">configure</a>
-the capture settings, how to subscribe to the <code>points</code> topic, and how to invoke the <code>capture</code> service.</p>
+the capture settings, how to subscribe to the <a href="https://github.com/zivid/zivid-ros/tree/master/#points">points</a> topic, and how to invoke the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a> service.</p>
 
 <p>Source code: <a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/src/sample_capture.cpp">C++</a>, <a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/scripts/sample_capture.py">Python</a></p>
 
@@ -1663,8 +1803,8 @@ rosrun zivid_samples sample_capture.py
 <h3 id="sample-capture-2d">Sample Capture 2D</h3>
 
 <p>This sample performs 2D captures repeatedly. This sample shows how to <a href="https://github.com/zivid/zivid-ros/tree/master/#configuration">configure</a>
-the 2D capture settings, how to subscribe to the <code>color/image_color</code> topic, and how to invoke
-the <code>capture_2d</code> service.</p>
+the 2D capture settings, how to subscribe to the <a href="https://github.com/zivid/zivid-ros/tree/master/#colorimage_color">color/image_color</a> topic, and
+how to invoke the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture_2d">capture_2d</a> service.</p>
 
 <p>Source code: <a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/src/sample_capture_2d.cpp">C++</a>, <a href="https://github.com/zivid/zivid-ros/tree/master/./zivid_samples/scripts/sample_capture_2d.py">Python</a></p>
 
@@ -1705,7 +1845,7 @@ unique namespaces per node:</p>
 
 </code></pre></div>
 <p>By default the zivid_camera node will connect to the first available/unused camera. We recommend that
-you first start the first node, wait for it to be ready (for example, by waiting for the <code>capture</code>
+you first start the first node, wait for it to be ready (for example, by waiting for the <a href="https://github.com/zivid/zivid-ros/tree/master/#capture">capture</a>
 service to be available), then start the second node. This avoids any race conditions where both nodes
 may try to connect to the same camera at the same time.</p>
 
@@ -1838,7 +1978,7 @@ grant agreement No 732287. For more information, visit <a href="http://rosin-pro
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2019-12-10</em>
+          <em>generated on 2019-12-13</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
