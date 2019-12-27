@@ -503,7 +503,7 @@ roseus_tutorials
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-26
         </span>
       </td>
     </tr>
@@ -588,7 +588,7 @@ roseus_tutorials
                     <div class="rendered-markdown">
 <h1 id="roseus_smach">roseus_smach</h1>
 
-<p>This package includes euslisp imprementation of state machine and <a href="http://wiki.ros.org/smach">smach</a>.</p>
+<p>This package includes euslisp implementation of state machine and <a href="http://wiki.ros.org/smach">smach</a>.</p>
 
 <h2 id="requirements">requirements</h2>
 
@@ -663,6 +663,153 @@ roseus_tutorials
   (demo)
 
 </code></pre></div>
+<h2 id="writing-simple-smach-state-machine">Writing Simple Smach(state-machine)</h2>
+
+<p>Example codes are <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/master/roseus_smach/sample/state-machine-sample.l">here</a>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+
+(setq count 0)
+(defun func-foo (userdata-alist)
+  (format t "Execute state FOO~%")
+  (cond ((&lt; count 3) (incf count) :outcome1)
+    (t :outcome2)))
+(defun func-bar (userdata-alist)
+  (format t "Execute state BAR~%")
+  :outcome2)
+
+(defun smach-simple ()
+  (let ((sm (instance state-machine :init)))
+    (send sm :add-node (instance state :init :FOO 'func-foo))
+    (send sm :add-node (instance state :init :BAR 'func-bar))
+    ;; goal-states are generated in this method
+    (send sm :goal-state (list :outcome4 :outcome5))
+
+    ;; select a node as start-node
+    (send sm :start-state :FOO)
+    ;; from and to nodes are selected by name or symbol
+    (send sm :add-transition :FOO :BAR :outcome1)
+    (send sm :add-transition :FOO :outcome4 :outcome2)
+    (send sm :add-transition :BAR :FOO :outcome2)
+    sm ))
+
+(send (smach-simple) :execute nil)
+
+</code></pre></div>
+<h3 id="the-code-explained">The Code Explained</h3>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(load "package://roseus_smach/src/state-machine.l")
+
+</code></pre></div>
+<p>This line imports state-machine class, state class, and transition class.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(defun func-foo (userdata-alist)
+  (format t "Execute state FOO~%")
+  (cond ((&lt; count 3) (incf count) :outcome1)
+    (t :outcome2)))
+(defun func-bar (userdata-alist)
+  (format t "Execute state BAR~%")
+  :outcome2)
+
+</code></pre></div>
+<p>These lines define some functions that will be hooked to state. Note that the functions are called with one argument, an alist of the declared user-data arguments, and that their return value is equal to the transition (or the action) of the state.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(sm (instance state-machine :init))
+
+</code></pre></div>
+<p>This line creates the state-machine instance and binds it to <code>sm</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :add-node (instance state :init :FOO 'func-foo))
+
+</code></pre></div>
+<p>This line creates a new state and add the node to the state machine. When you create new state instance, you can name the state and hook the state to a function. Any lisp object can be used for state names. In this case, a new state has name <code>:FOO</code> and hooked with <code>func-foo</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :goal-state (list :outcome4 :outcome5))
+(send sm :start-state :FOO)
+
+</code></pre></div>
+<p>These lines define goal state(s) and start state(s) to the state machine. You can create multiple start states as a list of state, also you can define multiple goal state. Goal state(s) do nothing and returns its name.   Note that <strong>a state machine is also a state</strong>. So the goal state can be considered as the outcome of the state machine.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :add-transition :FOO :BAR :outcome1)
+
+</code></pre></div>
+<p>This line defines transition. The arguments of <code>:add-transition method</code> is <code>TO</code>, <code>FROM</code>, <code>OUTCOME</code>. So this line means that "adding transition from FOO to BAR, when FOO node returns outcome1".</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send (smach-simple) :execute nil)
+
+</code></pre></div>
+<p>This line sets up and execute the state machine.
+In order to view and check the progress with <a href="http://wiki.ros.org/smach_viewer">smach_viewer</a>, use the function <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/master/roseus_smach/src/state-machine-utils.l#L3">exec-state-machine</a> instead.</p>
+
+<h2 id="writing-nested-smach">Writing Nested Smach</h2>
+
+<p>Example codes are <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/01320ceaf72857404746171cbaa0f1724e4ad4b8/roseus_smach/sample/state-machine-sample.l#L42">here</a>.
+You can also add child state-machine as a node to state-machine.
+<img src="https://gist.github.com/ykawamura96/987e67b3775d68cac78031b994c3a0ba/raw/865d64ec00d2dfa6f6f1b03735918ac6f65767bc/nested_samch.png" alt=""></p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+(defun smach-nested ()
+  (let ((sm-top (instance state-machine :init))
+        (sm-sub (instance state-machine :init)))
+    ;; state instance can include other state-machine like function
+    (send sm-top :add-node (instance state :init "SUB" sm-sub))
+    (send sm-top :add-node (instance state :init "BAS" 'func-bas))
+    (send sm-top :goal-state :outcome5)
+    (send sm-top :start-state "BAS")
+    (send sm-top :add-transition "BAS" "SUB" :outcome3)
+    (send sm-top :add-transition "SUB" :outcome5 :outcome4)
+    ;; node instance can be args of :add-node, :start-state, :add-transition
+    (let ((foo-node (instance state :init "FOO" 'func-foo))
+          (bar-node (instance state :init "BAR" 'func-bar)))
+      (send sm-sub :add-node foo-node)
+      (send sm-sub :add-node bar-node)
+      (send sm-sub :goal-state :outcome4)
+      (send sm-sub :start-state foo-node)
+      (send sm-sub :add-transition foo-node bar-node :outcome1)
+      (send sm-sub :add-transition foo-node :outcome4 :outcome2)
+      (send sm-sub :add-transition bar-node foo-node :outcome2))
+
+    sm-top ))
+
+(send (smach-nested) :execute nil)
+
+</code></pre></div>
+<h3 id="the-code-explained">The Code Explained</h3>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+
+</code></pre></div>
+<p>Same as in the previous example, this line imports state-machine class, state class, and transition class.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">  (let ((sm-top (instance state-machine :init))
+        (sm-sub (instance state-machine :init)))
+
+</code></pre></div>
+<p>This line creates two of state-machine instance. The <code>sm-sub</code> is a state machine but also <strong>acting like a state (or a node)</strong> in <code>sm-top</code>. <strong>This is easy to understand if you think that a state machine as a function</strong>: when the state machine is called, or executed, state machine does some processing and eventually returns the goal state as its return value just like a function.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-node (instance state :init "SUB" sm-sub))
+
+</code></pre></div>
+<p>The <code>sm-sub</code> instance is hooked as a node in <code>sm-top</code> with name of <code>"SUB"</code> in this line. This line also indicates that you can add a state machine as a state just like a function.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-node (instance state :init "BAS" 'func-bas))
+    (send sm-top :goal-state :outcome5)
+    (send sm-top :start-state "BAS")
+    (send sm-top :add-transition "BAS" "SUB" :outcome3)
+
+</code></pre></div>
+<p>These lines define another node, goal-state, start-state, and transition in the <code>sm-top</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-transition "SUB" :outcome5 :outcome4)
+
+</code></pre></div>
+<p>Remember that <strong>the goal state(s) of state-machine does nothing and returns its name</strong>. So the outcome (or the return value) of the <code>sm-sub</code> is its name of goal state(s).
+If you look further, the goal state of <code>sm-sub</code> is <code>:outcome4</code>, so the return value of <code>sm-sub</code> is <code>:outcome4</code>. Therefore this line adds transition of <code>from "SUB" to :outcome5 when "SUB" node returns :outcome4</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">  (let ((foo-node (instance state :init "FOO" 'func-foo))
+        (bar-node (instance state :init "BAR" 'func-bar)))
+      (send sm-sub :add-node foo-node)
+      (send sm-sub :add-node bar-node)
+      (send sm-sub :goal-state :outcome4)
+      (send sm-sub :start-state foo-node)
+      (send sm-sub :add-transition foo-node bar-node :outcome1)
+      (send sm-sub :add-transition foo-node :outcome4 :outcome2)
+      (send sm-sub :add-transition bar-node foo-node :outcome2))
+
+</code></pre></div>
+<p>These lines define the behavior of <code>sm-sub</code> in detail just like the previous simple state machine example. Note that <code>(send sm-sub :goal-state :outcome4)</code> not only defines the goal state, but also defines the return value of its state machine.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send (smach-nested) :execute nil)
+
+</code></pre></div>
+<p>Finally, the <code>sm-top</code> is executed here.</p>
 </div>
               </div>
             </div>
@@ -1794,7 +1941,7 @@ roseus_tutorials
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-26
         </span>
       </td>
     </tr>
@@ -1879,7 +2026,7 @@ roseus_tutorials
                     <div class="rendered-markdown">
 <h1 id="roseus_smach">roseus_smach</h1>
 
-<p>This package includes euslisp imprementation of state machine and <a href="http://wiki.ros.org/smach">smach</a>.</p>
+<p>This package includes euslisp implementation of state machine and <a href="http://wiki.ros.org/smach">smach</a>.</p>
 
 <h2 id="requirements">requirements</h2>
 
@@ -1954,6 +2101,153 @@ roseus_tutorials
   (demo)
 
 </code></pre></div>
+<h2 id="writing-simple-smach-state-machine">Writing Simple Smach(state-machine)</h2>
+
+<p>Example codes are <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/master/roseus_smach/sample/state-machine-sample.l">here</a>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+
+(setq count 0)
+(defun func-foo (userdata-alist)
+  (format t "Execute state FOO~%")
+  (cond ((&lt; count 3) (incf count) :outcome1)
+    (t :outcome2)))
+(defun func-bar (userdata-alist)
+  (format t "Execute state BAR~%")
+  :outcome2)
+
+(defun smach-simple ()
+  (let ((sm (instance state-machine :init)))
+    (send sm :add-node (instance state :init :FOO 'func-foo))
+    (send sm :add-node (instance state :init :BAR 'func-bar))
+    ;; goal-states are generated in this method
+    (send sm :goal-state (list :outcome4 :outcome5))
+
+    ;; select a node as start-node
+    (send sm :start-state :FOO)
+    ;; from and to nodes are selected by name or symbol
+    (send sm :add-transition :FOO :BAR :outcome1)
+    (send sm :add-transition :FOO :outcome4 :outcome2)
+    (send sm :add-transition :BAR :FOO :outcome2)
+    sm ))
+
+(send (smach-simple) :execute nil)
+
+</code></pre></div>
+<h3 id="the-code-explained">The Code Explained</h3>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(load "package://roseus_smach/src/state-machine.l")
+
+</code></pre></div>
+<p>This line imports state-machine class, state class, and transition class.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(defun func-foo (userdata-alist)
+  (format t "Execute state FOO~%")
+  (cond ((&lt; count 3) (incf count) :outcome1)
+    (t :outcome2)))
+(defun func-bar (userdata-alist)
+  (format t "Execute state BAR~%")
+  :outcome2)
+
+</code></pre></div>
+<p>These lines define some functions that will be hooked to state. Note that the functions are called with one argument, an alist of the declared user-data arguments, and that their return value is equal to the transition (or the action) of the state.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(sm (instance state-machine :init))
+
+</code></pre></div>
+<p>This line creates the state-machine instance and binds it to <code>sm</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :add-node (instance state :init :FOO 'func-foo))
+
+</code></pre></div>
+<p>This line creates a new state and add the node to the state machine. When you create new state instance, you can name the state and hook the state to a function. Any lisp object can be used for state names. In this case, a new state has name <code>:FOO</code> and hooked with <code>func-foo</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :goal-state (list :outcome4 :outcome5))
+(send sm :start-state :FOO)
+
+</code></pre></div>
+<p>These lines define goal state(s) and start state(s) to the state machine. You can create multiple start states as a list of state, also you can define multiple goal state. Goal state(s) do nothing and returns its name.   Note that <strong>a state machine is also a state</strong>. So the goal state can be considered as the outcome of the state machine.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :add-transition :FOO :BAR :outcome1)
+
+</code></pre></div>
+<p>This line defines transition. The arguments of <code>:add-transition method</code> is <code>TO</code>, <code>FROM</code>, <code>OUTCOME</code>. So this line means that "adding transition from FOO to BAR, when FOO node returns outcome1".</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send (smach-simple) :execute nil)
+
+</code></pre></div>
+<p>This line sets up and execute the state machine.
+In order to view and check the progress with <a href="http://wiki.ros.org/smach_viewer">smach_viewer</a>, use the function <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/master/roseus_smach/src/state-machine-utils.l#L3">exec-state-machine</a> instead.</p>
+
+<h2 id="writing-nested-smach">Writing Nested Smach</h2>
+
+<p>Example codes are <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/01320ceaf72857404746171cbaa0f1724e4ad4b8/roseus_smach/sample/state-machine-sample.l#L42">here</a>.
+You can also add child state-machine as a node to state-machine.
+<img src="https://gist.github.com/ykawamura96/987e67b3775d68cac78031b994c3a0ba/raw/865d64ec00d2dfa6f6f1b03735918ac6f65767bc/nested_samch.png" alt=""></p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+(defun smach-nested ()
+  (let ((sm-top (instance state-machine :init))
+        (sm-sub (instance state-machine :init)))
+    ;; state instance can include other state-machine like function
+    (send sm-top :add-node (instance state :init "SUB" sm-sub))
+    (send sm-top :add-node (instance state :init "BAS" 'func-bas))
+    (send sm-top :goal-state :outcome5)
+    (send sm-top :start-state "BAS")
+    (send sm-top :add-transition "BAS" "SUB" :outcome3)
+    (send sm-top :add-transition "SUB" :outcome5 :outcome4)
+    ;; node instance can be args of :add-node, :start-state, :add-transition
+    (let ((foo-node (instance state :init "FOO" 'func-foo))
+          (bar-node (instance state :init "BAR" 'func-bar)))
+      (send sm-sub :add-node foo-node)
+      (send sm-sub :add-node bar-node)
+      (send sm-sub :goal-state :outcome4)
+      (send sm-sub :start-state foo-node)
+      (send sm-sub :add-transition foo-node bar-node :outcome1)
+      (send sm-sub :add-transition foo-node :outcome4 :outcome2)
+      (send sm-sub :add-transition bar-node foo-node :outcome2))
+
+    sm-top ))
+
+(send (smach-nested) :execute nil)
+
+</code></pre></div>
+<h3 id="the-code-explained">The Code Explained</h3>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+
+</code></pre></div>
+<p>Same as in the previous example, this line imports state-machine class, state class, and transition class.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">  (let ((sm-top (instance state-machine :init))
+        (sm-sub (instance state-machine :init)))
+
+</code></pre></div>
+<p>This line creates two of state-machine instance. The <code>sm-sub</code> is a state machine but also <strong>acting like a state (or a node)</strong> in <code>sm-top</code>. <strong>This is easy to understand if you think that a state machine as a function</strong>: when the state machine is called, or executed, state machine does some processing and eventually returns the goal state as its return value just like a function.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-node (instance state :init "SUB" sm-sub))
+
+</code></pre></div>
+<p>The <code>sm-sub</code> instance is hooked as a node in <code>sm-top</code> with name of <code>"SUB"</code> in this line. This line also indicates that you can add a state machine as a state just like a function.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-node (instance state :init "BAS" 'func-bas))
+    (send sm-top :goal-state :outcome5)
+    (send sm-top :start-state "BAS")
+    (send sm-top :add-transition "BAS" "SUB" :outcome3)
+
+</code></pre></div>
+<p>These lines define another node, goal-state, start-state, and transition in the <code>sm-top</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-transition "SUB" :outcome5 :outcome4)
+
+</code></pre></div>
+<p>Remember that <strong>the goal state(s) of state-machine does nothing and returns its name</strong>. So the outcome (or the return value) of the <code>sm-sub</code> is its name of goal state(s).
+If you look further, the goal state of <code>sm-sub</code> is <code>:outcome4</code>, so the return value of <code>sm-sub</code> is <code>:outcome4</code>. Therefore this line adds transition of <code>from "SUB" to :outcome5 when "SUB" node returns :outcome4</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">  (let ((foo-node (instance state :init "FOO" 'func-foo))
+        (bar-node (instance state :init "BAR" 'func-bar)))
+      (send sm-sub :add-node foo-node)
+      (send sm-sub :add-node bar-node)
+      (send sm-sub :goal-state :outcome4)
+      (send sm-sub :start-state foo-node)
+      (send sm-sub :add-transition foo-node bar-node :outcome1)
+      (send sm-sub :add-transition foo-node :outcome4 :outcome2)
+      (send sm-sub :add-transition bar-node foo-node :outcome2))
+
+</code></pre></div>
+<p>These lines define the behavior of <code>sm-sub</code> in detail just like the previous simple state machine example. Note that <code>(send sm-sub :goal-state :outcome4)</code> not only defines the goal state, but also defines the return value of its state machine.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send (smach-nested) :execute nil)
+
+</code></pre></div>
+<p>Finally, the <code>sm-top</code> is executed here.</p>
 </div>
               </div>
             </div>
@@ -3116,7 +3410,7 @@ roseus_tutorials
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-26
         </span>
       </td>
     </tr>
@@ -3201,7 +3495,7 @@ roseus_tutorials
                     <div class="rendered-markdown">
 <h1 id="roseus_smach">roseus_smach</h1>
 
-<p>This package includes euslisp imprementation of state machine and <a href="http://wiki.ros.org/smach">smach</a>.</p>
+<p>This package includes euslisp implementation of state machine and <a href="http://wiki.ros.org/smach">smach</a>.</p>
 
 <h2 id="requirements">requirements</h2>
 
@@ -3276,6 +3570,153 @@ roseus_tutorials
   (demo)
 
 </code></pre></div>
+<h2 id="writing-simple-smach-state-machine">Writing Simple Smach(state-machine)</h2>
+
+<p>Example codes are <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/master/roseus_smach/sample/state-machine-sample.l">here</a>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+
+(setq count 0)
+(defun func-foo (userdata-alist)
+  (format t "Execute state FOO~%")
+  (cond ((&lt; count 3) (incf count) :outcome1)
+    (t :outcome2)))
+(defun func-bar (userdata-alist)
+  (format t "Execute state BAR~%")
+  :outcome2)
+
+(defun smach-simple ()
+  (let ((sm (instance state-machine :init)))
+    (send sm :add-node (instance state :init :FOO 'func-foo))
+    (send sm :add-node (instance state :init :BAR 'func-bar))
+    ;; goal-states are generated in this method
+    (send sm :goal-state (list :outcome4 :outcome5))
+
+    ;; select a node as start-node
+    (send sm :start-state :FOO)
+    ;; from and to nodes are selected by name or symbol
+    (send sm :add-transition :FOO :BAR :outcome1)
+    (send sm :add-transition :FOO :outcome4 :outcome2)
+    (send sm :add-transition :BAR :FOO :outcome2)
+    sm ))
+
+(send (smach-simple) :execute nil)
+
+</code></pre></div>
+<h3 id="the-code-explained">The Code Explained</h3>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(load "package://roseus_smach/src/state-machine.l")
+
+</code></pre></div>
+<p>This line imports state-machine class, state class, and transition class.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(defun func-foo (userdata-alist)
+  (format t "Execute state FOO~%")
+  (cond ((&lt; count 3) (incf count) :outcome1)
+    (t :outcome2)))
+(defun func-bar (userdata-alist)
+  (format t "Execute state BAR~%")
+  :outcome2)
+
+</code></pre></div>
+<p>These lines define some functions that will be hooked to state. Note that the functions are called with one argument, an alist of the declared user-data arguments, and that their return value is equal to the transition (or the action) of the state.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(sm (instance state-machine :init))
+
+</code></pre></div>
+<p>This line creates the state-machine instance and binds it to <code>sm</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :add-node (instance state :init :FOO 'func-foo))
+
+</code></pre></div>
+<p>This line creates a new state and add the node to the state machine. When you create new state instance, you can name the state and hook the state to a function. Any lisp object can be used for state names. In this case, a new state has name <code>:FOO</code> and hooked with <code>func-foo</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :goal-state (list :outcome4 :outcome5))
+(send sm :start-state :FOO)
+
+</code></pre></div>
+<p>These lines define goal state(s) and start state(s) to the state machine. You can create multiple start states as a list of state, also you can define multiple goal state. Goal state(s) do nothing and returns its name.   Note that <strong>a state machine is also a state</strong>. So the goal state can be considered as the outcome of the state machine.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :add-transition :FOO :BAR :outcome1)
+
+</code></pre></div>
+<p>This line defines transition. The arguments of <code>:add-transition method</code> is <code>TO</code>, <code>FROM</code>, <code>OUTCOME</code>. So this line means that "adding transition from FOO to BAR, when FOO node returns outcome1".</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send (smach-simple) :execute nil)
+
+</code></pre></div>
+<p>This line sets up and execute the state machine.
+In order to view and check the progress with <a href="http://wiki.ros.org/smach_viewer">smach_viewer</a>, use the function <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/master/roseus_smach/src/state-machine-utils.l#L3">exec-state-machine</a> instead.</p>
+
+<h2 id="writing-nested-smach">Writing Nested Smach</h2>
+
+<p>Example codes are <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/01320ceaf72857404746171cbaa0f1724e4ad4b8/roseus_smach/sample/state-machine-sample.l#L42">here</a>.
+You can also add child state-machine as a node to state-machine.
+<img src="https://gist.github.com/ykawamura96/987e67b3775d68cac78031b994c3a0ba/raw/865d64ec00d2dfa6f6f1b03735918ac6f65767bc/nested_samch.png" alt=""></p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+(defun smach-nested ()
+  (let ((sm-top (instance state-machine :init))
+        (sm-sub (instance state-machine :init)))
+    ;; state instance can include other state-machine like function
+    (send sm-top :add-node (instance state :init "SUB" sm-sub))
+    (send sm-top :add-node (instance state :init "BAS" 'func-bas))
+    (send sm-top :goal-state :outcome5)
+    (send sm-top :start-state "BAS")
+    (send sm-top :add-transition "BAS" "SUB" :outcome3)
+    (send sm-top :add-transition "SUB" :outcome5 :outcome4)
+    ;; node instance can be args of :add-node, :start-state, :add-transition
+    (let ((foo-node (instance state :init "FOO" 'func-foo))
+          (bar-node (instance state :init "BAR" 'func-bar)))
+      (send sm-sub :add-node foo-node)
+      (send sm-sub :add-node bar-node)
+      (send sm-sub :goal-state :outcome4)
+      (send sm-sub :start-state foo-node)
+      (send sm-sub :add-transition foo-node bar-node :outcome1)
+      (send sm-sub :add-transition foo-node :outcome4 :outcome2)
+      (send sm-sub :add-transition bar-node foo-node :outcome2))
+
+    sm-top ))
+
+(send (smach-nested) :execute nil)
+
+</code></pre></div>
+<h3 id="the-code-explained">The Code Explained</h3>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+
+</code></pre></div>
+<p>Same as in the previous example, this line imports state-machine class, state class, and transition class.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">  (let ((sm-top (instance state-machine :init))
+        (sm-sub (instance state-machine :init)))
+
+</code></pre></div>
+<p>This line creates two of state-machine instance. The <code>sm-sub</code> is a state machine but also <strong>acting like a state (or a node)</strong> in <code>sm-top</code>. <strong>This is easy to understand if you think that a state machine as a function</strong>: when the state machine is called, or executed, state machine does some processing and eventually returns the goal state as its return value just like a function.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-node (instance state :init "SUB" sm-sub))
+
+</code></pre></div>
+<p>The <code>sm-sub</code> instance is hooked as a node in <code>sm-top</code> with name of <code>"SUB"</code> in this line. This line also indicates that you can add a state machine as a state just like a function.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-node (instance state :init "BAS" 'func-bas))
+    (send sm-top :goal-state :outcome5)
+    (send sm-top :start-state "BAS")
+    (send sm-top :add-transition "BAS" "SUB" :outcome3)
+
+</code></pre></div>
+<p>These lines define another node, goal-state, start-state, and transition in the <code>sm-top</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-transition "SUB" :outcome5 :outcome4)
+
+</code></pre></div>
+<p>Remember that <strong>the goal state(s) of state-machine does nothing and returns its name</strong>. So the outcome (or the return value) of the <code>sm-sub</code> is its name of goal state(s).
+If you look further, the goal state of <code>sm-sub</code> is <code>:outcome4</code>, so the return value of <code>sm-sub</code> is <code>:outcome4</code>. Therefore this line adds transition of <code>from "SUB" to :outcome5 when "SUB" node returns :outcome4</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">  (let ((foo-node (instance state :init "FOO" 'func-foo))
+        (bar-node (instance state :init "BAR" 'func-bar)))
+      (send sm-sub :add-node foo-node)
+      (send sm-sub :add-node bar-node)
+      (send sm-sub :goal-state :outcome4)
+      (send sm-sub :start-state foo-node)
+      (send sm-sub :add-transition foo-node bar-node :outcome1)
+      (send sm-sub :add-transition foo-node :outcome4 :outcome2)
+      (send sm-sub :add-transition bar-node foo-node :outcome2))
+
+</code></pre></div>
+<p>These lines define the behavior of <code>sm-sub</code> in detail just like the previous simple state machine example. Note that <code>(send sm-sub :goal-state :outcome4)</code> not only defines the goal state, but also defines the return value of its state machine.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send (smach-nested) :execute nil)
+
+</code></pre></div>
+<p>Finally, the <code>sm-top</code> is executed here.</p>
 </div>
               </div>
             </div>
@@ -4407,7 +4848,7 @@ roseus_tutorials
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-26
         </span>
       </td>
     </tr>
@@ -4492,7 +4933,7 @@ roseus_tutorials
                     <div class="rendered-markdown">
 <h1 id="roseus_smach">roseus_smach</h1>
 
-<p>This package includes euslisp imprementation of state machine and <a href="http://wiki.ros.org/smach">smach</a>.</p>
+<p>This package includes euslisp implementation of state machine and <a href="http://wiki.ros.org/smach">smach</a>.</p>
 
 <h2 id="requirements">requirements</h2>
 
@@ -4567,6 +5008,153 @@ roseus_tutorials
   (demo)
 
 </code></pre></div>
+<h2 id="writing-simple-smach-state-machine">Writing Simple Smach(state-machine)</h2>
+
+<p>Example codes are <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/master/roseus_smach/sample/state-machine-sample.l">here</a>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+
+(setq count 0)
+(defun func-foo (userdata-alist)
+  (format t "Execute state FOO~%")
+  (cond ((&lt; count 3) (incf count) :outcome1)
+    (t :outcome2)))
+(defun func-bar (userdata-alist)
+  (format t "Execute state BAR~%")
+  :outcome2)
+
+(defun smach-simple ()
+  (let ((sm (instance state-machine :init)))
+    (send sm :add-node (instance state :init :FOO 'func-foo))
+    (send sm :add-node (instance state :init :BAR 'func-bar))
+    ;; goal-states are generated in this method
+    (send sm :goal-state (list :outcome4 :outcome5))
+
+    ;; select a node as start-node
+    (send sm :start-state :FOO)
+    ;; from and to nodes are selected by name or symbol
+    (send sm :add-transition :FOO :BAR :outcome1)
+    (send sm :add-transition :FOO :outcome4 :outcome2)
+    (send sm :add-transition :BAR :FOO :outcome2)
+    sm ))
+
+(send (smach-simple) :execute nil)
+
+</code></pre></div>
+<h3 id="the-code-explained">The Code Explained</h3>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(load "package://roseus_smach/src/state-machine.l")
+
+</code></pre></div>
+<p>This line imports state-machine class, state class, and transition class.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(defun func-foo (userdata-alist)
+  (format t "Execute state FOO~%")
+  (cond ((&lt; count 3) (incf count) :outcome1)
+    (t :outcome2)))
+(defun func-bar (userdata-alist)
+  (format t "Execute state BAR~%")
+  :outcome2)
+
+</code></pre></div>
+<p>These lines define some functions that will be hooked to state. Note that the functions are called with one argument, an alist of the declared user-data arguments, and that their return value is equal to the transition (or the action) of the state.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(sm (instance state-machine :init))
+
+</code></pre></div>
+<p>This line creates the state-machine instance and binds it to <code>sm</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :add-node (instance state :init :FOO 'func-foo))
+
+</code></pre></div>
+<p>This line creates a new state and add the node to the state machine. When you create new state instance, you can name the state and hook the state to a function. Any lisp object can be used for state names. In this case, a new state has name <code>:FOO</code> and hooked with <code>func-foo</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :goal-state (list :outcome4 :outcome5))
+(send sm :start-state :FOO)
+
+</code></pre></div>
+<p>These lines define goal state(s) and start state(s) to the state machine. You can create multiple start states as a list of state, also you can define multiple goal state. Goal state(s) do nothing and returns its name.   Note that <strong>a state machine is also a state</strong>. So the goal state can be considered as the outcome of the state machine.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :add-transition :FOO :BAR :outcome1)
+
+</code></pre></div>
+<p>This line defines transition. The arguments of <code>:add-transition method</code> is <code>TO</code>, <code>FROM</code>, <code>OUTCOME</code>. So this line means that "adding transition from FOO to BAR, when FOO node returns outcome1".</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send (smach-simple) :execute nil)
+
+</code></pre></div>
+<p>This line sets up and execute the state machine.
+In order to view and check the progress with <a href="http://wiki.ros.org/smach_viewer">smach_viewer</a>, use the function <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/master/roseus_smach/src/state-machine-utils.l#L3">exec-state-machine</a> instead.</p>
+
+<h2 id="writing-nested-smach">Writing Nested Smach</h2>
+
+<p>Example codes are <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/01320ceaf72857404746171cbaa0f1724e4ad4b8/roseus_smach/sample/state-machine-sample.l#L42">here</a>.
+You can also add child state-machine as a node to state-machine.
+<img src="https://gist.github.com/ykawamura96/987e67b3775d68cac78031b994c3a0ba/raw/865d64ec00d2dfa6f6f1b03735918ac6f65767bc/nested_samch.png" alt=""></p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+(defun smach-nested ()
+  (let ((sm-top (instance state-machine :init))
+        (sm-sub (instance state-machine :init)))
+    ;; state instance can include other state-machine like function
+    (send sm-top :add-node (instance state :init "SUB" sm-sub))
+    (send sm-top :add-node (instance state :init "BAS" 'func-bas))
+    (send sm-top :goal-state :outcome5)
+    (send sm-top :start-state "BAS")
+    (send sm-top :add-transition "BAS" "SUB" :outcome3)
+    (send sm-top :add-transition "SUB" :outcome5 :outcome4)
+    ;; node instance can be args of :add-node, :start-state, :add-transition
+    (let ((foo-node (instance state :init "FOO" 'func-foo))
+          (bar-node (instance state :init "BAR" 'func-bar)))
+      (send sm-sub :add-node foo-node)
+      (send sm-sub :add-node bar-node)
+      (send sm-sub :goal-state :outcome4)
+      (send sm-sub :start-state foo-node)
+      (send sm-sub :add-transition foo-node bar-node :outcome1)
+      (send sm-sub :add-transition foo-node :outcome4 :outcome2)
+      (send sm-sub :add-transition bar-node foo-node :outcome2))
+
+    sm-top ))
+
+(send (smach-nested) :execute nil)
+
+</code></pre></div>
+<h3 id="the-code-explained">The Code Explained</h3>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+
+</code></pre></div>
+<p>Same as in the previous example, this line imports state-machine class, state class, and transition class.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">  (let ((sm-top (instance state-machine :init))
+        (sm-sub (instance state-machine :init)))
+
+</code></pre></div>
+<p>This line creates two of state-machine instance. The <code>sm-sub</code> is a state machine but also <strong>acting like a state (or a node)</strong> in <code>sm-top</code>. <strong>This is easy to understand if you think that a state machine as a function</strong>: when the state machine is called, or executed, state machine does some processing and eventually returns the goal state as its return value just like a function.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-node (instance state :init "SUB" sm-sub))
+
+</code></pre></div>
+<p>The <code>sm-sub</code> instance is hooked as a node in <code>sm-top</code> with name of <code>"SUB"</code> in this line. This line also indicates that you can add a state machine as a state just like a function.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-node (instance state :init "BAS" 'func-bas))
+    (send sm-top :goal-state :outcome5)
+    (send sm-top :start-state "BAS")
+    (send sm-top :add-transition "BAS" "SUB" :outcome3)
+
+</code></pre></div>
+<p>These lines define another node, goal-state, start-state, and transition in the <code>sm-top</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-transition "SUB" :outcome5 :outcome4)
+
+</code></pre></div>
+<p>Remember that <strong>the goal state(s) of state-machine does nothing and returns its name</strong>. So the outcome (or the return value) of the <code>sm-sub</code> is its name of goal state(s).
+If you look further, the goal state of <code>sm-sub</code> is <code>:outcome4</code>, so the return value of <code>sm-sub</code> is <code>:outcome4</code>. Therefore this line adds transition of <code>from "SUB" to :outcome5 when "SUB" node returns :outcome4</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">  (let ((foo-node (instance state :init "FOO" 'func-foo))
+        (bar-node (instance state :init "BAR" 'func-bar)))
+      (send sm-sub :add-node foo-node)
+      (send sm-sub :add-node bar-node)
+      (send sm-sub :goal-state :outcome4)
+      (send sm-sub :start-state foo-node)
+      (send sm-sub :add-transition foo-node bar-node :outcome1)
+      (send sm-sub :add-transition foo-node :outcome4 :outcome2)
+      (send sm-sub :add-transition bar-node foo-node :outcome2))
+
+</code></pre></div>
+<p>These lines define the behavior of <code>sm-sub</code> in detail just like the previous simple state machine example. Note that <code>(send sm-sub :goal-state :outcome4)</code> not only defines the goal state, but also defines the return value of its state machine.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send (smach-nested) :execute nil)
+
+</code></pre></div>
+<p>Finally, the <code>sm-top</code> is executed here.</p>
 </div>
               </div>
             </div>
@@ -5721,7 +6309,7 @@ roseus_tutorials
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-26
         </span>
       </td>
     </tr>
@@ -5806,7 +6394,7 @@ roseus_tutorials
                     <div class="rendered-markdown">
 <h1 id="roseus_smach">roseus_smach</h1>
 
-<p>This package includes euslisp imprementation of state machine and <a href="http://wiki.ros.org/smach">smach</a>.</p>
+<p>This package includes euslisp implementation of state machine and <a href="http://wiki.ros.org/smach">smach</a>.</p>
 
 <h2 id="requirements">requirements</h2>
 
@@ -5881,6 +6469,153 @@ roseus_tutorials
   (demo)
 
 </code></pre></div>
+<h2 id="writing-simple-smach-state-machine">Writing Simple Smach(state-machine)</h2>
+
+<p>Example codes are <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/master/roseus_smach/sample/state-machine-sample.l">here</a>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+
+(setq count 0)
+(defun func-foo (userdata-alist)
+  (format t "Execute state FOO~%")
+  (cond ((&lt; count 3) (incf count) :outcome1)
+    (t :outcome2)))
+(defun func-bar (userdata-alist)
+  (format t "Execute state BAR~%")
+  :outcome2)
+
+(defun smach-simple ()
+  (let ((sm (instance state-machine :init)))
+    (send sm :add-node (instance state :init :FOO 'func-foo))
+    (send sm :add-node (instance state :init :BAR 'func-bar))
+    ;; goal-states are generated in this method
+    (send sm :goal-state (list :outcome4 :outcome5))
+
+    ;; select a node as start-node
+    (send sm :start-state :FOO)
+    ;; from and to nodes are selected by name or symbol
+    (send sm :add-transition :FOO :BAR :outcome1)
+    (send sm :add-transition :FOO :outcome4 :outcome2)
+    (send sm :add-transition :BAR :FOO :outcome2)
+    sm ))
+
+(send (smach-simple) :execute nil)
+
+</code></pre></div>
+<h3 id="the-code-explained">The Code Explained</h3>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(load "package://roseus_smach/src/state-machine.l")
+
+</code></pre></div>
+<p>This line imports state-machine class, state class, and transition class.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(defun func-foo (userdata-alist)
+  (format t "Execute state FOO~%")
+  (cond ((&lt; count 3) (incf count) :outcome1)
+    (t :outcome2)))
+(defun func-bar (userdata-alist)
+  (format t "Execute state BAR~%")
+  :outcome2)
+
+</code></pre></div>
+<p>These lines define some functions that will be hooked to state. Note that the functions are called with one argument, an alist of the declared user-data arguments, and that their return value is equal to the transition (or the action) of the state.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(sm (instance state-machine :init))
+
+</code></pre></div>
+<p>This line creates the state-machine instance and binds it to <code>sm</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :add-node (instance state :init :FOO 'func-foo))
+
+</code></pre></div>
+<p>This line creates a new state and add the node to the state machine. When you create new state instance, you can name the state and hook the state to a function. Any lisp object can be used for state names. In this case, a new state has name <code>:FOO</code> and hooked with <code>func-foo</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :goal-state (list :outcome4 :outcome5))
+(send sm :start-state :FOO)
+
+</code></pre></div>
+<p>These lines define goal state(s) and start state(s) to the state machine. You can create multiple start states as a list of state, also you can define multiple goal state. Goal state(s) do nothing and returns its name.   Note that <strong>a state machine is also a state</strong>. So the goal state can be considered as the outcome of the state machine.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :add-transition :FOO :BAR :outcome1)
+
+</code></pre></div>
+<p>This line defines transition. The arguments of <code>:add-transition method</code> is <code>TO</code>, <code>FROM</code>, <code>OUTCOME</code>. So this line means that "adding transition from FOO to BAR, when FOO node returns outcome1".</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send (smach-simple) :execute nil)
+
+</code></pre></div>
+<p>This line sets up and execute the state machine.
+In order to view and check the progress with <a href="http://wiki.ros.org/smach_viewer">smach_viewer</a>, use the function <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/master/roseus_smach/src/state-machine-utils.l#L3">exec-state-machine</a> instead.</p>
+
+<h2 id="writing-nested-smach">Writing Nested Smach</h2>
+
+<p>Example codes are <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/01320ceaf72857404746171cbaa0f1724e4ad4b8/roseus_smach/sample/state-machine-sample.l#L42">here</a>.
+You can also add child state-machine as a node to state-machine.
+<img src="https://gist.github.com/ykawamura96/987e67b3775d68cac78031b994c3a0ba/raw/865d64ec00d2dfa6f6f1b03735918ac6f65767bc/nested_samch.png" alt=""></p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+(defun smach-nested ()
+  (let ((sm-top (instance state-machine :init))
+        (sm-sub (instance state-machine :init)))
+    ;; state instance can include other state-machine like function
+    (send sm-top :add-node (instance state :init "SUB" sm-sub))
+    (send sm-top :add-node (instance state :init "BAS" 'func-bas))
+    (send sm-top :goal-state :outcome5)
+    (send sm-top :start-state "BAS")
+    (send sm-top :add-transition "BAS" "SUB" :outcome3)
+    (send sm-top :add-transition "SUB" :outcome5 :outcome4)
+    ;; node instance can be args of :add-node, :start-state, :add-transition
+    (let ((foo-node (instance state :init "FOO" 'func-foo))
+          (bar-node (instance state :init "BAR" 'func-bar)))
+      (send sm-sub :add-node foo-node)
+      (send sm-sub :add-node bar-node)
+      (send sm-sub :goal-state :outcome4)
+      (send sm-sub :start-state foo-node)
+      (send sm-sub :add-transition foo-node bar-node :outcome1)
+      (send sm-sub :add-transition foo-node :outcome4 :outcome2)
+      (send sm-sub :add-transition bar-node foo-node :outcome2))
+
+    sm-top ))
+
+(send (smach-nested) :execute nil)
+
+</code></pre></div>
+<h3 id="the-code-explained">The Code Explained</h3>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+
+</code></pre></div>
+<p>Same as in the previous example, this line imports state-machine class, state class, and transition class.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">  (let ((sm-top (instance state-machine :init))
+        (sm-sub (instance state-machine :init)))
+
+</code></pre></div>
+<p>This line creates two of state-machine instance. The <code>sm-sub</code> is a state machine but also <strong>acting like a state (or a node)</strong> in <code>sm-top</code>. <strong>This is easy to understand if you think that a state machine as a function</strong>: when the state machine is called, or executed, state machine does some processing and eventually returns the goal state as its return value just like a function.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-node (instance state :init "SUB" sm-sub))
+
+</code></pre></div>
+<p>The <code>sm-sub</code> instance is hooked as a node in <code>sm-top</code> with name of <code>"SUB"</code> in this line. This line also indicates that you can add a state machine as a state just like a function.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-node (instance state :init "BAS" 'func-bas))
+    (send sm-top :goal-state :outcome5)
+    (send sm-top :start-state "BAS")
+    (send sm-top :add-transition "BAS" "SUB" :outcome3)
+
+</code></pre></div>
+<p>These lines define another node, goal-state, start-state, and transition in the <code>sm-top</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-transition "SUB" :outcome5 :outcome4)
+
+</code></pre></div>
+<p>Remember that <strong>the goal state(s) of state-machine does nothing and returns its name</strong>. So the outcome (or the return value) of the <code>sm-sub</code> is its name of goal state(s).
+If you look further, the goal state of <code>sm-sub</code> is <code>:outcome4</code>, so the return value of <code>sm-sub</code> is <code>:outcome4</code>. Therefore this line adds transition of <code>from "SUB" to :outcome5 when "SUB" node returns :outcome4</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">  (let ((foo-node (instance state :init "FOO" 'func-foo))
+        (bar-node (instance state :init "BAR" 'func-bar)))
+      (send sm-sub :add-node foo-node)
+      (send sm-sub :add-node bar-node)
+      (send sm-sub :goal-state :outcome4)
+      (send sm-sub :start-state foo-node)
+      (send sm-sub :add-transition foo-node bar-node :outcome1)
+      (send sm-sub :add-transition foo-node :outcome4 :outcome2)
+      (send sm-sub :add-transition bar-node foo-node :outcome2))
+
+</code></pre></div>
+<p>These lines define the behavior of <code>sm-sub</code> in detail just like the previous simple state machine example. Note that <code>(send sm-sub :goal-state :outcome4)</code> not only defines the goal state, but also defines the return value of its state machine.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send (smach-nested) :execute nil)
+
+</code></pre></div>
+<p>Finally, the <code>sm-top</code> is executed here.</p>
 </div>
               </div>
             </div>
@@ -7105,7 +7840,7 @@ roseus_tutorials
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-12-26
         </span>
       </td>
     </tr>
@@ -7190,7 +7925,7 @@ roseus_tutorials
                     <div class="rendered-markdown">
 <h1 id="roseus_smach">roseus_smach</h1>
 
-<p>This package includes euslisp imprementation of state machine and <a href="http://wiki.ros.org/smach">smach</a>.</p>
+<p>This package includes euslisp implementation of state machine and <a href="http://wiki.ros.org/smach">smach</a>.</p>
 
 <h2 id="requirements">requirements</h2>
 
@@ -7265,6 +8000,153 @@ roseus_tutorials
   (demo)
 
 </code></pre></div>
+<h2 id="writing-simple-smach-state-machine">Writing Simple Smach(state-machine)</h2>
+
+<p>Example codes are <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/master/roseus_smach/sample/state-machine-sample.l">here</a>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+
+(setq count 0)
+(defun func-foo (userdata-alist)
+  (format t "Execute state FOO~%")
+  (cond ((&lt; count 3) (incf count) :outcome1)
+    (t :outcome2)))
+(defun func-bar (userdata-alist)
+  (format t "Execute state BAR~%")
+  :outcome2)
+
+(defun smach-simple ()
+  (let ((sm (instance state-machine :init)))
+    (send sm :add-node (instance state :init :FOO 'func-foo))
+    (send sm :add-node (instance state :init :BAR 'func-bar))
+    ;; goal-states are generated in this method
+    (send sm :goal-state (list :outcome4 :outcome5))
+
+    ;; select a node as start-node
+    (send sm :start-state :FOO)
+    ;; from and to nodes are selected by name or symbol
+    (send sm :add-transition :FOO :BAR :outcome1)
+    (send sm :add-transition :FOO :outcome4 :outcome2)
+    (send sm :add-transition :BAR :FOO :outcome2)
+    sm ))
+
+(send (smach-simple) :execute nil)
+
+</code></pre></div>
+<h3 id="the-code-explained">The Code Explained</h3>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(load "package://roseus_smach/src/state-machine.l")
+
+</code></pre></div>
+<p>This line imports state-machine class, state class, and transition class.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(defun func-foo (userdata-alist)
+  (format t "Execute state FOO~%")
+  (cond ((&lt; count 3) (incf count) :outcome1)
+    (t :outcome2)))
+(defun func-bar (userdata-alist)
+  (format t "Execute state BAR~%")
+  :outcome2)
+
+</code></pre></div>
+<p>These lines define some functions that will be hooked to state. Note that the functions are called with one argument, an alist of the declared user-data arguments, and that their return value is equal to the transition (or the action) of the state.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(sm (instance state-machine :init))
+
+</code></pre></div>
+<p>This line creates the state-machine instance and binds it to <code>sm</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :add-node (instance state :init :FOO 'func-foo))
+
+</code></pre></div>
+<p>This line creates a new state and add the node to the state machine. When you create new state instance, you can name the state and hook the state to a function. Any lisp object can be used for state names. In this case, a new state has name <code>:FOO</code> and hooked with <code>func-foo</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :goal-state (list :outcome4 :outcome5))
+(send sm :start-state :FOO)
+
+</code></pre></div>
+<p>These lines define goal state(s) and start state(s) to the state machine. You can create multiple start states as a list of state, also you can define multiple goal state. Goal state(s) do nothing and returns its name.   Note that <strong>a state machine is also a state</strong>. So the goal state can be considered as the outcome of the state machine.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send sm :add-transition :FOO :BAR :outcome1)
+
+</code></pre></div>
+<p>This line defines transition. The arguments of <code>:add-transition method</code> is <code>TO</code>, <code>FROM</code>, <code>OUTCOME</code>. So this line means that "adding transition from FOO to BAR, when FOO node returns outcome1".</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send (smach-simple) :execute nil)
+
+</code></pre></div>
+<p>This line sets up and execute the state machine.
+In order to view and check the progress with <a href="http://wiki.ros.org/smach_viewer">smach_viewer</a>, use the function <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/master/roseus_smach/src/state-machine-utils.l#L3">exec-state-machine</a> instead.</p>
+
+<h2 id="writing-nested-smach">Writing Nested Smach</h2>
+
+<p>Example codes are <a href="https://github.com/jsk-ros-pkg/jsk_roseus/blob/01320ceaf72857404746171cbaa0f1724e4ad4b8/roseus_smach/sample/state-machine-sample.l#L42">here</a>.
+You can also add child state-machine as a node to state-machine.
+<img src="https://gist.github.com/ykawamura96/987e67b3775d68cac78031b994c3a0ba/raw/865d64ec00d2dfa6f6f1b03735918ac6f65767bc/nested_samch.png" alt=""></p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+(defun smach-nested ()
+  (let ((sm-top (instance state-machine :init))
+        (sm-sub (instance state-machine :init)))
+    ;; state instance can include other state-machine like function
+    (send sm-top :add-node (instance state :init "SUB" sm-sub))
+    (send sm-top :add-node (instance state :init "BAS" 'func-bas))
+    (send sm-top :goal-state :outcome5)
+    (send sm-top :start-state "BAS")
+    (send sm-top :add-transition "BAS" "SUB" :outcome3)
+    (send sm-top :add-transition "SUB" :outcome5 :outcome4)
+    ;; node instance can be args of :add-node, :start-state, :add-transition
+    (let ((foo-node (instance state :init "FOO" 'func-foo))
+          (bar-node (instance state :init "BAR" 'func-bar)))
+      (send sm-sub :add-node foo-node)
+      (send sm-sub :add-node bar-node)
+      (send sm-sub :goal-state :outcome4)
+      (send sm-sub :start-state foo-node)
+      (send sm-sub :add-transition foo-node bar-node :outcome1)
+      (send sm-sub :add-transition foo-node :outcome4 :outcome2)
+      (send sm-sub :add-transition bar-node foo-node :outcome2))
+
+    sm-top ))
+
+(send (smach-nested) :execute nil)
+
+</code></pre></div>
+<h3 id="the-code-explained">The Code Explained</h3>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">#!/usr/bin/env roseus
+(load "package://roseus_smach/src/state-machine.l")
+
+</code></pre></div>
+<p>Same as in the previous example, this line imports state-machine class, state class, and transition class.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">  (let ((sm-top (instance state-machine :init))
+        (sm-sub (instance state-machine :init)))
+
+</code></pre></div>
+<p>This line creates two of state-machine instance. The <code>sm-sub</code> is a state machine but also <strong>acting like a state (or a node)</strong> in <code>sm-top</code>. <strong>This is easy to understand if you think that a state machine as a function</strong>: when the state machine is called, or executed, state machine does some processing and eventually returns the goal state as its return value just like a function.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-node (instance state :init "SUB" sm-sub))
+
+</code></pre></div>
+<p>The <code>sm-sub</code> instance is hooked as a node in <code>sm-top</code> with name of <code>"SUB"</code> in this line. This line also indicates that you can add a state machine as a state just like a function.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-node (instance state :init "BAS" 'func-bas))
+    (send sm-top :goal-state :outcome5)
+    (send sm-top :start-state "BAS")
+    (send sm-top :add-transition "BAS" "SUB" :outcome3)
+
+</code></pre></div>
+<p>These lines define another node, goal-state, start-state, and transition in the <code>sm-top</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">    (send sm-top :add-transition "SUB" :outcome5 :outcome4)
+
+</code></pre></div>
+<p>Remember that <strong>the goal state(s) of state-machine does nothing and returns its name</strong>. So the outcome (or the return value) of the <code>sm-sub</code> is its name of goal state(s).
+If you look further, the goal state of <code>sm-sub</code> is <code>:outcome4</code>, so the return value of <code>sm-sub</code> is <code>:outcome4</code>. Therefore this line adds transition of <code>from "SUB" to :outcome5 when "SUB" node returns :outcome4</code>.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">  (let ((foo-node (instance state :init "FOO" 'func-foo))
+        (bar-node (instance state :init "BAR" 'func-bar)))
+      (send sm-sub :add-node foo-node)
+      (send sm-sub :add-node bar-node)
+      (send sm-sub :goal-state :outcome4)
+      (send sm-sub :start-state foo-node)
+      (send sm-sub :add-transition foo-node bar-node :outcome1)
+      (send sm-sub :add-transition foo-node :outcome4 :outcome2)
+      (send sm-sub :add-transition bar-node foo-node :outcome2))
+
+</code></pre></div>
+<p>These lines define the behavior of <code>sm-sub</code> in detail just like the previous simple state machine example. Note that <code>(send sm-sub :goal-state :outcome4)</code> not only defines the goal state, but also defines the return value of its state machine.</p>
+<div class="highlight"><pre><code class="language-lisp" data-lang="lisp">(send (smach-nested) :execute nil)
+
+</code></pre></div>
+<p>Finally, the <code>sm-top</code> is executed here.</p>
 </div>
               </div>
             </div>
@@ -8237,7 +9119,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2019-12-24</em>
+          <em>generated on 2019-12-27</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
