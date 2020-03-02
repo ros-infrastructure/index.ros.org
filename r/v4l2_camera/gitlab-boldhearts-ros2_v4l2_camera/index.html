@@ -354,7 +354,7 @@ ga('send', 'pageview');
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-11-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-02-19
         </span>
       </td>
     </tr>
@@ -449,20 +449,28 @@ ga('send', 'pageview');
 
 <p>A ROS 2 camera driver using Video4Linux2 (V4L2).</p>
 
-<h2 id="dependencies">Dependencies</h2>
+<h2 id="custom-dependencies">Custom Dependencies</h2>
+
+<p>The following dependencies need to be pulled in manually, because we
+need new features in them that have not been released yet:</p>
 
 <ul>
 <li>
-<p><code>image_transport</code> - makes it possible to set up compressed transport
-of the images, as described below.</p>
-
-<p>The ROS 2 port of <code>image_transport</code> in the <code>image_common</code>
-repository is needed inside of your workspace:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">git clone --branch ros2 https://github.com/ros-perception/image_common.git src/image_common
+<p><code>common_interfaces</code> - USB cameras mostly use the YUY2 format, which
+historically hasn't been supported in ROS. Support has <a href="https://github.com/ros2/common_interfaces/pull/78">landed
+recently</a>, but
+has not been released yet, so you need to clone master into your
+workspace:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">git clone https://github.com/ros2/common_interfaces.git src/common_interfaces
 </code></pre></div>
-<p>Note that <code>image_transport</code> only supports raw transport by default
-and needs additional plugins to actually provide compression; see
-below how to do this.</p>
+</li>
+<li>
+<p><code>vision_opencv</code> - The OpenCV bridge is used to convert between image
+formats. Support for the YUY2 format has not landed yet (see PR
+<a href="https://github.com/ros-perception/vision_opencv/pull/309">ros-perception/vision_opencv#309</a>. Until
+that has happened, clone the fork into your workspace:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">git clone --branch yuv422-yuy2 https://github.com/sgvandijk/vision_opencv.git src/vision_opencv
+</code></pre></div>
 </li>
 </ul>
 
@@ -477,7 +485,7 @@ publishes images as <code>sensor_msgs/Image</code> messages.</p>
 
 <ul>
 <li>
-<p><code>/raw_image</code> - <code>sensor_msgs/Image</code></p>
+<p><code>/image_raw</code> - <code>sensor_msgs/Image</code></p>
 
 <p>The image.</p>
 </li>
@@ -499,11 +507,17 @@ character '<a href="http://fourcc.org/">FOURCC</a>' code <a href="https://linuxt
 V4L2</a>
 and by your camera. The node outputs the available formats
 supported by your camera when started.</p>
+
+<p>Currently only <code>"YUYV"</code> is supported, which results in image
+messages with the <code>YUV422_YUY2</code> encoding.</p>
 </li>
 <li>
 <p><code>output_encoding</code> - <code>string</code>, default: <code>"rgb8"</code></p>
 
-<p>The encoding to use for the output image. Currently supported: "rgb8" or "yuv422".</p>
+<p>The encoding to use for the output image. Any format supported by
+<code>cv_bridge::cvtColor</code> is allowed. If this matches the input format
+from the camera, no conversion and thus no additional overhead is
+required.</p>
 </li>
 <li>
 <p><code>image_size</code> - <code>integer_array</code>, default: <code>[640, 480]</code></p>
@@ -526,15 +540,17 @@ becomes <code>white_balance_automatic</code>.</p>
 
 <h2 id="compressed-transport">Compressed Transport</h2>
 
-<p>By default <code>image_transport</code> only supports raw transfer, plugins are
-required to enable compression. Standard ones are available in the
+<p>Streaming raw images from a robot to your machine takes up a very
+large bandwidth and is especially not feasible through WiFi. By using
+<code>image_transport</code> the images can be compressed to make streaming
+possible. However, by default <code>image_transport</code> only supports raw
+transfer, and additional plugins are required to enable
+compression.</p>
+
+<p>Standard ones are available in the
 <a href="https://github.com/ros-perception/image_transport_plugins"><code>image_transport_plugins</code></a>
-repository. These depend on the OpenCV facilities provided by the
-<code>vision_opencv</code> repository. You can clone these into your workspace to
-get these:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">cd path/to/workspace
-git clone https://github.com/ros-perception/vision_opencv.git --branch ros2 src/vision_opencv
-git clone https://github.com/ros-perception/image_transport_plugins.git --branch ros2 src/image_transport_plugins
+repository. You can clone these into your workspace to get these:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">git clone --branch ros2 https://github.com/ros-perception/image_transport_plugins.git src/image_transport_plugins
 </code></pre></div>
 <h3 id="building-ubuntu">Building: Ubuntu</h3>
 
@@ -560,15 +576,23 @@ explicitly</a>:</p>
 <h3 id="usage">Usage</h3>
 
 <p>If the compression plugins are compiled and installed in the current
-workspace, they will be automatically used by the driver and an
-additional <code>/image_raw/compressed</code> topic will be available.</p>
+workspace, they will be automatically used by the driver and
+additional <code>/image_raw/compressed</code> and <code>/image_raw/theora</code> topics will
+be available.</p>
 
-<p>Neither Rviz2 or <code>showimage</code> use <code>image_transport</code> (yet). Therefore, to
-be able to view the compressed topic, it needs to be republished
-uncompressed. <code>image_transport</code> comes with the <code>republish</code> node to do
-this:</p>
+<p>Neither Rviz2 or <code>showimage</code> use <code>image_transport</code> (yet) and so can't
+use these topics. Therefore, to be able to view a compressed topic,
+it needs to be republished uncompressed. <code>image_transport</code> comes with
+the <code>republish</code> node to do this:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">ros2 run image_transport republish compressed in/compressed:=image_raw/compressed raw out:=image_raw/uncompressed
 </code></pre></div>
+<p>To use the Theora (possibly more bandwidth efficient):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">ros2 run image_transport republish theora in/theora:=image_raw/theora raw out:=image_raw/uncompressed
+</code></pre></div>
+<p><strong>NB:</strong> the idea is to run this and do the decompression on your
+machine, <em>not</em> on the robot, or else you'll be streaming raw data
+through the network after all anyway.</p>
+
 <p>The parameters mean:</p>
 
 <ul>
@@ -596,7 +620,42 @@ transports are provided.</li>
           <div class="panel-heading"><h3 class="panel-title">CONTRIBUTING</h3></div>
           <div class="panel-body">
             
-              <em>No CONTRIBUTING.md found.</em>
+              <div class="rendered-markdown">
+<p>Any contribution that you make to this repository will
+be under the Apache 2 License, as dictated by that
+<a href="http://www.apache.org/licenses/LICENSE-2.0.html">license</a>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">5. Submission of Contributions. Unless You explicitly state otherwise,
+   any Contribution intentionally submitted for inclusion in the Work
+   by You to the Licensor shall be under the terms and conditions of
+   this License, without any additional terms or conditions.
+   Notwithstanding the above, nothing herein shall supersede or modify
+   the terms of any separate license agreement you may have executed
+   with Licensor regarding such Contributions.
+</code></pre></div>
+</div>
+              <hr id="eloquent-contribute-lists">
+              <ul class="nav nav-tabs nav-justified" id="eloquent-contribute-lists-tabs">
+                <li class="better-tabs active">
+                  <a href="#eloquent-contribute-lists-help-wanted" data-toggle="tab"><span class="contribute-lists-help-wanted-count label label-primary">0</span> Help Wanted</a>
+                </li>
+                <li class="better-tabs">
+                  <a href="#eloquent-contribute-lists-good-first-issue" data-toggle="tab"><span class="contribute-lists-good-first-issue-count label label-primary">0</span> Good First Issue</a>
+                </li>
+                <li class="better-tabs">
+                  <a href="#eloquent-contribute-lists-pull-requests" data-toggle="tab"><span class="contribute-lists-pull-requests-count label label-primary">0</span> Pull Requests to Review</a>
+                </li>
+              </ul>
+              <div class="tab-content contribute-lists">
+                <div class="tab-pane active" id="eloquent-contribute-lists-help-wanted">
+                  <div class="contribute-lists-help-wanted"></div>
+                </div>
+                <div class="tab-pane" id="eloquent-contribute-lists-good-first-issue">
+                  <div class="contribute-lists-good-first-issue"></div>
+                </div>
+                <div class="tab-pane" id="eloquent-contribute-lists-pull-requests">
+                  <div class="contribute-lists-pull-requests"></div>
+                </div>
+              </div>
             
           </div>
         </div>
@@ -634,7 +693,7 @@ transports are provided.</li>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-11-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-02-19
         </span>
       </td>
     </tr>
@@ -729,20 +788,28 @@ transports are provided.</li>
 
 <p>A ROS 2 camera driver using Video4Linux2 (V4L2).</p>
 
-<h2 id="dependencies">Dependencies</h2>
+<h2 id="custom-dependencies">Custom Dependencies</h2>
+
+<p>The following dependencies need to be pulled in manually, because we
+need new features in them that have not been released yet:</p>
 
 <ul>
 <li>
-<p><code>image_transport</code> - makes it possible to set up compressed transport
-of the images, as described below.</p>
-
-<p>The ROS 2 port of <code>image_transport</code> in the <code>image_common</code>
-repository is needed inside of your workspace:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">git clone --branch ros2 https://github.com/ros-perception/image_common.git src/image_common
+<p><code>common_interfaces</code> - USB cameras mostly use the YUY2 format, which
+historically hasn't been supported in ROS. Support has <a href="https://github.com/ros2/common_interfaces/pull/78">landed
+recently</a>, but
+has not been released yet, so you need to clone master into your
+workspace:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">git clone https://github.com/ros2/common_interfaces.git src/common_interfaces
 </code></pre></div>
-<p>Note that <code>image_transport</code> only supports raw transport by default
-and needs additional plugins to actually provide compression; see
-below how to do this.</p>
+</li>
+<li>
+<p><code>vision_opencv</code> - The OpenCV bridge is used to convert between image
+formats. Support for the YUY2 format has not landed yet (see PR
+<a href="https://github.com/ros-perception/vision_opencv/pull/309">ros-perception/vision_opencv#309</a>. Until
+that has happened, clone the fork into your workspace:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">git clone --branch yuv422-yuy2 https://github.com/sgvandijk/vision_opencv.git src/vision_opencv
+</code></pre></div>
 </li>
 </ul>
 
@@ -757,7 +824,7 @@ publishes images as <code>sensor_msgs/Image</code> messages.</p>
 
 <ul>
 <li>
-<p><code>/raw_image</code> - <code>sensor_msgs/Image</code></p>
+<p><code>/image_raw</code> - <code>sensor_msgs/Image</code></p>
 
 <p>The image.</p>
 </li>
@@ -779,11 +846,17 @@ character '<a href="http://fourcc.org/">FOURCC</a>' code <a href="https://linuxt
 V4L2</a>
 and by your camera. The node outputs the available formats
 supported by your camera when started.</p>
+
+<p>Currently only <code>"YUYV"</code> is supported, which results in image
+messages with the <code>YUV422_YUY2</code> encoding.</p>
 </li>
 <li>
 <p><code>output_encoding</code> - <code>string</code>, default: <code>"rgb8"</code></p>
 
-<p>The encoding to use for the output image. Currently supported: "rgb8" or "yuv422".</p>
+<p>The encoding to use for the output image. Any format supported by
+<code>cv_bridge::cvtColor</code> is allowed. If this matches the input format
+from the camera, no conversion and thus no additional overhead is
+required.</p>
 </li>
 <li>
 <p><code>image_size</code> - <code>integer_array</code>, default: <code>[640, 480]</code></p>
@@ -806,15 +879,17 @@ becomes <code>white_balance_automatic</code>.</p>
 
 <h2 id="compressed-transport">Compressed Transport</h2>
 
-<p>By default <code>image_transport</code> only supports raw transfer, plugins are
-required to enable compression. Standard ones are available in the
+<p>Streaming raw images from a robot to your machine takes up a very
+large bandwidth and is especially not feasible through WiFi. By using
+<code>image_transport</code> the images can be compressed to make streaming
+possible. However, by default <code>image_transport</code> only supports raw
+transfer, and additional plugins are required to enable
+compression.</p>
+
+<p>Standard ones are available in the
 <a href="https://github.com/ros-perception/image_transport_plugins"><code>image_transport_plugins</code></a>
-repository. These depend on the OpenCV facilities provided by the
-<code>vision_opencv</code> repository. You can clone these into your workspace to
-get these:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">cd path/to/workspace
-git clone https://github.com/ros-perception/vision_opencv.git --branch ros2 src/vision_opencv
-git clone https://github.com/ros-perception/image_transport_plugins.git --branch ros2 src/image_transport_plugins
+repository. You can clone these into your workspace to get these:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">git clone --branch ros2 https://github.com/ros-perception/image_transport_plugins.git src/image_transport_plugins
 </code></pre></div>
 <h3 id="building-ubuntu">Building: Ubuntu</h3>
 
@@ -840,15 +915,23 @@ explicitly</a>:</p>
 <h3 id="usage">Usage</h3>
 
 <p>If the compression plugins are compiled and installed in the current
-workspace, they will be automatically used by the driver and an
-additional <code>/image_raw/compressed</code> topic will be available.</p>
+workspace, they will be automatically used by the driver and
+additional <code>/image_raw/compressed</code> and <code>/image_raw/theora</code> topics will
+be available.</p>
 
-<p>Neither Rviz2 or <code>showimage</code> use <code>image_transport</code> (yet). Therefore, to
-be able to view the compressed topic, it needs to be republished
-uncompressed. <code>image_transport</code> comes with the <code>republish</code> node to do
-this:</p>
+<p>Neither Rviz2 or <code>showimage</code> use <code>image_transport</code> (yet) and so can't
+use these topics. Therefore, to be able to view a compressed topic,
+it needs to be republished uncompressed. <code>image_transport</code> comes with
+the <code>republish</code> node to do this:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">ros2 run image_transport republish compressed in/compressed:=image_raw/compressed raw out:=image_raw/uncompressed
 </code></pre></div>
+<p>To use the Theora (possibly more bandwidth efficient):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">ros2 run image_transport republish theora in/theora:=image_raw/theora raw out:=image_raw/uncompressed
+</code></pre></div>
+<p><strong>NB:</strong> the idea is to run this and do the decompression on your
+machine, <em>not</em> on the robot, or else you'll be streaming raw data
+through the network after all anyway.</p>
+
 <p>The parameters mean:</p>
 
 <ul>
@@ -876,7 +959,42 @@ transports are provided.</li>
           <div class="panel-heading"><h3 class="panel-title">CONTRIBUTING</h3></div>
           <div class="panel-body">
             
-              <em>No CONTRIBUTING.md found.</em>
+              <div class="rendered-markdown">
+<p>Any contribution that you make to this repository will
+be under the Apache 2 License, as dictated by that
+<a href="http://www.apache.org/licenses/LICENSE-2.0.html">license</a>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">5. Submission of Contributions. Unless You explicitly state otherwise,
+   any Contribution intentionally submitted for inclusion in the Work
+   by You to the Licensor shall be under the terms and conditions of
+   this License, without any additional terms or conditions.
+   Notwithstanding the above, nothing herein shall supersede or modify
+   the terms of any separate license agreement you may have executed
+   with Licensor regarding such Contributions.
+</code></pre></div>
+</div>
+              <hr id="dashing-contribute-lists">
+              <ul class="nav nav-tabs nav-justified" id="dashing-contribute-lists-tabs">
+                <li class="better-tabs active">
+                  <a href="#dashing-contribute-lists-help-wanted" data-toggle="tab"><span class="contribute-lists-help-wanted-count label label-primary">0</span> Help Wanted</a>
+                </li>
+                <li class="better-tabs">
+                  <a href="#dashing-contribute-lists-good-first-issue" data-toggle="tab"><span class="contribute-lists-good-first-issue-count label label-primary">0</span> Good First Issue</a>
+                </li>
+                <li class="better-tabs">
+                  <a href="#dashing-contribute-lists-pull-requests" data-toggle="tab"><span class="contribute-lists-pull-requests-count label label-primary">0</span> Pull Requests to Review</a>
+                </li>
+              </ul>
+              <div class="tab-content contribute-lists">
+                <div class="tab-pane active" id="dashing-contribute-lists-help-wanted">
+                  <div class="contribute-lists-help-wanted"></div>
+                </div>
+                <div class="tab-pane" id="dashing-contribute-lists-good-first-issue">
+                  <div class="contribute-lists-good-first-issue"></div>
+                </div>
+                <div class="tab-pane" id="dashing-contribute-lists-pull-requests">
+                  <div class="contribute-lists-pull-requests"></div>
+                </div>
+              </div>
             
           </div>
         </div>
@@ -990,7 +1108,7 @@ transports are provided.</li>
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2020-02-08</em>
+          <em>generated on 2020-03-02</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">

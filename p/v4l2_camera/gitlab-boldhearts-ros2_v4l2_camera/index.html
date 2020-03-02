@@ -405,7 +405,7 @@ v4l2_camera
     
     
     
-    <a href="#eloquent-deps" data-toggle="tab"><span class="label label-primary">8</span> Dependencies</a>
+    <a href="#eloquent-deps" data-toggle="tab"><span class="label label-primary">9</span> Dependencies</a>
   </li>
   <li class="better-tabs">
     
@@ -484,7 +484,7 @@ v4l2_camera
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-11-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-02-19
         </span>
       </td>
     </tr>
@@ -596,20 +596,28 @@ v4l2_camera
 
 <p>A ROS 2 camera driver using Video4Linux2 (V4L2).</p>
 
-<h2 id="dependencies">Dependencies</h2>
+<h2 id="custom-dependencies">Custom Dependencies</h2>
+
+<p>The following dependencies need to be pulled in manually, because we
+need new features in them that have not been released yet:</p>
 
 <ul>
 <li>
-<p><code>image_transport</code> - makes it possible to set up compressed transport
-of the images, as described below.</p>
-
-<p>The ROS 2 port of <code>image_transport</code> in the <code>image_common</code>
-repository is needed inside of your workspace:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">git clone --branch ros2 https://github.com/ros-perception/image_common.git src/image_common
+<p><code>common_interfaces</code> - USB cameras mostly use the YUY2 format, which
+historically hasn't been supported in ROS. Support has <a href="https://github.com/ros2/common_interfaces/pull/78">landed
+recently</a>, but
+has not been released yet, so you need to clone master into your
+workspace:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">git clone https://github.com/ros2/common_interfaces.git src/common_interfaces
 </code></pre></div>
-<p>Note that <code>image_transport</code> only supports raw transport by default
-and needs additional plugins to actually provide compression; see
-below how to do this.</p>
+</li>
+<li>
+<p><code>vision_opencv</code> - The OpenCV bridge is used to convert between image
+formats. Support for the YUY2 format has not landed yet (see PR
+<a href="https://github.com/ros-perception/vision_opencv/pull/309">ros-perception/vision_opencv#309</a>. Until
+that has happened, clone the fork into your workspace:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">git clone --branch yuv422-yuy2 https://github.com/sgvandijk/vision_opencv.git src/vision_opencv
+</code></pre></div>
 </li>
 </ul>
 
@@ -624,7 +632,7 @@ publishes images as <code>sensor_msgs/Image</code> messages.</p>
 
 <ul>
 <li>
-<p><code>/raw_image</code> - <code>sensor_msgs/Image</code></p>
+<p><code>/image_raw</code> - <code>sensor_msgs/Image</code></p>
 
 <p>The image.</p>
 </li>
@@ -646,11 +654,17 @@ character '<a href="http://fourcc.org/">FOURCC</a>' code <a href="https://linuxt
 V4L2</a>
 and by your camera. The node outputs the available formats
 supported by your camera when started.</p>
+
+<p>Currently only <code>"YUYV"</code> is supported, which results in image
+messages with the <code>YUV422_YUY2</code> encoding.</p>
 </li>
 <li>
 <p><code>output_encoding</code> - <code>string</code>, default: <code>"rgb8"</code></p>
 
-<p>The encoding to use for the output image. Currently supported: "rgb8" or "yuv422".</p>
+<p>The encoding to use for the output image. Any format supported by
+<code>cv_bridge::cvtColor</code> is allowed. If this matches the input format
+from the camera, no conversion and thus no additional overhead is
+required.</p>
 </li>
 <li>
 <p><code>image_size</code> - <code>integer_array</code>, default: <code>[640, 480]</code></p>
@@ -673,15 +687,17 @@ becomes <code>white_balance_automatic</code>.</p>
 
 <h2 id="compressed-transport">Compressed Transport</h2>
 
-<p>By default <code>image_transport</code> only supports raw transfer, plugins are
-required to enable compression. Standard ones are available in the
+<p>Streaming raw images from a robot to your machine takes up a very
+large bandwidth and is especially not feasible through WiFi. By using
+<code>image_transport</code> the images can be compressed to make streaming
+possible. However, by default <code>image_transport</code> only supports raw
+transfer, and additional plugins are required to enable
+compression.</p>
+
+<p>Standard ones are available in the
 <a href="https://github.com/ros-perception/image_transport_plugins"><code>image_transport_plugins</code></a>
-repository. These depend on the OpenCV facilities provided by the
-<code>vision_opencv</code> repository. You can clone these into your workspace to
-get these:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">cd path/to/workspace
-git clone https://github.com/ros-perception/vision_opencv.git --branch ros2 src/vision_opencv
-git clone https://github.com/ros-perception/image_transport_plugins.git --branch ros2 src/image_transport_plugins
+repository. You can clone these into your workspace to get these:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">git clone --branch ros2 https://github.com/ros-perception/image_transport_plugins.git src/image_transport_plugins
 </code></pre></div>
 <h3 id="building-ubuntu">Building: Ubuntu</h3>
 
@@ -707,15 +723,23 @@ explicitly</a>:</p>
 <h3 id="usage">Usage</h3>
 
 <p>If the compression plugins are compiled and installed in the current
-workspace, they will be automatically used by the driver and an
-additional <code>/image_raw/compressed</code> topic will be available.</p>
+workspace, they will be automatically used by the driver and
+additional <code>/image_raw/compressed</code> and <code>/image_raw/theora</code> topics will
+be available.</p>
 
-<p>Neither Rviz2 or <code>showimage</code> use <code>image_transport</code> (yet). Therefore, to
-be able to view the compressed topic, it needs to be republished
-uncompressed. <code>image_transport</code> comes with the <code>republish</code> node to do
-this:</p>
+<p>Neither Rviz2 or <code>showimage</code> use <code>image_transport</code> (yet) and so can't
+use these topics. Therefore, to be able to view a compressed topic,
+it needs to be republished uncompressed. <code>image_transport</code> comes with
+the <code>republish</code> node to do this:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">ros2 run image_transport republish compressed in/compressed:=image_raw/compressed raw out:=image_raw/uncompressed
 </code></pre></div>
+<p>To use the Theora (possibly more bandwidth efficient):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">ros2 run image_transport republish theora in/theora:=image_raw/theora raw out:=image_raw/uncompressed
+</code></pre></div>
+<p><strong>NB:</strong> the idea is to run this and do the decompression on your
+machine, <em>not</em> on the robot, or else you'll be streaming raw data
+through the network after all anyway.</p>
+
 <p>The parameters mean:</p>
 
 <ul>
@@ -961,6 +985,26 @@ transports are provided.</li>
                           </a>
                         </td>
                         <td><a href="/p/camera_info_manager#eloquent">camera_info_manager</a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/cv_bridge#eloquent-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/cv_bridge" class="label label-primary">
+                            2
+                          </a>
+                        </td>
+                        <td><a href="/p/cv_bridge#eloquent">cv_bridge</a></td>
                       </tr>
                     
                   
@@ -1339,7 +1383,7 @@ v4l2_camera
     
     
     
-    <a href="#dashing-deps" data-toggle="tab"><span class="label label-primary">8</span> Dependencies</a>
+    <a href="#dashing-deps" data-toggle="tab"><span class="label label-primary">9</span> Dependencies</a>
   </li>
   <li class="better-tabs">
     
@@ -1418,7 +1462,7 @@ v4l2_camera
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2019-11-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-02-19
         </span>
       </td>
     </tr>
@@ -1530,20 +1574,28 @@ v4l2_camera
 
 <p>A ROS 2 camera driver using Video4Linux2 (V4L2).</p>
 
-<h2 id="dependencies">Dependencies</h2>
+<h2 id="custom-dependencies">Custom Dependencies</h2>
+
+<p>The following dependencies need to be pulled in manually, because we
+need new features in them that have not been released yet:</p>
 
 <ul>
 <li>
-<p><code>image_transport</code> - makes it possible to set up compressed transport
-of the images, as described below.</p>
-
-<p>The ROS 2 port of <code>image_transport</code> in the <code>image_common</code>
-repository is needed inside of your workspace:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">git clone --branch ros2 https://github.com/ros-perception/image_common.git src/image_common
+<p><code>common_interfaces</code> - USB cameras mostly use the YUY2 format, which
+historically hasn't been supported in ROS. Support has <a href="https://github.com/ros2/common_interfaces/pull/78">landed
+recently</a>, but
+has not been released yet, so you need to clone master into your
+workspace:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">git clone https://github.com/ros2/common_interfaces.git src/common_interfaces
 </code></pre></div>
-<p>Note that <code>image_transport</code> only supports raw transport by default
-and needs additional plugins to actually provide compression; see
-below how to do this.</p>
+</li>
+<li>
+<p><code>vision_opencv</code> - The OpenCV bridge is used to convert between image
+formats. Support for the YUY2 format has not landed yet (see PR
+<a href="https://github.com/ros-perception/vision_opencv/pull/309">ros-perception/vision_opencv#309</a>. Until
+that has happened, clone the fork into your workspace:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">git clone --branch yuv422-yuy2 https://github.com/sgvandijk/vision_opencv.git src/vision_opencv
+</code></pre></div>
 </li>
 </ul>
 
@@ -1558,7 +1610,7 @@ publishes images as <code>sensor_msgs/Image</code> messages.</p>
 
 <ul>
 <li>
-<p><code>/raw_image</code> - <code>sensor_msgs/Image</code></p>
+<p><code>/image_raw</code> - <code>sensor_msgs/Image</code></p>
 
 <p>The image.</p>
 </li>
@@ -1580,11 +1632,17 @@ character '<a href="http://fourcc.org/">FOURCC</a>' code <a href="https://linuxt
 V4L2</a>
 and by your camera. The node outputs the available formats
 supported by your camera when started.</p>
+
+<p>Currently only <code>"YUYV"</code> is supported, which results in image
+messages with the <code>YUV422_YUY2</code> encoding.</p>
 </li>
 <li>
 <p><code>output_encoding</code> - <code>string</code>, default: <code>"rgb8"</code></p>
 
-<p>The encoding to use for the output image. Currently supported: "rgb8" or "yuv422".</p>
+<p>The encoding to use for the output image. Any format supported by
+<code>cv_bridge::cvtColor</code> is allowed. If this matches the input format
+from the camera, no conversion and thus no additional overhead is
+required.</p>
 </li>
 <li>
 <p><code>image_size</code> - <code>integer_array</code>, default: <code>[640, 480]</code></p>
@@ -1607,15 +1665,17 @@ becomes <code>white_balance_automatic</code>.</p>
 
 <h2 id="compressed-transport">Compressed Transport</h2>
 
-<p>By default <code>image_transport</code> only supports raw transfer, plugins are
-required to enable compression. Standard ones are available in the
+<p>Streaming raw images from a robot to your machine takes up a very
+large bandwidth and is especially not feasible through WiFi. By using
+<code>image_transport</code> the images can be compressed to make streaming
+possible. However, by default <code>image_transport</code> only supports raw
+transfer, and additional plugins are required to enable
+compression.</p>
+
+<p>Standard ones are available in the
 <a href="https://github.com/ros-perception/image_transport_plugins"><code>image_transport_plugins</code></a>
-repository. These depend on the OpenCV facilities provided by the
-<code>vision_opencv</code> repository. You can clone these into your workspace to
-get these:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">cd path/to/workspace
-git clone https://github.com/ros-perception/vision_opencv.git --branch ros2 src/vision_opencv
-git clone https://github.com/ros-perception/image_transport_plugins.git --branch ros2 src/image_transport_plugins
+repository. You can clone these into your workspace to get these:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">git clone --branch ros2 https://github.com/ros-perception/image_transport_plugins.git src/image_transport_plugins
 </code></pre></div>
 <h3 id="building-ubuntu">Building: Ubuntu</h3>
 
@@ -1641,15 +1701,23 @@ explicitly</a>:</p>
 <h3 id="usage">Usage</h3>
 
 <p>If the compression plugins are compiled and installed in the current
-workspace, they will be automatically used by the driver and an
-additional <code>/image_raw/compressed</code> topic will be available.</p>
+workspace, they will be automatically used by the driver and
+additional <code>/image_raw/compressed</code> and <code>/image_raw/theora</code> topics will
+be available.</p>
 
-<p>Neither Rviz2 or <code>showimage</code> use <code>image_transport</code> (yet). Therefore, to
-be able to view the compressed topic, it needs to be republished
-uncompressed. <code>image_transport</code> comes with the <code>republish</code> node to do
-this:</p>
+<p>Neither Rviz2 or <code>showimage</code> use <code>image_transport</code> (yet) and so can't
+use these topics. Therefore, to be able to view a compressed topic,
+it needs to be republished uncompressed. <code>image_transport</code> comes with
+the <code>republish</code> node to do this:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">ros2 run image_transport republish compressed in/compressed:=image_raw/compressed raw out:=image_raw/uncompressed
 </code></pre></div>
+<p>To use the Theora (possibly more bandwidth efficient):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">ros2 run image_transport republish theora in/theora:=image_raw/theora raw out:=image_raw/uncompressed
+</code></pre></div>
+<p><strong>NB:</strong> the idea is to run this and do the decompression on your
+machine, <em>not</em> on the robot, or else you'll be streaming raw data
+through the network after all anyway.</p>
+
 <p>The parameters mean:</p>
 
 <ul>
@@ -1895,6 +1963,26 @@ transports are provided.</li>
                           </a>
                         </td>
                         <td><a href="/p/camera_info_manager#dashing">camera_info_manager</a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/cv_bridge#dashing-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/cv_bridge" class="label label-primary">
+                            2
+                          </a>
+                        </td>
+                        <td><a href="/p/cv_bridge#dashing">cv_bridge</a></td>
                       </tr>
                     
                   
@@ -2234,7 +2322,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2020-02-08</em>
+          <em>generated on 2020-03-02</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
