@@ -382,7 +382,7 @@ ga('send', 'pageview');
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-04-26
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-04-27
         </span>
       </td>
     </tr>
@@ -459,12 +459,12 @@ ga('send', 'pageview');
                 
                   <tr>
                     <td><a href="/p/robot_calibration/github-mikeferguson-robot_calibration">robot_calibration</a></td>
-                    <td>0.6.2</td>
+                    <td>0.6.3</td>
                   </tr>
                 
                   <tr>
                     <td><a href="/p/robot_calibration_msgs/github-mikeferguson-robot_calibration">robot_calibration_msgs</a></td>
-                    <td>0.6.2</td>
+                    <td>0.6.3</td>
                   </tr>
                 
                 </tbody>
@@ -480,7 +480,8 @@ ga('send', 'pageview');
               <div class="rendered-markdown">
 <h1 id="robot-calibration">Robot Calibration</h1>
 
-<p>This package offers calibration of a number of parameters of a robot, such as:</p>
+<p>This package offers ROS nodes. The primary one is called <em>calibrate</em>, and
+can be used to calibrate a number of parameters of a robot, such as:</p>
 
 <ul>
 <li>3D Camera intrinsics and extrinsics</li>
@@ -491,7 +492,19 @@ ga('send', 'pageview');
 <p>These parameters are then inserted into an updated URDF, or updated camera
 configuration YAML in the case of camera intrinsics.</p>
 
-<h2 id="overview">Overview</h2>
+<p>Two additional ROS nodes are used for mobile-base related parameter tuning:</p>
+
+<ul>
+<li>
+<em>calibrate_base</em> - can determine scaling factors for gyro and track
+width parameters by rotating the robot in place and tracking the actual
+rotation based on the laser scanner view of a wall.</li>
+<li>
+<em>magnetometer_calibration</em> - can be used to do hard iron calibration
+of a magnetometer.</li>
+</ul>
+
+<h2 id="the-calibrate-node">The <em>calibrate</em> node</h2>
 
 <p>Calibration works in two steps. The first step involves the capture of data
 samples from the robot. Each "sample" comprises the measured joint positions
@@ -515,7 +528,7 @@ the reprojection of the checkerboard corners through the arm is as closely
 aligned with the reprojection through the camera (and any associated
 kinematic chain, for instance, a pan/tilt head).</p>
 
-<h2 id="configuration">Configuration</h2>
+<h3 id="configuration">Configuration</h3>
 
 <p>Configuration is typically handled through two sets of YAML files. The first
 YAML file specifies the details needed for data capture:</p>
@@ -575,7 +588,7 @@ parameter.</li>
 </li>
 </ul>
 
-<h3 id="checkerboard-configuration">Checkerboard Configuration</h3>
+<h4 id="checkerboard-configuration">Checkerboard Configuration</h4>
 
 <p>When using a checkerboard, we need to estimate the transformation from the
 the kinematic chain to the checkerboard. Calibration will be faster and more
@@ -603,7 +616,7 @@ insert the values in the calibration.yaml:</p>
    yaw: 0.0
 
 </code></pre></div>
-<h2 id="exported-results">Exported Results</h2>
+<h3 id="exported-results">Exported Results</h3>
 
 <p>The exported results consist of an updated URDF file, and one or more updated
 camera calibration YAML files. By default, these files will by exported into
@@ -629,34 +642,85 @@ needs to be subtracted from the commanded position sent to the device.</li>
 to use only free_frames, setting only the rotation in the joint axis to be
 free.</p>
 
-<h2 id="updating-from-indigo">Updating from Indigo</h2>
+<h2 id="the-calibrate_base-node">The <em>calibrate_base</em> node</h2>
 
-<p>A number of things have been streamlined since Indigo. Some changes in your
-capture configuration may be required:</p>
+<p>To run the <em>calibrate_base</em> node, you need a somewhat open space with a large
+(~3 meters wide) wall that you can point the robot at. The robot should be
+pointed at the wall and it will then spin around at several different speeds.
+On each rotation it will stop and capture the laser data. Afterwards, the
+node uses the angle of the wall as measured by the laser scanner to determine
+how far the robot has actually rotated versus the measurements from the gyro
+and odometry. We then compute scalar corrections for both the gyro and the
+odometry.</p>
 
-<ul>
-<li>GroundPlaneFinder is gone. A simple replacement is to use the PlaneFinder with the
-parameter "min_z" set to -2.0. (all other defaults should work fine)</li>
-<li>PlaneFinder now supports "debug" parameter, which defaults to false. If you still
-want the point clouds in your bagfile, set this parameter to true.</li>
-<li>All finders have had their debug topic names updated to include the name of the finder,
-this makes sure that you can run multiple instances and still know where data came from.
-Your RVIZ config may need to be updated.</li>
-</ul>
-
-<p>Your calibration error block config will absolutely need updates:</p>
+<p>Node parameters:</p>
 
 <ul>
-<li>"camera3d_to_arm" is now "chain3d_to_chain3d". In addition to updating the type, the names
-of the sensors have changed: "camera" is now "model_a", and "arm" is "model_b". Order
-of the parameters no longer matters.</li>
-<li>"camera3d_to_ground" is now "chain3d_to_plane". In addition to updating the type, the
-names of the sensors have changed: "camera" is now "model_a" and there is no sensor
-for ground (the plane parameters are fully accessible instead of being hard-coded). The
-default plane parameters of this error block represent the ground plane.</li>
-<li>"camera_to_camera" is now "plane_to_plane". In addition to updating the type, the
-names of the sensors have changed from "camera1" and "camera2" to "model_a" and "model_b".</li>
+<li>
+<code>/base_controller/track_width</code> - this is the default track width.</li>
+<li>
+<code>/imu/gyro/scale</code> - this is the initial gyro scale.</li>
+<li>
+<code>~min_angle/~max_angle</code> how much of the laser scan to use when
+measuring the wall angle (radians).</li>
+<li>
+<code>~accel_limit</code> - acceleration limit for rotation (radians/second^2).</li>
 </ul>
+
+<p>Node topics:</p>
+
+<ul>
+<li>
+<code>/odom</code> - the node subscribes to this odom data. Message type
+is <code>nav_msgs/Odometry</code>.</li>
+<li>
+<code>/imu</code> - the node subscribes to this IMU data. Message type
+is <code>sensor_msgs/IMU</code>.</li>
+<li>
+<code>/base_scan</code> - the node subscribes to this laser data. Message type
+is <code>sensor_msgs/LaserScan</code>.</li>
+<li>
+<code>/cmd_vel</code> - the node publishes rotation commands to this topic, unless
+manual mode is enabled. Message type is <code>geometry_msgs/Twist</code>.</li>
+</ul>
+
+<p>The output of the node is a new scale for the gyro and the odometry. The application
+of these values is largely dependent on the drivers being used for the robot. For
+robots using <em>ros_control</em> or <em>robot_control</em> there is a track_width parameter
+typically supplied as a ROS parameter in your launch file.</p>
+
+<h2 id="the-magnetometer_calibration-node">The <em>magnetometer_calibration</em> node</h2>
+
+<p>The <em>magnetometer_calibration</em> node records magnetometer data and can compute
+the <em>hard iron</em> offsets. After calibration, the magnetometer can be used as
+a compass (typically by piping the data through <em>imu_filter_madgwick</em> and
+then <em>robot_localization</em>).</p>
+
+<p>Node parameters:</p>
+
+<ul>
+<li>
+<code>~rotation_manual</code> - if set to true, the node will not publish command
+velocities and the user will have to manually rotate the magnetometer. Default: false.</li>
+<li>
+<code>~rotation_duration</code> - how long to rotate the robot, in seconds.</li>
+<li>
+<code>~rotation_velocity</code> - the yaw velocity to rotate the robot, in rad/s.</li>
+</ul>
+
+<p>Node topics:</p>
+
+<ul>
+<li>
+<code>/imu/mag</code> - the node subscribes to this magnetometer data. Message type
+is <code>sensor_msgs/MagneticField</code>.</li>
+<li>
+<code>/cmd_vel</code> - the node publishes rotation commands to this topic, unless
+manual mode is enabled. Message type is <code>geometry_msgs/Twist</code>.</li>
+</ul>
+
+<p>The output of the calibration is three parameters, <em>mag_bias_x</em>, <em>mag_bias_y</em>,
+and <em>mag_bias_z</em>, which can be used with the <code>imu_filter_madgwick</code> package.</p>
 
 <h1 id="status">Status</h1>
 
@@ -717,7 +781,7 @@ names of the sensors have changed from "camera1" and "camera2" to "model_a" and 
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-04-26
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-04-27
         </span>
       </td>
     </tr>
@@ -794,12 +858,12 @@ names of the sensors have changed from "camera1" and "camera2" to "model_a" and 
                 
                   <tr>
                     <td><a href="/p/robot_calibration/github-mikeferguson-robot_calibration">robot_calibration</a></td>
-                    <td>0.6.2</td>
+                    <td>0.6.3</td>
                   </tr>
                 
                   <tr>
                     <td><a href="/p/robot_calibration_msgs/github-mikeferguson-robot_calibration">robot_calibration_msgs</a></td>
-                    <td>0.6.2</td>
+                    <td>0.6.3</td>
                   </tr>
                 
                 </tbody>
@@ -815,7 +879,8 @@ names of the sensors have changed from "camera1" and "camera2" to "model_a" and 
               <div class="rendered-markdown">
 <h1 id="robot-calibration">Robot Calibration</h1>
 
-<p>This package offers calibration of a number of parameters of a robot, such as:</p>
+<p>This package offers ROS nodes. The primary one is called <em>calibrate</em>, and
+can be used to calibrate a number of parameters of a robot, such as:</p>
 
 <ul>
 <li>3D Camera intrinsics and extrinsics</li>
@@ -826,7 +891,19 @@ names of the sensors have changed from "camera1" and "camera2" to "model_a" and 
 <p>These parameters are then inserted into an updated URDF, or updated camera
 configuration YAML in the case of camera intrinsics.</p>
 
-<h2 id="overview">Overview</h2>
+<p>Two additional ROS nodes are used for mobile-base related parameter tuning:</p>
+
+<ul>
+<li>
+<em>calibrate_base</em> - can determine scaling factors for gyro and track
+width parameters by rotating the robot in place and tracking the actual
+rotation based on the laser scanner view of a wall.</li>
+<li>
+<em>magnetometer_calibration</em> - can be used to do hard iron calibration
+of a magnetometer.</li>
+</ul>
+
+<h2 id="the-calibrate-node">The <em>calibrate</em> node</h2>
 
 <p>Calibration works in two steps. The first step involves the capture of data
 samples from the robot. Each "sample" comprises the measured joint positions
@@ -850,7 +927,7 @@ the reprojection of the checkerboard corners through the arm is as closely
 aligned with the reprojection through the camera (and any associated
 kinematic chain, for instance, a pan/tilt head).</p>
 
-<h2 id="configuration">Configuration</h2>
+<h3 id="configuration">Configuration</h3>
 
 <p>Configuration is typically handled through two sets of YAML files. The first
 YAML file specifies the details needed for data capture:</p>
@@ -910,7 +987,7 @@ parameter.</li>
 </li>
 </ul>
 
-<h3 id="checkerboard-configuration">Checkerboard Configuration</h3>
+<h4 id="checkerboard-configuration">Checkerboard Configuration</h4>
 
 <p>When using a checkerboard, we need to estimate the transformation from the
 the kinematic chain to the checkerboard. Calibration will be faster and more
@@ -938,7 +1015,7 @@ insert the values in the calibration.yaml:</p>
    yaw: 0.0
 
 </code></pre></div>
-<h2 id="exported-results">Exported Results</h2>
+<h3 id="exported-results">Exported Results</h3>
 
 <p>The exported results consist of an updated URDF file, and one or more updated
 camera calibration YAML files. By default, these files will by exported into
@@ -964,34 +1041,85 @@ needs to be subtracted from the commanded position sent to the device.</li>
 to use only free_frames, setting only the rotation in the joint axis to be
 free.</p>
 
-<h2 id="updating-from-indigo">Updating from Indigo</h2>
+<h2 id="the-calibrate_base-node">The <em>calibrate_base</em> node</h2>
 
-<p>A number of things have been streamlined since Indigo. Some changes in your
-capture configuration may be required:</p>
+<p>To run the <em>calibrate_base</em> node, you need a somewhat open space with a large
+(~3 meters wide) wall that you can point the robot at. The robot should be
+pointed at the wall and it will then spin around at several different speeds.
+On each rotation it will stop and capture the laser data. Afterwards, the
+node uses the angle of the wall as measured by the laser scanner to determine
+how far the robot has actually rotated versus the measurements from the gyro
+and odometry. We then compute scalar corrections for both the gyro and the
+odometry.</p>
 
-<ul>
-<li>GroundPlaneFinder is gone. A simple replacement is to use the PlaneFinder with the
-parameter "min_z" set to -2.0. (all other defaults should work fine)</li>
-<li>PlaneFinder now supports "debug" parameter, which defaults to false. If you still
-want the point clouds in your bagfile, set this parameter to true.</li>
-<li>All finders have had their debug topic names updated to include the name of the finder,
-this makes sure that you can run multiple instances and still know where data came from.
-Your RVIZ config may need to be updated.</li>
-</ul>
-
-<p>Your calibration error block config will absolutely need updates:</p>
+<p>Node parameters:</p>
 
 <ul>
-<li>"camera3d_to_arm" is now "chain3d_to_chain3d". In addition to updating the type, the names
-of the sensors have changed: "camera" is now "model_a", and "arm" is "model_b". Order
-of the parameters no longer matters.</li>
-<li>"camera3d_to_ground" is now "chain3d_to_plane". In addition to updating the type, the
-names of the sensors have changed: "camera" is now "model_a" and there is no sensor
-for ground (the plane parameters are fully accessible instead of being hard-coded). The
-default plane parameters of this error block represent the ground plane.</li>
-<li>"camera_to_camera" is now "plane_to_plane". In addition to updating the type, the
-names of the sensors have changed from "camera1" and "camera2" to "model_a" and "model_b".</li>
+<li>
+<code>/base_controller/track_width</code> - this is the default track width.</li>
+<li>
+<code>/imu/gyro/scale</code> - this is the initial gyro scale.</li>
+<li>
+<code>~min_angle/~max_angle</code> how much of the laser scan to use when
+measuring the wall angle (radians).</li>
+<li>
+<code>~accel_limit</code> - acceleration limit for rotation (radians/second^2).</li>
 </ul>
+
+<p>Node topics:</p>
+
+<ul>
+<li>
+<code>/odom</code> - the node subscribes to this odom data. Message type
+is <code>nav_msgs/Odometry</code>.</li>
+<li>
+<code>/imu</code> - the node subscribes to this IMU data. Message type
+is <code>sensor_msgs/IMU</code>.</li>
+<li>
+<code>/base_scan</code> - the node subscribes to this laser data. Message type
+is <code>sensor_msgs/LaserScan</code>.</li>
+<li>
+<code>/cmd_vel</code> - the node publishes rotation commands to this topic, unless
+manual mode is enabled. Message type is <code>geometry_msgs/Twist</code>.</li>
+</ul>
+
+<p>The output of the node is a new scale for the gyro and the odometry. The application
+of these values is largely dependent on the drivers being used for the robot. For
+robots using <em>ros_control</em> or <em>robot_control</em> there is a track_width parameter
+typically supplied as a ROS parameter in your launch file.</p>
+
+<h2 id="the-magnetometer_calibration-node">The <em>magnetometer_calibration</em> node</h2>
+
+<p>The <em>magnetometer_calibration</em> node records magnetometer data and can compute
+the <em>hard iron</em> offsets. After calibration, the magnetometer can be used as
+a compass (typically by piping the data through <em>imu_filter_madgwick</em> and
+then <em>robot_localization</em>).</p>
+
+<p>Node parameters:</p>
+
+<ul>
+<li>
+<code>~rotation_manual</code> - if set to true, the node will not publish command
+velocities and the user will have to manually rotate the magnetometer. Default: false.</li>
+<li>
+<code>~rotation_duration</code> - how long to rotate the robot, in seconds.</li>
+<li>
+<code>~rotation_velocity</code> - the yaw velocity to rotate the robot, in rad/s.</li>
+</ul>
+
+<p>Node topics:</p>
+
+<ul>
+<li>
+<code>/imu/mag</code> - the node subscribes to this magnetometer data. Message type
+is <code>sensor_msgs/MagneticField</code>.</li>
+<li>
+<code>/cmd_vel</code> - the node publishes rotation commands to this topic, unless
+manual mode is enabled. Message type is <code>geometry_msgs/Twist</code>.</li>
+</ul>
+
+<p>The output of the calibration is three parameters, <em>mag_bias_x</em>, <em>mag_bias_y</em>,
+and <em>mag_bias_z</em>, which can be used with the <code>imu_filter_madgwick</code> package.</p>
 
 <h1 id="status">Status</h1>
 
@@ -1586,7 +1714,7 @@ package has an example python script for installing the updated files.</p>
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2020-04-27</em>
+          <em>generated on 2020-04-28</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
