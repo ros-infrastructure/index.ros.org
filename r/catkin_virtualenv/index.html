@@ -382,7 +382,7 @@ ga('send', 'pageview');
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-04-29
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-05-21
         </span>
       </td>
     </tr>
@@ -502,9 +502,10 @@ ga('send', 'pageview');
 <p>This package provides a mechanism to:</p>
 
 <ul>
-<li>export python library requirements in <code>requirements.txt</code> format via <code>package.xml</code>.</li>
+<li>export python <code>pip</code> requirements via <code>package.xml</code>.</li>
 <li>bundle a virtualenv within a catkin package, inheriting requirements from any dependencies.</li>
 <li>wrap python scripts and tests in a catkin package with a virtualenv loader.</li>
+<li>change which interpreter is used for executing scripts and tests (i.e. python2, python3, pypy, etc.)</li>
 </ul>
 
 <p>At build time, CMake macros provided by this package will create a virtualenv inside the devel space, and create
@@ -516,10 +517,9 @@ wrapper scripts for any Python scripts in the package. Both will be included in 
 
 <h2 id="exporting-python-requirements">Exporting python requirements</h2>
 
-<p>The package containing python modules with external library dependencies should define a <code>requirements.txt</code>:</p>
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">GitPython</span><span class="o">&gt;=</span><span class="mf">2.1.5</span>
-<span class="n">psutil</span><span class="o">&gt;=</span><span class="mf">5.2.2</span>
-<span class="n">wrapt</span><span class="o">&gt;=</span><span class="mf">1.10.10</span>
+<p>A package containing python modules with external <code>pip</code> dependencies should define a <code>requirements.txt</code>:</p>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">GitPython</span><span class="o">==</span><span class="mf">2.1</span>
+<span class="n">psutil</span><span class="o">==</span><span class="mf">5.2.2</span>
 
 </code></pre></div>
 <p>Add an export to <code>package.xml</code>:</p>
@@ -541,14 +541,11 @@ wrapper scripts for any Python scripts in the package. Both will be included in 
 into a virtualenv. This process will also override the standard <code>catkin_install_python</code> macro to wrap a virtualenv
 loader around the specified python scripts.</p>
 
-<p>This operation does not do any dependency resolution - similar to how <code>pip</code> operates, the topmost dependency declaration
-'wins' (<a href="https://github.com/pypa/pip/issues/988">https://github.com/pypa/pip/issues/988</a>).</p>
-
 <p>Add an build dependency on catkin_virtualenv to <code>package.xml</code>, as well as on any library packages you may want. Traditionally</p>
 <div class="highlight"><pre><code class="language-xml" data-lang="xml"><span class="nt">&lt;build_depend&gt;</span>catkin_virtualenv<span class="nt">&lt;/build_depend&gt;</span>
 
-<span class="c">&lt;!-- In a catkin/python world, this would normally be an exec_depend. However, if `some_python_library` exports 
-requirements.txt, it needs to be pulled in at build time as well --&gt;</span>
+<span class="c">&lt;!-- In a catkin/python world, this would normally be an exec_depend. However, if `some_python_library` exports
+requirements.in, it needs to be pulled in at build time as well --&gt;</span>
 <span class="nt">&lt;depend&gt;</span>some_python_library<span class="nt">&lt;/depend&gt;</span>
 
 </code></pre></div>
@@ -559,7 +556,7 @@ requirements.txt, it needs to be pulled in at build time as well --&gt;</span>
 <span class="c1"># Must be called before catkin_generate_virtualenv</span>
 <span class="nf">catkin_package</span><span class="p">()</span>
 
-<span class="c1"># Generate the virtualenv:</span>
+<span class="c1"># Generate the virtualenv</span>
 <span class="nf">catkin_generate_virtualenv</span><span class="p">()</span>
 
 <span class="c1"># Make sure your python executables are installed using `catkin_install_python`:</span>
@@ -598,8 +595,11 @@ from the test target to the virtualenv target:</p>
 
 <p>The following options are supported by <code>catkin_generate_virtualenv()</code>:</p>
 <div class="highlight"><pre><code class="language-cmake" data-lang="cmake"><span class="nf">catkin_generate_virtualenv</span><span class="p">(</span>
-  <span class="c1"># Select an alternative version of the python interpreter - it must be installed on the system. Minor version is optional.</span>
-  PYTHON_VERSION 3.7  <span class="c1"># Default 2</span>
+  <span class="c1"># Specify the package's set of input requirements to automatically lock</span>
+  INPUT_REQUIREMENTS requirements.in
+
+  <span class="c1"># Select an alternative python interpreter - it must be installed on the system.</span>
+  PYTHON_INTERPRETER python3.7  <span class="c1"># Default python2</span>
 
   <span class="c1"># Choose not to use underlying system packages. This excludes any python packages installed by apt or system-pip from the environment.</span>
   USE_SYSTEM_PACKAGES FALSE  <span class="c1"># Default TRUE</span>
@@ -612,7 +612,36 @@ from the test target to the virtualenv target:</p>
     --no-binary=:all:
     -vvv
 <span class="p">)</span>
+
 </code></pre></div>
+<h3 id="locking-dependencies">Locking dependencies</h3>
+
+<p>This project allows you to lock dependencies by leveraging <code>pip-compile</code>. This is optional, but will prevent your
+python projects from spontaneously combusting in the future!</p>
+
+<p>Instead of specifying <code>requirements.txt</code> directly, create a <code>requirements.in</code> file with some loose specifications:</p>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">GitPython</span><span class="o">&gt;=</span><span class="mi">2</span>
+<span class="n">psutil</span>
+
+</code></pre></div>
+<p>The file specified in CMake options as <code>INPUT_REQUIREMENTS</code> will be used to generate a locked <code>requirements.txt</code>
+at build time. You should check both <code>requirements.in</code> and <code>requirements.txt</code> in with your sources!</p>
+
+<p>To regenerate this file, either delete it and rebuild the project, or run from your project directory:</p>
+
+<p><code>catkin build --this --no-deps --catkin-make-args venv_lock</code></p>
+
+<p>To migrate a package from catkin_virtualenv &lt;=0.5 to use lock files:</p>
+
+<ul>
+<li>Rename <code>requirements.txt</code> to <code>requirements.in</code>,</li>
+<li>Loosen the version specs in <code>requirements.in</code> as much as possible,</li>
+<li>Add <code>INPUT_REQUIREMENTS requirements.in</code> to catkin_generate_virtualenv() in CMakeLists.txt.</li>
+<li>Build and test the package.</li>
+<li>Commit and push changes.</li>
+</ul>
+
+<p>See example: <a href="https://github.com/locusrobotics/aiorospy/pull/30/commits/839b17adbe0c672f5e0d9cca702d12e16b117bca">https://github.com/locusrobotics/aiorospy/pull/30/commits/839b17adbe0c672f5e0d9cca702d12e16b117bca</a></p>
 </div>
             
           </div>
@@ -660,7 +689,7 @@ from the test target to the virtualenv target:</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-04-29
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-05-21
         </span>
       </td>
     </tr>
@@ -780,9 +809,10 @@ from the test target to the virtualenv target:</p>
 <p>This package provides a mechanism to:</p>
 
 <ul>
-<li>export python library requirements in <code>requirements.txt</code> format via <code>package.xml</code>.</li>
+<li>export python <code>pip</code> requirements via <code>package.xml</code>.</li>
 <li>bundle a virtualenv within a catkin package, inheriting requirements from any dependencies.</li>
 <li>wrap python scripts and tests in a catkin package with a virtualenv loader.</li>
+<li>change which interpreter is used for executing scripts and tests (i.e. python2, python3, pypy, etc.)</li>
 </ul>
 
 <p>At build time, CMake macros provided by this package will create a virtualenv inside the devel space, and create
@@ -794,10 +824,9 @@ wrapper scripts for any Python scripts in the package. Both will be included in 
 
 <h2 id="exporting-python-requirements">Exporting python requirements</h2>
 
-<p>The package containing python modules with external library dependencies should define a <code>requirements.txt</code>:</p>
-<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">GitPython</span><span class="o">&gt;=</span><span class="mf">2.1.5</span>
-<span class="n">psutil</span><span class="o">&gt;=</span><span class="mf">5.2.2</span>
-<span class="n">wrapt</span><span class="o">&gt;=</span><span class="mf">1.10.10</span>
+<p>A package containing python modules with external <code>pip</code> dependencies should define a <code>requirements.txt</code>:</p>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">GitPython</span><span class="o">==</span><span class="mf">2.1</span>
+<span class="n">psutil</span><span class="o">==</span><span class="mf">5.2.2</span>
 
 </code></pre></div>
 <p>Add an export to <code>package.xml</code>:</p>
@@ -819,14 +848,11 @@ wrapper scripts for any Python scripts in the package. Both will be included in 
 into a virtualenv. This process will also override the standard <code>catkin_install_python</code> macro to wrap a virtualenv
 loader around the specified python scripts.</p>
 
-<p>This operation does not do any dependency resolution - similar to how <code>pip</code> operates, the topmost dependency declaration
-'wins' (<a href="https://github.com/pypa/pip/issues/988">https://github.com/pypa/pip/issues/988</a>).</p>
-
 <p>Add an build dependency on catkin_virtualenv to <code>package.xml</code>, as well as on any library packages you may want. Traditionally</p>
 <div class="highlight"><pre><code class="language-xml" data-lang="xml"><span class="nt">&lt;build_depend&gt;</span>catkin_virtualenv<span class="nt">&lt;/build_depend&gt;</span>
 
-<span class="c">&lt;!-- In a catkin/python world, this would normally be an exec_depend. However, if `some_python_library` exports 
-requirements.txt, it needs to be pulled in at build time as well --&gt;</span>
+<span class="c">&lt;!-- In a catkin/python world, this would normally be an exec_depend. However, if `some_python_library` exports
+requirements.in, it needs to be pulled in at build time as well --&gt;</span>
 <span class="nt">&lt;depend&gt;</span>some_python_library<span class="nt">&lt;/depend&gt;</span>
 
 </code></pre></div>
@@ -837,7 +863,7 @@ requirements.txt, it needs to be pulled in at build time as well --&gt;</span>
 <span class="c1"># Must be called before catkin_generate_virtualenv</span>
 <span class="nf">catkin_package</span><span class="p">()</span>
 
-<span class="c1"># Generate the virtualenv:</span>
+<span class="c1"># Generate the virtualenv</span>
 <span class="nf">catkin_generate_virtualenv</span><span class="p">()</span>
 
 <span class="c1"># Make sure your python executables are installed using `catkin_install_python`:</span>
@@ -876,8 +902,11 @@ from the test target to the virtualenv target:</p>
 
 <p>The following options are supported by <code>catkin_generate_virtualenv()</code>:</p>
 <div class="highlight"><pre><code class="language-cmake" data-lang="cmake"><span class="nf">catkin_generate_virtualenv</span><span class="p">(</span>
-  <span class="c1"># Select an alternative version of the python interpreter - it must be installed on the system. Minor version is optional.</span>
-  PYTHON_VERSION 3.7  <span class="c1"># Default 2</span>
+  <span class="c1"># Specify the package's set of input requirements to automatically lock</span>
+  INPUT_REQUIREMENTS requirements.in
+
+  <span class="c1"># Select an alternative python interpreter - it must be installed on the system.</span>
+  PYTHON_INTERPRETER python3.7  <span class="c1"># Default python2</span>
 
   <span class="c1"># Choose not to use underlying system packages. This excludes any python packages installed by apt or system-pip from the environment.</span>
   USE_SYSTEM_PACKAGES FALSE  <span class="c1"># Default TRUE</span>
@@ -890,7 +919,36 @@ from the test target to the virtualenv target:</p>
     --no-binary=:all:
     -vvv
 <span class="p">)</span>
+
 </code></pre></div>
+<h3 id="locking-dependencies">Locking dependencies</h3>
+
+<p>This project allows you to lock dependencies by leveraging <code>pip-compile</code>. This is optional, but will prevent your
+python projects from spontaneously combusting in the future!</p>
+
+<p>Instead of specifying <code>requirements.txt</code> directly, create a <code>requirements.in</code> file with some loose specifications:</p>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="n">GitPython</span><span class="o">&gt;=</span><span class="mi">2</span>
+<span class="n">psutil</span>
+
+</code></pre></div>
+<p>The file specified in CMake options as <code>INPUT_REQUIREMENTS</code> will be used to generate a locked <code>requirements.txt</code>
+at build time. You should check both <code>requirements.in</code> and <code>requirements.txt</code> in with your sources!</p>
+
+<p>To regenerate this file, either delete it and rebuild the project, or run from your project directory:</p>
+
+<p><code>catkin build --this --no-deps --catkin-make-args venv_lock</code></p>
+
+<p>To migrate a package from catkin_virtualenv &lt;=0.5 to use lock files:</p>
+
+<ul>
+<li>Rename <code>requirements.txt</code> to <code>requirements.in</code>,</li>
+<li>Loosen the version specs in <code>requirements.in</code> as much as possible,</li>
+<li>Add <code>INPUT_REQUIREMENTS requirements.in</code> to catkin_generate_virtualenv() in CMakeLists.txt.</li>
+<li>Build and test the package.</li>
+<li>Commit and push changes.</li>
+</ul>
+
+<p>See example: <a href="https://github.com/locusrobotics/aiorospy/pull/30/commits/839b17adbe0c672f5e0d9cca702d12e16b117bca">https://github.com/locusrobotics/aiorospy/pull/30/commits/839b17adbe0c672f5e0d9cca702d12e16b117bca</a></p>
 </div>
             
           </div>
@@ -998,7 +1056,7 @@ from the test target to the virtualenv target:</p>
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2020-04-30</em>
+          <em>generated on 2020-05-22</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
