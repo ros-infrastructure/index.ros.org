@@ -386,7 +386,7 @@ ga('send', 'pageview');
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-08-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-09-01
         </span>
       </td>
     </tr>
@@ -463,7 +463,7 @@ ga('send', 'pageview');
                 
                   <tr>
                     <td><a href="/p/fkie_message_filters/github-fkie-message_filters">fkie_message_filters</a></td>
-                    <td>1.1.0</td>
+                    <td>1.1.1</td>
                   </tr>
                 
                 </tbody>
@@ -502,15 +502,75 @@ filters can process arbitrary data types and are not restricted to ROS
 messages. A few filters need access to ROS header information, such as
 time stamp or TF frame identifier.</p>
 
-<p>Technically, the pipeline processing is executed by nested calls to receive and
-send functions. The library is thread-safe and exception-safe, but you are
-expected to handle your own exceptions in your callbacks. Exceptions which
-propagate through the library will abort processing for the message that caused
-the exception, and if not caught eventually by a preceding filter in the
-pipeline, terminate the program.</p>
+<p>Sources and sinks are strongly typed, i.e., each source will only pass on data
+of a particular type, and each sink will only accept data of a particular type.
+The compiler will error out if you try to connect incompatible filters. As the
+strong typing relies on the C++ template mechanism, the error messages can be
+quite verbose and difficult to parse sometimes (looking at you, GCC).</p>
 
-<p>Certain filters, such as the <code>Buffer</code> or the <code>TfFilter</code>, can interoperate with
-ROS callback queues for convenient workload scheduling.</p>
+<p>The library filters support arbitrary arities, i.e., the grouping of multiple
+data types, where items of different types are combined and passed on as a
+unit. This is particularly useful to process messages from distinct topics
+which belong together conceptually, e.g., the <code>sensor_msgs::Image</code> and
+<code>sensor_msgs::CameraInfo</code> messages from a calibrated camera.</p>
+
+<h2 id="getting-started">Getting Started</h2>
+
+<p>While you are free to derive your own classes from the one of the base classes,
+most programs will want to register a custom callback function for their
+application logic.</p>
+
+<p>The <a href="https://fkie.github.io/message_filters/classfkie__message__filters_1_1SimpleUserFilter.html">SimpleUserFilter</a> 
+works almost like a regular ROS callback, but it expects a
+boolean return value that determines if the data is passed on to subsequent
+filters in the pipeline (if any), or if processing terminates. You can use this
+type of filter to consume data at the end of the pipeline, or if you want to
+remove invalid inputs before further processing occurs.</p>
+
+<p>The <a href="https://fkie.github.io/message_filters/classfkie__message__filters_1_1UserFilter.html">UserFilter</a>
+is more generic and can be used if your filter outputs differ
+from its inputs. You can implement pretty much any kind of transforming filter.</p>
+
+<p>The <a href="https://fkie.github.io/message_filters/classfkie__message__filters_1_1UserSource.html">UserSource</a>
+is a simple data source which can be used as callback in third-party code.</p>
+
+<p>As a simple "Hello World" example, consider:</p>
+<div class="highlight"><pre><code class="language-c++" data-lang="c++"><span class="cp">#include &lt;ros/ros.h&gt;
+#include &lt;std_msgs/String.h&gt;
+#include &lt;fkie_message_filters/fkie_message_filters.h&gt;
+</span>
+<span class="k">namespace</span> <span class="n">mf</span> <span class="o">=</span> <span class="n">fkie_message_filters</span><span class="p">;</span>
+
+<span class="k">using</span> <span class="n">StringSubscriber</span> <span class="o">=</span> <span class="n">mf</span><span class="o">::</span><span class="n">Subscriber</span><span class="o">&lt;</span><span class="n">std_msgs</span><span class="o">::</span><span class="n">String</span><span class="p">,</span> <span class="n">mf</span><span class="o">::</span><span class="n">RosMessage</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="k">using</span> <span class="n">StringPublisher</span> <span class="o">=</span> <span class="n">mf</span><span class="o">::</span><span class="n">Publisher</span><span class="o">&lt;</span><span class="n">std_msgs</span><span class="o">::</span><span class="n">String</span><span class="p">,</span> <span class="n">mf</span><span class="o">::</span><span class="n">RosMessage</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="k">using</span> <span class="n">GreetingFilter</span> <span class="o">=</span> <span class="n">mf</span><span class="o">::</span><span class="n">UserFilter</span><span class="o">&lt;</span><span class="n">StringSubscriber</span><span class="o">::</span><span class="n">Output</span><span class="p">,</span> <span class="n">StringPublisher</span><span class="o">::</span><span class="n">Input</span><span class="o">&gt;</span><span class="p">;</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="n">ros</span><span class="o">::</span><span class="n">init</span><span class="p">(</span><span class="n">argc</span><span class="p">,</span> <span class="n">argv</span><span class="p">,</span> <span class="s">"hello"</span><span class="p">);</span>
+    <span class="n">ros</span><span class="o">::</span><span class="n">NodeHandle</span> <span class="n">nh</span><span class="p">;</span>
+    <span class="n">StringSubscriber</span> <span class="n">sub</span><span class="p">(</span><span class="n">nh</span><span class="p">,</span> <span class="s">"name"</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
+    <span class="n">StringPublisher</span> <span class="n">pub</span><span class="p">(</span><span class="n">nh</span><span class="p">,</span> <span class="s">"greeting"</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
+    <span class="n">GreetingFilter</span> <span class="n">flt</span><span class="p">;</span>
+    <span class="n">flt</span><span class="p">.</span><span class="n">set_processing_function</span><span class="p">(</span>
+        <span class="p">[](</span><span class="k">const</span> <span class="n">std_msgs</span><span class="o">::</span><span class="n">String</span><span class="o">&amp;</span> <span class="n">input</span><span class="p">,</span> <span class="k">const</span> <span class="n">GreetingFilter</span><span class="o">::</span><span class="n">CallbackFunction</span><span class="o">&amp;</span> <span class="n">output</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std_msgs</span><span class="o">::</span><span class="n">String</span> <span class="n">greeting</span><span class="p">;</span>
+            <span class="n">greeting</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="s">"Hello, "</span> <span class="o">+</span> <span class="n">input</span><span class="p">.</span><span class="n">data</span> <span class="o">+</span> <span class="s">"!"</span><span class="p">;</span>
+            <span class="n">output</span><span class="p">(</span><span class="n">greeting</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">);</span>
+    <span class="n">mf</span><span class="o">::</span><span class="n">chain</span><span class="p">(</span><span class="n">sub</span><span class="p">,</span> <span class="n">flt</span><span class="p">,</span> <span class="n">pub</span><span class="p">);</span>
+    <span class="n">ros</span><span class="o">::</span><span class="n">spin</span><span class="p">();</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre></div>
+<p>The user-defined filter accepts a <code>std_msgs::String</code> message with a name as input
+and composes a new <code>std_msgs::String</code> message with a personalized greeting as
+output. Note that each source can have arbitrarily many sinks connected to it,
+and vice vera, so the simplicity of the three-link chain in this example is by
+no means a limitation of the library.</p>
 
 <h2 id="available-filters">Available Filters</h2>
 
@@ -521,11 +581,11 @@ details.</p>
 <li>
 <code>Buffer</code>: Store and forward data</li>
 <li>
-<code>CameraPublisher</code>: Publish consumed data to a ROS camera topic</li>
+<code>CameraPublisher</code>: Publish consumed data to a ROS camera topics</li>
 <li>
-<code>CameraSubscriber</code>: Subscribe to a ROS camera topic as data provider</li>
+<code>CameraSubscriber</code>: Subscribe to ROS camera topics as data provider</li>
 <li>
-<code>Combiner</code>: Combine multiple sinks into a single source with one of the
+<code>Combiner</code>: Combine multiple sources into a single one, using one of the
 following policies:
 
 <ul>
@@ -538,7 +598,7 @@ following policies:
 </ul>
 </li>
 <li>
-<code>Divider</code>: Split source with multiple inputs into independent output sinks</li>
+<code>Divider</code>: Split N-ary sources into N unary ones</li>
 <li>
 <code>ImagePublisher</code>: Publish consumed data to a ROS image topic</li>
 <li>
@@ -546,7 +606,7 @@ following policies:
 <li>
 <code>Publisher</code>: Publish consumed data on a ROS topic</li>
 <li>
-<code>Selector</code>: Choose an arbitrary set of inputs to be forwarded</li>
+<code>Selector</code>: Reorder or reduce an N-ary filter</li>
 <li>
 <code>Sequencer</code>: Enforce correct temporal order</li>
 <li>
@@ -561,29 +621,20 @@ following policies:
 <code>UserSource</code>: Manually operated data source</li>
 </ul>
 
-<h2 id="customized-filters">Customized Filters</h2>
+<h2 id="implementation-details">Implementation Details</h2>
 
-<p>While you are free to derive your own classes from the one of the base classes,
-most programs will want to register a custom callback function for their
-application logic.</p>
+<p>The pipeline processing is executed by nested calls to receive and
+send functions. The library is thread-safe and  guarantees basic exception
+safety, but you are expected to handle your own exceptions in your callbacks.
+Exceptions which propagate through library code will abort processing for the
+offending message immediately, even if not all downstream sinks have received
+the message yet. If there is no upstream user-defined filter that catches the
+exception, the uncaught exception will eventually terminate the program. The
+library will detect cycles in the pipeline and abort with a <code>std::logic_error</code>
+exception.</p>
 
-<p>Unlike the original <code>message_filters</code>, which mixed custom callbacks
-and filter chaining, this library keeps those concepts distinct. Therefore,
-there are two dedicated filters, <code>UserFilter</code> and <code>SimpleUserFilter</code>, for
-callback processing.</p>
-
-<p>The <code>SimpleUserFilter</code> works almost like a regular ROS callback, but it
-expects a boolean return value that determines if the data is passed on
-to subsequent filters in the pipeline (if any), or if processing terminates.
-You can use this type of filter to consume data at the end of the pipeline,
-or if you want to remove invalid inputs before further processing occurs.</p>
-
-<p>The <code>UserFilter</code> is more generic and can be used if your filter
-outputs differ from its inputs. You can implement pretty much any kind of
-transforming filter.</p>
-
-<p>A third filter <code>UserSource</code> is a simple data source which can be used as
-callback in third-party code.</p>
+<p>Certain filters, such as the <code>Buffer</code> or the <code>TfFilter</code>, can interoperate with
+ROS callback queues for convenient workload scheduling.</p>
 </div>
             
           </div>
@@ -631,7 +682,7 @@ callback in third-party code.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-08-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-09-01
         </span>
       </td>
     </tr>
@@ -708,7 +759,7 @@ callback in third-party code.</p>
                 
                   <tr>
                     <td><a href="/p/fkie_message_filters/github-fkie-message_filters">fkie_message_filters</a></td>
-                    <td>1.1.0</td>
+                    <td>1.1.1</td>
                   </tr>
                 
                 </tbody>
@@ -747,15 +798,75 @@ filters can process arbitrary data types and are not restricted to ROS
 messages. A few filters need access to ROS header information, such as
 time stamp or TF frame identifier.</p>
 
-<p>Technically, the pipeline processing is executed by nested calls to receive and
-send functions. The library is thread-safe and exception-safe, but you are
-expected to handle your own exceptions in your callbacks. Exceptions which
-propagate through the library will abort processing for the message that caused
-the exception, and if not caught eventually by a preceding filter in the
-pipeline, terminate the program.</p>
+<p>Sources and sinks are strongly typed, i.e., each source will only pass on data
+of a particular type, and each sink will only accept data of a particular type.
+The compiler will error out if you try to connect incompatible filters. As the
+strong typing relies on the C++ template mechanism, the error messages can be
+quite verbose and difficult to parse sometimes (looking at you, GCC).</p>
 
-<p>Certain filters, such as the <code>Buffer</code> or the <code>TfFilter</code>, can interoperate with
-ROS callback queues for convenient workload scheduling.</p>
+<p>The library filters support arbitrary arities, i.e., the grouping of multiple
+data types, where items of different types are combined and passed on as a
+unit. This is particularly useful to process messages from distinct topics
+which belong together conceptually, e.g., the <code>sensor_msgs::Image</code> and
+<code>sensor_msgs::CameraInfo</code> messages from a calibrated camera.</p>
+
+<h2 id="getting-started">Getting Started</h2>
+
+<p>While you are free to derive your own classes from the one of the base classes,
+most programs will want to register a custom callback function for their
+application logic.</p>
+
+<p>The <a href="https://fkie.github.io/message_filters/classfkie__message__filters_1_1SimpleUserFilter.html">SimpleUserFilter</a> 
+works almost like a regular ROS callback, but it expects a
+boolean return value that determines if the data is passed on to subsequent
+filters in the pipeline (if any), or if processing terminates. You can use this
+type of filter to consume data at the end of the pipeline, or if you want to
+remove invalid inputs before further processing occurs.</p>
+
+<p>The <a href="https://fkie.github.io/message_filters/classfkie__message__filters_1_1UserFilter.html">UserFilter</a>
+is more generic and can be used if your filter outputs differ
+from its inputs. You can implement pretty much any kind of transforming filter.</p>
+
+<p>The <a href="https://fkie.github.io/message_filters/classfkie__message__filters_1_1UserSource.html">UserSource</a>
+is a simple data source which can be used as callback in third-party code.</p>
+
+<p>As a simple "Hello World" example, consider:</p>
+<div class="highlight"><pre><code class="language-c++" data-lang="c++"><span class="cp">#include &lt;ros/ros.h&gt;
+#include &lt;std_msgs/String.h&gt;
+#include &lt;fkie_message_filters/fkie_message_filters.h&gt;
+</span>
+<span class="k">namespace</span> <span class="n">mf</span> <span class="o">=</span> <span class="n">fkie_message_filters</span><span class="p">;</span>
+
+<span class="k">using</span> <span class="n">StringSubscriber</span> <span class="o">=</span> <span class="n">mf</span><span class="o">::</span><span class="n">Subscriber</span><span class="o">&lt;</span><span class="n">std_msgs</span><span class="o">::</span><span class="n">String</span><span class="p">,</span> <span class="n">mf</span><span class="o">::</span><span class="n">RosMessage</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="k">using</span> <span class="n">StringPublisher</span> <span class="o">=</span> <span class="n">mf</span><span class="o">::</span><span class="n">Publisher</span><span class="o">&lt;</span><span class="n">std_msgs</span><span class="o">::</span><span class="n">String</span><span class="p">,</span> <span class="n">mf</span><span class="o">::</span><span class="n">RosMessage</span><span class="o">&gt;</span><span class="p">;</span>
+<span class="k">using</span> <span class="n">GreetingFilter</span> <span class="o">=</span> <span class="n">mf</span><span class="o">::</span><span class="n">UserFilter</span><span class="o">&lt;</span><span class="n">StringSubscriber</span><span class="o">::</span><span class="n">Output</span><span class="p">,</span> <span class="n">StringPublisher</span><span class="o">::</span><span class="n">Input</span><span class="o">&gt;</span><span class="p">;</span>
+
+<span class="kt">int</span> <span class="nf">main</span><span class="p">(</span><span class="kt">int</span> <span class="n">argc</span><span class="p">,</span> <span class="kt">char</span><span class="o">**</span> <span class="n">argv</span><span class="p">)</span>
+<span class="p">{</span>
+    <span class="n">ros</span><span class="o">::</span><span class="n">init</span><span class="p">(</span><span class="n">argc</span><span class="p">,</span> <span class="n">argv</span><span class="p">,</span> <span class="s">"hello"</span><span class="p">);</span>
+    <span class="n">ros</span><span class="o">::</span><span class="n">NodeHandle</span> <span class="n">nh</span><span class="p">;</span>
+    <span class="n">StringSubscriber</span> <span class="n">sub</span><span class="p">(</span><span class="n">nh</span><span class="p">,</span> <span class="s">"name"</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
+    <span class="n">StringPublisher</span> <span class="n">pub</span><span class="p">(</span><span class="n">nh</span><span class="p">,</span> <span class="s">"greeting"</span><span class="p">,</span> <span class="mi">1</span><span class="p">);</span>
+    <span class="n">GreetingFilter</span> <span class="n">flt</span><span class="p">;</span>
+    <span class="n">flt</span><span class="p">.</span><span class="n">set_processing_function</span><span class="p">(</span>
+        <span class="p">[](</span><span class="k">const</span> <span class="n">std_msgs</span><span class="o">::</span><span class="n">String</span><span class="o">&amp;</span> <span class="n">input</span><span class="p">,</span> <span class="k">const</span> <span class="n">GreetingFilter</span><span class="o">::</span><span class="n">CallbackFunction</span><span class="o">&amp;</span> <span class="n">output</span><span class="p">)</span>
+        <span class="p">{</span>
+            <span class="n">std_msgs</span><span class="o">::</span><span class="n">String</span> <span class="n">greeting</span><span class="p">;</span>
+            <span class="n">greeting</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="s">"Hello, "</span> <span class="o">+</span> <span class="n">input</span><span class="p">.</span><span class="n">data</span> <span class="o">+</span> <span class="s">"!"</span><span class="p">;</span>
+            <span class="n">output</span><span class="p">(</span><span class="n">greeting</span><span class="p">);</span>
+        <span class="p">}</span>
+    <span class="p">);</span>
+    <span class="n">mf</span><span class="o">::</span><span class="n">chain</span><span class="p">(</span><span class="n">sub</span><span class="p">,</span> <span class="n">flt</span><span class="p">,</span> <span class="n">pub</span><span class="p">);</span>
+    <span class="n">ros</span><span class="o">::</span><span class="n">spin</span><span class="p">();</span>
+    <span class="k">return</span> <span class="mi">0</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre></div>
+<p>The user-defined filter accepts a <code>std_msgs::String</code> message with a name as input
+and composes a new <code>std_msgs::String</code> message with a personalized greeting as
+output. Note that each source can have arbitrarily many sinks connected to it,
+and vice vera, so the simplicity of the three-link chain in this example is by
+no means a limitation of the library.</p>
 
 <h2 id="available-filters">Available Filters</h2>
 
@@ -766,11 +877,11 @@ details.</p>
 <li>
 <code>Buffer</code>: Store and forward data</li>
 <li>
-<code>CameraPublisher</code>: Publish consumed data to a ROS camera topic</li>
+<code>CameraPublisher</code>: Publish consumed data to a ROS camera topics</li>
 <li>
-<code>CameraSubscriber</code>: Subscribe to a ROS camera topic as data provider</li>
+<code>CameraSubscriber</code>: Subscribe to ROS camera topics as data provider</li>
 <li>
-<code>Combiner</code>: Combine multiple sinks into a single source with one of the
+<code>Combiner</code>: Combine multiple sources into a single one, using one of the
 following policies:
 
 <ul>
@@ -783,7 +894,7 @@ following policies:
 </ul>
 </li>
 <li>
-<code>Divider</code>: Split source with multiple inputs into independent output sinks</li>
+<code>Divider</code>: Split N-ary sources into N unary ones</li>
 <li>
 <code>ImagePublisher</code>: Publish consumed data to a ROS image topic</li>
 <li>
@@ -791,7 +902,7 @@ following policies:
 <li>
 <code>Publisher</code>: Publish consumed data on a ROS topic</li>
 <li>
-<code>Selector</code>: Choose an arbitrary set of inputs to be forwarded</li>
+<code>Selector</code>: Reorder or reduce an N-ary filter</li>
 <li>
 <code>Sequencer</code>: Enforce correct temporal order</li>
 <li>
@@ -806,29 +917,20 @@ following policies:
 <code>UserSource</code>: Manually operated data source</li>
 </ul>
 
-<h2 id="customized-filters">Customized Filters</h2>
+<h2 id="implementation-details">Implementation Details</h2>
 
-<p>While you are free to derive your own classes from the one of the base classes,
-most programs will want to register a custom callback function for their
-application logic.</p>
+<p>The pipeline processing is executed by nested calls to receive and
+send functions. The library is thread-safe and  guarantees basic exception
+safety, but you are expected to handle your own exceptions in your callbacks.
+Exceptions which propagate through library code will abort processing for the
+offending message immediately, even if not all downstream sinks have received
+the message yet. If there is no upstream user-defined filter that catches the
+exception, the uncaught exception will eventually terminate the program. The
+library will detect cycles in the pipeline and abort with a <code>std::logic_error</code>
+exception.</p>
 
-<p>Unlike the original <code>message_filters</code>, which mixed custom callbacks
-and filter chaining, this library keeps those concepts distinct. Therefore,
-there are two dedicated filters, <code>UserFilter</code> and <code>SimpleUserFilter</code>, for
-callback processing.</p>
-
-<p>The <code>SimpleUserFilter</code> works almost like a regular ROS callback, but it
-expects a boolean return value that determines if the data is passed on
-to subsequent filters in the pipeline (if any), or if processing terminates.
-You can use this type of filter to consume data at the end of the pipeline,
-or if you want to remove invalid inputs before further processing occurs.</p>
-
-<p>The <code>UserFilter</code> is more generic and can be used if your filter
-outputs differ from its inputs. You can implement pretty much any kind of
-transforming filter.</p>
-
-<p>A third filter <code>UserSource</code> is a simple data source which can be used as
-callback in third-party code.</p>
+<p>Certain filters, such as the <code>Buffer</code> or the <code>TfFilter</code>, can interoperate with
+ROS callback queues for convenient workload scheduling.</p>
 </div>
             
           </div>
@@ -944,7 +1046,7 @@ callback in third-party code.</p>
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2020-09-01</em>
+          <em>generated on 2020-09-02</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
