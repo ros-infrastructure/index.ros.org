@@ -482,7 +482,7 @@ euslime
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>1.0.2</td>
+                <td>1.1.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -530,7 +530,7 @@ euslime
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-06-03
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-09-26
         </span>
       </td>
     </tr>
@@ -551,18 +551,34 @@ euslime
                   
                   
                     
-                      <a href="http://build.ros.org/view/Mdev/job/Mdev__euslime__ubuntu_bionic_amd64" class="label ci-result-success" title="Latest build information: Wed, 03 Jun 2020 07:24:13 GMT
-  Total tests: 0
+                      <div class="dropdown">
+                        <button type="button" data-toggle="dropdown" class="btn label label-primary dropdown-toggle ci-result-failure" title="Latest build information: Sat, 26 Sep 2020 03:26:37 GMT
+  Total tests: 1
   Succeeded: 0
   Skipped: 0
-  Failed: 0
-No build history available for this repository.">
-                        <span class="glyphicon glyphicon-check"></span>
-                        Continuous Integration
-                        
-                          : 0 / 0
-                        
-                      </a>
+  Failed: 1
+Click to show more build history.">
+                          <span class="glyphicon glyphicon-check"></span>
+                          Continuous Integration
+                          
+                            : 0 / 1
+                          
+                          <span class="caret"></span>
+                        </button>
+                        <ul class="dropdown-menu" role="menu">
+                          <li class="dropdown-header">Latest build history: Sat, 26 Sep 2020 03:26:37 GMT (last 1 of 9 builds)</li>
+                          
+                            <li class="ci-build-info ci-result-unstable">
+                              <a href="http://build.ros.org/job/Mdev__euslime__ubuntu_bionic_amd64/9/" target="_blank">
+                                <span class="glyphicon glyphicon-minus"></span>
+                                <span><strong>#9</strong></span>
+                                <span>26-Sep-2020 03:19</span>
+                                <span>0 / 1</span>
+                              </a>
+                            </li>
+                          
+                        </ul>
+                      </div>
                     
                   
                 </td>
@@ -819,6 +835,47 @@ No build history available for this repository.">
 </tr>
 </tbody>
 </table>
+
+<h2 id="how-it-works">How it Works</h2>
+
+<p>Euslime is composed by several layers of software, ultimately connecting the emacs interface to the EusLisp interpreter.</p>
+
+<p><img src="https://user-images.githubusercontent.com/20625381/89138044-2cef6d80-d575-11ea-9923-5eac3dd9c8cc.jpg" alt="euslime-communications"></p>
+
+<p><strong>EMACS</strong> acts as the front-end interface, accepting user input and displaying output correspondingly. It also provides a series of modes, commands and key bindings for improved user experience, which are introduced at <a href="https://github.com/jsk-ros-pkg/euslime/blob/master/euslime.el.in">euslime.el</a>, <a href="https://github.com/jsk-ros-pkg/euslime/blob/master/euslime-config.el">euslime-config.el</a>, and at the original slime framework.</p>
+
+<p><strong>SWANK</strong> is the original slime backend, which handles interactions with emacs by delimiting a protocol that translates emacs commands into s-expressions. Such expressions are sent to and from the inferior lisp client (originally Common Lisp, in this case EusLisp) during an exchange which is logged at the <code>*slime-events*</code> buffer on emacs. A simple example is given below, illustrating an evaluation request for <code>(1+ 1)</code> followed by an output request for <code>2</code>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">(:emacs-rex
+ (swank-repl:listener-eval "(1+ 1)\n")
+ "COMMON-LISP-USER" :repl-thread 6)
+(:write-string "2" :repl-result)
+
+</code></pre></div>
+<p><strong>PYTHON WRAPPER</strong> is responsible for encoding and decoding swank commands into actual EusLisp input/output, as well as managing the communications between the swank and the EusLisp layers.
+In the above example, this means that the python middleware would forward the expression <code>(1+ 1)</code> for evaluation in the EusLisp client, and then wrap the result into a suitable <code>:write-string</code> form which is finally sent to the emacs in order to display it on the screen.
+Although such functionality was originally implemented on slime as a part of the native common lisp framework, here we opt to establish an additional python layer due to its ability to (i) handle multithreading; (ii) cope with EusLisp crashes without compromising the emacs session; and (iii) minimize changes done to the EusLisp lexical environment.</p>
+
+<p>The python middleware is divided into six files with well determined functionality, as detailed in the following.</p>
+
+<p><a href="https://github.com/jsk-ros-pkg/euslime/blob/master/src/euslime/server.py">server.py</a> configures a socket server that communicates with the swank layer, receiving and answering to requests.</p>
+
+<p><a href="https://github.com/jsk-ros-pkg/euslime/blob/master/src/euslime/protocol.py">protocol.py</a> parses incoming s-expressions into python functions, and also defines utility used to generate common swank forms, such as evaluation result or errors.</p>
+
+<p><a href="https://github.com/jsk-ros-pkg/euslime/blob/master/src/euslime/handler.py">handler.py</a> holds the actual definitions of the python functions responsible for handling the swank requests. For instance, the <code>swank_eval</code> function to answer to <code>:swank-repl:listener-eval</code> requests.</p>
+
+<p><a href="https://github.com/jsk-ros-pkg/euslime/blob/master/src/euslime/bridge.py">bridge.py</a> deals with the communications with the EusLisp layer. The EusLisp interpreter is started as a subprocess and interacts with the python layer through pipes and sockets. Pipes are used to pass user input and program output, while sockets are used to transmit evaluation results, errors, and to process other internal requests while avoiding updating the REPL history and variables.</p>
+
+<p><a href="https://github.com/jsk-ros-pkg/euslime/blob/master/src/euslime/logger.py">logger.py</a> configures the logging function, which is displayed in the <code>*inferior-lisp*</code> emacs buffer.</p>
+
+<p><a href="https://github.com/jsk-ros-pkg/euslime/blob/master/src/euslime/cli.py">cli.py</a> bundles all of the above and arranges command line arguments for an euslime executable invoked upon startup.</p>
+
+<p>Finally, in the <strong>EUSLISP</strong> layer a new slime package is defined and a few overwrites are performed in order to establish a framework for properly dealing with socket communications and handler requests. Such functionality is distributed among the following three files:</p>
+
+<p><a href="https://github.com/jsk-ros-pkg/euslime/blob/master/slime-util.l">slime-util.l</a> gathers utility function designed to promptly respond to handler requests which would be hard to define solely with python coding, such as autodoc and completion.</p>
+
+<p><a href="https://github.com/jsk-ros-pkg/euslime/blob/master/slime-connection.l">slime-connection.l</a> configures the socket communication framework, defining two different socket channels: one started from another thread allowing parallel evaluation and the other added to the top-selector allowing access to thread special variables. A custom input stream which communicates to swank at every read attempt is also defined here, allowing for the slime framework to differentiate user input answering to <code>read</code> functions from new evaluation requests.</p>
+
+<p><a href="https://github.com/jsk-ros-pkg/euslime/blob/master/slime-toplevel.l">slime-toplevel.l</a> mainly overwrites lisp repl functions and error handlers so that they can send suitable socket information at each step of the evaluation. It is also responsible for setting up the sockets and streams defined at slime-connection and starting the main evaluation loop.</p>
 </div>
               </div>
             </div>
@@ -834,6 +891,17 @@ No build history available for this repository.">
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-euslime">Changelog for package euslime</h1>
+
+<h2 id="1-1-0-2020-09-26">1.1.0 (2020-09-26)</h2>
+
+<ul>
+<li>  Major updates in python and toplevel</li>
+<li>  Better support for packages</li>
+<li>  Better TAGS functionality</li>
+<li>  Major updates to test suite</li>
+<li>  Bugfix</li>
+<li>  Contributors: Guilherme Affonso</li>
+</ul>
 
 <h2 id="1-0-2-2020-06-01">1.0.2 (2020-06-01)</h2>
 
@@ -1311,7 +1379,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2020-06-05</em>
+          <em>generated on 2020-09-26</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
