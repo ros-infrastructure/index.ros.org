@@ -394,7 +394,7 @@ ga('send', 'pageview');
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-09-25
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2020-09-30
         </span>
       </td>
     </tr>
@@ -489,7 +489,7 @@ ga('send', 'pageview');
 
 <h2 id="overview">Overview</h2>
 
-<p>This repository keeps track of the driver development process. Our goal is to build a ROS Melodic and Noetic driver (i.e. for Linux only) - written in C++ - that is compatible with Septentrio's mosaic-X5 GNSS receiver. It will also be extended to ROS2, modifications mainly addressing launch file configurations. </p>
+<p>This repository keeps track of the driver development process. Our goal is to build a ROS Melodic and Noetic driver (i.e. for Linux only) - written in C++ - that is compatible with Septentrio's mosaic GNSS receiver family and beyond. It will also be extended to ROS2, modifications mainly addressing launch file configurations. </p>
 
 <p>Main Features:
 - Supports serial, TCP/IP and USB connections, the latter being compatible with both the serial and the TCP/IP protocols
@@ -512,7 +512,7 @@ or <a href="https://www.doxygen.nl/manual/install.html">from source</a>.</p>
 
 <h2 id="usage">Usage</h2>
 
-<p>(We will have a binary release only in the end: To install the binary packages, run the following command in a terminal (until now only tested on ROS Melodic):<br><br>
+<p>(We do not yet have a binary release: To install the binary packages, run the following command in a terminal (until now only tested on ROS Melodic):<br><br>
 <code>sudo apt-get install ros-${ROS_DISTRO}-septentrio-gnss-driver</code>.)<br><br>
 Alternatively, the package can also be built from source using <a href="https://catkin-tools.readthedocs.io/en/latest/installing.html"><code>catkin_tools</code></a>, where the latter can be installed using the command<br><br>
 <code>sudo apt-get install python-catkin-tools</code>.<br><br>
@@ -536,22 +536,23 @@ source ~/.bashrc
 <ul>
 <li>In future bash sessions, navigating to the ROSaic package can be achieved from anywhere with no more effort than <code>roscd rosaic</code>. </li>
 <li>The driver assumes the user is logged in to the mosaic with an authorization level set to <code>User</code>, not just <code>Viewer</code>.</li>
-<li>Currently, the driver only works on systems that are little-endian. We will add a ROSaic parameter shortly to address this issue.</li>
+<li>Currently, the driver only works on systems that are little-endian. Most modern computers, including PCs, are little-endian.</li>
 <li>The development process of this driver has been performed for mosaic-x5, firmware (FW) revision number 2. If a more up-to-date FW (higher revision number) is uploaded to the mosaic, the driver will not be able to take account of new or updated SBF fields. </li>
 <li>Further, at the moment, the driver is only a rover driver. We will add a ROSaic parameter shortly to address this issue, such that one will also be able to adapt the (not-yet-existent) <code>base.launch</code> file in the launch directory and configure it as desired.</li>
 <li>ROSaic only works from C++11 onwards due to std::to_string() etc.</li>
+<li>Mosaic receivers are only capable of establishing 10 streams !in total! of SBF blocks / NMEA messages. Please make sure that you do not set too many ROSaic parameters specifying the publishing of ROS messages to true. Note that <code>gpsfix</code> accounts for 4 additional streams (<code>ChannelStatus</code>, <code>DOP</code>, <code>MeasEpoch</code> and <code>VelCovGeodetic</code> blocks). </li>
+<li>The output rate of many published ROS messages such as <code>NavSatFix</code>, <code>GPSFix</code> or <code>sensor_msgs::TimeReference</code> (on the <code>/gpst</code> topic) is dictated by the <code>PVTGeodetic</code> block. </li>
 <li>Once the catkin package is installed, adapt the <code>rover.yaml</code> file according to your needs (the <code>rover.launch</code> need not necessarily be modified). Specify the communication parameters, the ROS messages to be published, the frequency at which the latter should happen etc.:<br>
 </li>
 </ul>
 </li>
 </ul>
-<div class="highlight"><pre><code class="language-" data-lang="">debug: 3
-
-device: /dev/ttyACM0
+<div class="highlight"><pre><code class="language-" data-lang="">device: tcp://xxx.xxx.xxx.xxx:xxxx
 
 serial:
   baudrate: 115200
   mosaic_serial_port: USB1
+  hw_flow_control: off
 
 frame_id: gnss
 
@@ -568,8 +569,8 @@ ant_serial_nr: Unknown
 leap_seconds: 18
 
 polling_period:
-  pvt: 1
-  rest: 1
+  pvt: 500
+  rest: 500
 
 reconnect_delay_s: 2
 
@@ -578,22 +579,32 @@ use_GNSS_time: true
 ntrip_settings:
   mode: off
   caster: 0
-  port: 0
+  caster_port: 0
   username: 0
   password: 0
   mountpoint: 0
-  version: v2
+  ntrip_version: v2
   send_gga: auto
+  mosaic_has_internet: false
+  rtcm_version: RTCMv2
+  mosaic_input_corrections_tcp: 6666
+  mosaic_input_corrections_serial: USB2
 
 publish:
-  gpgga: true
-  pvtcartesian: true
+  gpgga: false
+  gprmc: false
+  gpgsa: false
+  gpgsv: false
+  pvtcartesian: false
   pvtgeodetic: true
+  poscovcartesian: false
   poscovgeodetic: true
   atteuler: true
   attcoveuler: true
+  gpst : false
   navsatfix: true
-  gpsfix: true
+  gpsfix: false
+  posewithcovariancestamped: true
 
 </code></pre></div>
 <p>In order to launch ROSaic, one must specify all <code>arg</code> fields in the <code>rover.launch</code> file which have no associated default values, i.e. for now only the <code>param_file_name</code> field. Hence the launch command would read <code>roslaunch rosaic rover.launch param_file_name:=rover</code>.</p>
@@ -612,7 +623,9 @@ publish:
   - <code>serial</code>: specifications for serial communication
     - <code>serial/baudrate</code>: serial baud rate to be used in a serial connection 
     - <code>serial/mosaic_serial_port</code>: determines to which serial port of mosaic we want to get connected to, e.g. USB1 or COM1
-    - default: <code>115200</code>, <code>USB1</code>
+    - <code>hw_flow_control</code>: specifies whether the serial (mosaic's COM ports, not USB1 or USB2) connection to mosaic should have UART HW flow control enabled or not
+      - <code>off</code> to disable UART HW flow control, <code>RTS|CTS</code> to enable it
+    - default: <code>115200</code>, <code>USB1</code>, <code>off</code>
   - <code>frame_id</code>: name of the ROS tf frame for the mosaic-X5, placed in the header of all published messages
     - In ROS, the <a href="https://wiki.ros.org/tf">tf package</a> lets you keep track of multiple coordinate frames over time. The frame ID will be resolved by <a href="http://wiki.ros.org/geometry/CoordinateFrameConventions"><code>tf_prefix</code></a> if defined. If a ROS message has a header (all of those we publish do), the frame ID can be found via <code>rostopic echo /topic</code>, where <code>/topic</code> is the topic into which the message is being published.
     - default: <code>gnss</code>
@@ -630,27 +643,27 @@ publish:
   - <code>ant_serial_nr</code>: serial number of your particular antenna
   - <code>leap_seconds</code>: number of leap seconds that have been inserted up until the point of ROSaic usage
     - At the time of writing the code (2020), the GPS time was ahead of UTC time by 18 (leap) seconds. Adapt the leap_seconds parameter accordingly as soon as the next leap second is inserted into the UTC time or in case you are using ROSaic for the purpose of simulations.
-  - <code>polling_period/pvt</code>: desired period in seconds between the polling of two consecutive <code>PVTGeodetic</code>, <code>PosCovGeodetic</code>, <code>PVTCartesian</code> and <code>PosCovCartesian</code> blocks and - if published - between the publishing of two of the corresponding ROS messages (e.g. <code>rosaic/PVTGeodetic.msg</code>) yet also <a href="https://docs.ros.org/kinetic/api/sensor_msgs/html/msg/NavSatFix.html"><code>sensor_msgs/NavSatFix.msg</code></a> and <a href="https://docs.ros.org/hydro/api/gps_common/html/msg/GPSFix.html"><code>gps_common/GPSFix.msg</code></a>
+  - <code>polling_period/pvt</code>: desired period in milliseconds between the polling of two consecutive <code>PVTGeodetic</code>, <code>PosCovGeodetic</code>, <code>PVTCartesian</code> and <code>PosCovCartesian</code> blocks and - if published - between the publishing of two of the corresponding ROS messages (e.g. <code>rosaic/PVTGeodetic.msg</code>) yet also <a href="https://docs.ros.org/kinetic/api/sensor_msgs/html/msg/NavSatFix.html"><code>sensor_msgs/NavSatFix.msg</code></a> and <a href="https://docs.ros.org/hydro/api/gps_common/html/msg/GPSFix.html"><code>gps_common/GPSFix.msg</code></a>
     - default: <code>1</code> (1 Hz)
-  - <code>polling_period/rest</code>: desired period in seconds between the polling of all other SBF blocks and NMEA sentences not addressed by the previous parameter, and - if published - between the publishing of all other ROS messages
+  - <code>polling_period/rest</code>: desired period in milliseconds between the polling of all other SBF blocks and NMEA sentences not addressed by the previous parameter, and - if published - between the publishing of all other ROS messages
     - default: <code>1</code> (1 Hz)
   - <code>reconnect_delay_s</code>: delay in seconds between reconnection attempts to the connection specified in the parameter <code>device</code>
     - default: <code>2</code>
   - <code>use_GNSS_time</code>:  <code>true</code> if the ROS message headers' unix epoch time field shall be constructed from the TOW (in the SBF case) and UTC (in the NMEA case) data, <code>false</code> if those times shall be constructed by the driver via the time(NULL) function found in the <code>ctime</code> library
     - default: <code>true</code>
   - <code>ntrip_settings</code>: determines NTRIP connection parameters
+    - The two implemented use cases are 
+      - a) mosaic has internet access, set <code>mosaic_has_internet</code> to true, and 
+      - b) mosaic has no internet access, set <code>mosaic_has_internet</code> to false, but <code>Data Link</code> from Septentrio's RxTools is installed on the computer.
     - The first nested ROS parameter, <code>ntrip_settings/mode</code>, specifies the type of the NTRIP connection and must be one of <code>Client</code>, <code>Client-Sapcorda</code> or <code>off</code>. In <code>Client</code> mode, the receiver receives data from the NTRIP caster. When selecting the <code>Client-Sapcorda</code> mode, the receiver receives data from the Sapcorda NTRIP service and no further settings are required, i.e. all other nested parameters are ignored. Note that the latter mode only works in Europe and North America. Set mode to <code>off</code> to disable all correction services.
     - Next, <code>ntrip_settings/caster</code> is the hostname or IP address of the NTRIP caster to connect to. To send data to the built-in NTRIP caster, use "localhost" for this parameter. 
     - Note that <code>ntrip_settings/port</code>, <code>ntrip_settings/username</code>, <code>ntrip_settings/password</code> and <code>ntrip_settings/mountpoint</code> are the IP port number, the user name, the password and the mount point, respectively, to be used when connecting to the NTRIP caster. The receiver encrypts the password so that it cannot be read back with the command "getNtripSettings". The <code>ntrip_settings/version</code> argument specifies which version of the NTRIP protocol to use (<code>v1</code> or <code>v2</code>).
-    - Finally, <code>send_gga</code> specifies whether or not to send NMEA GGA messages to the NTRIP caster, and at which rate. It must be one of <code>auto</code>, <code>off</code>, <code>sec1</code>, <code>sec5</code>, <code>sec10</code> or <code>sec60</code>. In <code>auto</code> mode, the receiver automatically sends GGA messages if requested by the caster. 
-    - default: <code>off</code>, empty, empty, empty, empty, empty, <code>v2</code>, <code>auto</code>
-- Planned Parameters Configuring Communication Ports and Processing of GNSS Data
-  - <code>navsatfix_with</code>: determines whether the published message <a href="https://docs.ros.org/kinetic/api/sensor_msgs/html/msg/NavSatFix.html"><code>sensor_msgs/NavSatFix.msg</code></a> is constructed from the SBF blocks <code>PVTGeodetic</code> and <code>PosCovGeodetic</code>, or from the NMEA sentences GGA and GSA via a covariance estimation algorithm, which postprocesses dilution of precision (DOP) data
-    - must be one of <code>SBF</code> or <code>NMEA</code>
-    - default: <code>SBF</code>
-  - <code>orientation_with</code>: determines whether the published message <a href="https://docs.ros.org/melodic/api/geometry_msgs/html/msg/PoseWithCovarianceStamped.html"><code>geometry_msgs/PoseWithCovarianceStamped.msg</code></a> is constructed from the SBF blocks <code>AttEuler</code> and <code>AttCovEuler</code>, or from the proprietary NMEA sentence HRP
-    - must be one of <code>AttEuler</code> or <code>HRP</code>
-    - default: <code>HRP</code>  </p>
+    - Further, <code>send_gga</code> specifies whether or not to send NMEA GGA messages to the NTRIP caster, and at which rate. It must be one of <code>auto</code>, <code>off</code>, <code>sec1</code>, <code>sec5</code>, <code>sec10</code> or <code>sec60</code>. In <code>auto</code> mode, the receiver automatically sends GGA messages if requested by the caster. 
+    - The boolean parameter <code>mosaic_has_internet</code> specifies whether mosaic has internet access or not. Note that an Ethernet cable is the only way to enable internet access on mosaic receivers at the moment. In case internet is available, NTRIP will be configured with a simple command <code>snts, ...</code> ROSaic sends to the receiver.
+    - The parameter <code>rtcm_version</code> specifies the type of RTCM data transmitted to ROSaic by the NTRIP caster, either <code>RTCMv2</code> or <code>RTCMv3</code>. It depends on the mountpoint.
+    - In case the connection to the receiver is via TCP, <code>mosaic_input_corrections_tcp</code> specifies the port number of the IP server (IPS1) connection that ROSaic establishes on the receiver. Note that ROSaic will send GGA messages on this connection, such that in the <code>Data Link</code> application of <code>RxTools</code> one just needs to set up a TCP client to the host name as found in the ROSaic parameter <code>device</code> with the port as found in <code>mosaic_input_corrections_tcp</code>. If the latter connection were connection 1 on Data Link, then connection 2 would set up an NTRIP client connecting to the NTRIP caster as specified in the above parameters in order to forward the corrections from connection 2 to connection 1.
+    - Finally, in case we are facing a serial connection (COM or USB), the parameter <code>mosaic_input_corrections_serial</code> analogously determines the port on which corrections could be serially forwarded to mosaic receivers via Data Link.
+    - default: <code>off</code>, empty, empty, empty, empty, empty, <code>v2</code>, <code>auto</code>, <code>false</code>, <code>RTCMv2</code>, <code>6666</code>, <code>USB2</code></p>
 
 <ul>
 <li>Implemented Parameters Configuring (Non-)Publishing of ROS Messages
@@ -664,7 +677,7 @@ publish:
 <li>
 <code>publish/gpgga</code>: <code>true</code> to publish <code>rosaic/GPGGA.msg</code> messages into the topic <code>/gpgga</code>
 </li>
-<li>default: <code>true</code>
+<li>default: <code>false</code>
 </li>
 <li>
 <code>publish/pvtgeodetic</code>: <code>true</code> to publish <code>rosaic/PVTGeodetic.msg</code> messages into the topic <code>/pvtgeodetic</code>
@@ -674,7 +687,7 @@ publish:
 <li>
 <code>publish/pvtcartesian</code>: <code>true</code> to publish <code>rosaic/PVTCartesian.msg</code> messages into the topic <code>/pvtcartesian</code>
 </li>
-<li>default: <code>true</code>
+<li>default: <code>false</code>
 </li>
 <li>
 <code>publish/poscovgeodetic</code>: <code>true</code> to publish <code>rosaic/PosCovGeodetic.msg</code> messages into the topic <code>/poscovgeodetic</code>
@@ -694,40 +707,20 @@ publish:
 <li>
 <code>publish/gpsfix</code>: <code>true</code> to publish <code>gps_common/GPSFix.msg</code> messages into the topic <code>/gpsfix</code>
 </li>
-<li>default: <code>true</code>
+<li>default: <code>false</code>
 </li>
-</ul>
-</li>
-<li>Planned Parameters Configuring (Non-)Publishing of ROS Messages
-
-<ul>
 <li>
 <code>publish/poscovcartesian</code>: <code>true</code> to publish <code>rosaic/PosCovCartesian.msg</code> messages into the topic <code>/poscovcartesian</code>
 </li>
 <li>default: <code>false</code>
 </li>
 <li>
-<code>publish/orientation</code>: <code>true</code> to publish <code>geometry_msgs/PoseWithCovarianceStamped.msg</code> messages into the topic <code>/orientation</code>
+<code>publish/posewithcovariancestamped</code>: <code>true</code> to publish <code>geometry_msgs/PoseWithCovarianceStamped.msg</code> messages into the topic <code>/orientation</code>
 </li>
 <li>default: <code>false</code>
 </li>
 <li>
 <code>publish/gpst</code>: <code>true</code> to publish <code>sensor_msgs/TimeReference.msg</code> messages into the topic <code>/gpst</code>
-</li>
-<li>default: <code>false</code>
-</li>
-<li>
-<code>publish/glonasst</code>: <code>true</code> to publish <code>sensor_msgs/TimeReference.msg</code> messages into the topic <code>/glonasst</code>
-</li>
-<li>default: <code>false</code>
-</li>
-<li>
-<code>publish/gst</code>: <code>true</code> to publish <code>sensor_msgs/TimeReference.msg</code> messages into the topic <code>/gst</code>
-</li>
-<li>default: <code>false</code>
-</li>
-<li>
-<code>publish/bdt</code>: <code>true</code> to publish <code>sensor_msgs/TimeReference.msg</code> messages into the topic <code>/bdt</code>
 </li>
 <li>default: <code>false</code>
 </li>
@@ -746,6 +739,11 @@ publish:
 </li>
 <li>default: <code>false</code>
 </li>
+</ul>
+</li>
+<li>Planned Parameters Configuring (Non-)Publishing of ROS Messages
+
+<ul>
 <li>
 <code>publish/rosdiagnostics</code>: <code>true</code> to publish <code>diagnostic_msgs/DiagnosticArray.msg</code> messages into the topic <code>/rosdiagnostics</code>
 </li>
@@ -762,16 +760,6 @@ publish:
 <li>default: <code>false</code>
 </li>
 <li>
-<code>publish/basestation</code>: <code>true</code> to publish <code>rosaic/BaseStation.msg</code> messages into the topic <code>/basestation</code>
-</li>
-<li>default: <code>false</code>
-</li>
-<li>
-<code>publish/rtcmdatum</code>: <code>true</code> to publish <code>rosaic/RTCMDatum.msg</code> messages into the topic <code>/rtcmdatum</code>
-</li>
-<li>default: <code>false</code>
-</li>
-<li>
 <code>publish/receivertime</code>: <code>true</code> to publish <code>rosaic/ReceiverTime.msg</code> messages into the topic <code>/receivertime</code>
 </li>
 <li>default: <code>false</code>
@@ -784,27 +772,24 @@ publish:
 
 <p>A selection of NMEA sentences, the majority being standardized sentences, and proprietary SBF blocks is translated into ROS messages, partly generic and partly custom, and can be published at the discretion of the user into the following ROS topics. Only ROS messages <code>sensor_msgs/NavSatFix</code> and <code>gps_common/GPSFix</code> are published by default. All published ROS messages, even custom ones, start with a ROS generic header <a href="https://docs.ros.org/melodic/api/std_msgs/html/msg/Header.html"><code>std_msgs/Header.msg</code></a>, which includes the receiver time stamp as well as the frame ID, the latter being specified in the ROS parameter <code>frame_id</code>.
 - Implemented Topics
-  - <code>/navsatfix</code>: accepts generic ROS message <a href="https://docs.ros.org/kinetic/api/sensor_msgs/html/msg/NavSatFix.html"><code>sensor_msgs/NavSatFix.msg</code></a>, converted from the SBF blocks <code>PVTGeodetic</code> and <code>PosCovGeodetic</code> or from the NMEA sentences GGA and GSA via a covariance estimation algorithm
+  - <code>/navsatfix</code>: publishes generic ROS message <a href="https://docs.ros.org/kinetic/api/sensor_msgs/html/msg/NavSatFix.html"><code>sensor_msgs/NavSatFix.msg</code></a>, converted from the SBF blocks <code>PVTGeodetic</code> and <code>PosCovGeodetic</code> or from the NMEA sentences GGA and GSA via a covariance estimation algorithm
     - The ROS message <a href="https://docs.ros.org/kinetic/api/sensor_msgs/html/msg/NavSatFix.html"><code>sensor_msgs/NavSatFix.msg</code></a> can be fed directly into the <a href="https://docs.ros.org/melodic/api/robot_localization/html/navsat_transform_node.html"><code>navsat_transform_node</code></a> of the ROS navigation stack.
-  - <code>/pvtgeodetic</code>: accepts custom ROS message <code>rosaic/PVTGeodetic.msg</code>, corresponding to the SBF block <code>PVTGeodetic</code>
-  - <code>/poscovgeodetic</code>: accepts custom ROS message <code>rosaic/PosCovGeodetic.msg</code>, corresponding to SBF block <code>PosCovGeodetic</code>
-  - <code>/pvtcartesian</code>: accepts custom ROS message <code>rosaic/PVTCartesian.msg</code>, corresponding to the SBF block <code>PVTCartesian</code>
-  - <code>/gpgga</code>: accepts generic ROS message <a href="https://docs.ros.org/api/nmea_msgs/html/msg/Gpgga.html"><code>nmea_msgs/Gpgga.msg</code></a>, converted from the NMEA sentence GGA
-  - <code>/gpsfix</code>: accepts generic ROS message <a href="https://docs.ros.org/hydro/api/gps_common/html/msg/GPSFix.html"><code>gps_common/GPSFix.msg</code></a>, which is much more detailed than <a href="https://docs.ros.org/kinetic/api/sensor_msgs/html/msg/NavSatFix.html"><code>sensor_msgs/NavSatFix.msg</code></a>, converted from the SBF blocks <code>PVTGeodetic</code>, <code>PosCovGeodetic</code>, <code>SatVisibility</code>, <code>ChannelStatus</code>, <code>AttEuler</code> and <code>AttCovEuler</code> (or from proprietary NMEA sentence HRP) and <code>DOP</code>
-  - <code>/atteuler</code>: accepts custom ROS message <code>rosaic/AttEuler.msg</code>, corresponding to SBF block <code>AttEuler</code>
-  - <code>/attcoveuler</code>: accepts custom ROS message <code>rosaic/AttCovEuler.msg</code>, corresponding to the SBF block <code>AttCovEuler</code>
+  - <code>/pvtgeodetic</code>: publishes custom ROS message <code>rosaic/PVTGeodetic.msg</code>, corresponding to the SBF block <code>PVTGeodetic</code>
+  - <code>/poscovgeodetic</code>: publishes custom ROS message <code>rosaic/PosCovGeodetic.msg</code>, corresponding to SBF block <code>PosCovGeodetic</code>
+  - <code>/pvtcartesian</code>: publishes custom ROS message <code>rosaic/PVTCartesian.msg</code>, corresponding to the SBF block <code>PVTCartesian</code>
+  - <code>/gpgga</code>: publishes generic ROS message <a href="https://docs.ros.org/api/nmea_msgs/html/msg/Gpgga.html"><code>nmea_msgs/Gpgga.msg</code></a>, converted from the NMEA sentence GGA
+  - <code>/gpsfix</code>: publishes generic ROS message <a href="https://docs.ros.org/hydro/api/gps_common/html/msg/GPSFix.html"><code>gps_common/GPSFix.msg</code></a>, which is much more detailed than <a href="https://docs.ros.org/kinetic/api/sensor_msgs/html/msg/NavSatFix.html"><code>sensor_msgs/NavSatFix.msg</code></a>, converted from the SBF blocks <code>PVTGeodetic</code>, <code>PosCovGeodetic</code>, <code>ChannelStatus</code>, <code>MeasEpoch</code>, <code>AttEuler</code>, <code>AttCovEuler</code> and <code>DOP</code>
+  - <code>/atteuler</code>: publishes custom ROS message <code>rosaic/AttEuler.msg</code>, corresponding to SBF block <code>AttEuler</code>
+  - <code>/attcoveuler</code>: publishes custom ROS message <code>rosaic/AttCovEuler.msg</code>, corresponding to the SBF block <code>AttCovEuler</code>
     - In ROS, all state estimation nodes in the <a href="https://docs.ros.org/melodic/api/robot_localization/html/index.html"><code>robot_localization</code> package</a> can accept the ROS message <code>geometry_msgs/PoseWithCovarianceStamped.msg</code>.
-- Planned Topics
-  - <code>/poscovcartesian</code>: accepts custom ROS message <code>rosaic/PosCovCartesian.msg</code>, corresponding to SBF block <code>PosCovCartesian</code>
-  - <code>/orientation</code>: accepts generic ROS message <a href="https://docs.ros.org/melodic/api/geometry_msgs/html/msg/PoseWithCovarianceStamped.html"><code>geometry_msgs/PoseWithCovarianceStamped.msg</code></a>, converted from either SBF blocks <code>AttEuler</code> and <code>AttCovEuler</code>, or from proprietary NMEA sentence HRP
-  - <code>/gpst</code> (for GPS Time): accepts generic ROS message <a href="https://docs.ros.org/melodic/api/sensor_msgs/html/msg/TimeReference.html"><code>sensor_msgs/TimeReference.msg</code></a>, converted from the SBF block <code>GPSUtc</code>
-  - <code>/glonasst</code> (for GLONASS Time): accepts generic ROS message <a href="https://docs.ros.org/melodic/api/sensor_msgs/html/msg/TimeReference.html"><code>sensor_msgs/TimeReference.msg</code></a>, converted from the SBF block <code>GLOTime</code>
-  - <code>/gst</code> (for Galileo System Time): accepts generic ROS message <a href="https://docs.ros.org/melodic/api/sensor_msgs/html/msg/TimeReference.html"><code>sensor_msgs/TimeReference.msg</code></a>, converted from the SBF block <code>GALUtc</code>
-  - <code>/bdt</code> (for BeiDou Time): accepts generic ROS message <a href="https://docs.ros.org/melodic/api/sensor_msgs/html/msg/TimeReference.html"><code>sensor_msgs/TimeReference.msg</code></a>, converted from the SBF block <code>BDSUtc</code>
+  - <code>/poscovcartesian</code>: publishes custom ROS message <code>rosaic/PosCovCartesian.msg</code>, corresponding to SBF block <code>PosCovCartesian</code>
+  - <code>/posewithcovariancestamped</code>: publishes generic ROS message <a href="https://docs.ros.org/melodic/api/geometry_msgs/html/msg/PoseWithCovarianceStamped.html"><code>geometry_msgs/PoseWithCovarianceStamped.msg</code></a>, converted from the SBF blocks <code>PVTGeodetic</code>, <code>PosCovGeodetic</code>, <code>AttEuler</code> and <code>AttCovEuler</code>
+    - Note that GNSS provides absolute positioning, while robots are often localized within a local level frame. The pose field of this ROS message contains position with respect to the absolute ENU frame (longitude, latitude, height), while the orientation is with respect to a vehicle-fixed (e.g. for mosaic-x5 in moving base mode via the command setAntennaLocation, ...) !local! NED frame. Thus the orientation is !not! given with respect to the same frame as the position is given in. The cross-covariances are hence set to 0.
+  - <code>/gpst</code> (for GPS Time): publishes generic ROS message <a href="https://docs.ros.org/melodic/api/sensor_msgs/html/msg/TimeReference.html"><code>sensor_msgs/TimeReference.msg</code></a>, converted from the SBF block <code>GPSUtc</code>
   - <code>/gprmc</code>: accepts generic ROS message <a href="https://docs.ros.org/api/nmea_msgs/html/msg/Gprmc.html"><code>nmea_msgs/Gprmc.msg</code></a>, converted from the NMEA sentence RMC
   - <code>/gpgsa</code>: accepts generic ROS message <a href="https://docs.ros.org/api/nmea_msgs/html/msg/Gpgsa.html"><code>nmea_msgs/Gpgsa.msg</code></a>, converted from the NMEA sentence GSA
   - <code>/gpgsv</code>: accepts generic ROS message <a href="https://docs.ros.org/api/nmea_msgs/html/msg/Gpgsv.html"><code>nmea_msgs/Gpgsv.msg</code></a>, converted from the NMEA sentence GSV
-  - <code>/hrp</code>: accepts custom ROS message <code>rosaic/HRP.msg</code>, corresponding to the proprietary NMEA sentence GSV
+- Planned Topics
   - <code>/rosdiagnostics</code>: accepts generic ROS message <a href="https://docs.ros.org/api/diagnostic_msgs/html/msg/DiagnosticArray.html"><code>diagnostic_msgs/DiagnosticArray.msg</code></a>, converted from the SBF blocks <code>QualityInd</code> and <code>ReceiverStatus</code>
   - <code>/receiversetup</code>: accepts custom ROS message <code>rosaic/ReceiverSetup.msg</code>, corresponding to the SBF block <code>ReceiverSetup</code>
   - <code>/inputlink</code>: accepts custom ROS message <code>rosaic/InputLink.msg</code>, corresponding to the SBF block <code>InputLink</code>
@@ -818,11 +803,12 @@ publish:
 <li>Incorporating PCAP: For PCAP connections the ROS parameter <code>device</code> could be generalized to accept the path to the .pcap file. In this case, the node could exit automatically after finishing playback.</li>
 <li>Publishing the topic <code>/basestation</code>: It could accept the custom ROS message <code>rosaic/BaseStation.msg</code>, corresponding to the SBF block <code>BaseStation</code> (e.g. to know position of base).</li>
 <li>Publishing the topic <code>/rtcmdatum</code>: It could accept the custom ROS message <code>rosaic/RTCMDatum.msg</code>, corresponding to the SBF block <code>RTCMDatum</code> (whose purpose is to get a datum that is more local).</li>
-<li>Attention, challenging! Publishing the topic <code>/measepoch</code>: It could accept the custom ROS message <code>rosaic/MeasEpoch.msg</code>, corresponding to the SBF block <code>MeasEpoch</code> (raw GNSS data).</li>
+<li>Publishing the topic <code>/measepoch</code>: It could accept the custom ROS message <code>rosaic/MeasEpoch.msg</code>, corresponding to the SBF block <code>MeasEpoch</code> (raw GNSS data).</li>
 <li>Publishing the topic <code>/twistwithcovariancestamped</code>: It could accept the generic ROS message <a href="https://docs.ros.org/melodic/api/geometry_msgs/html/msg/TwistWithCovarianceStamped.html"><code>geometry_msgs/TwistWithCovarianceStamped.msg</code></a>, converted from the SBF blocks <code>PVTGeodetic</code>, <code>PosCovGeodetic</code> and some others (which?, where to get angular, i.e. rotational, velocity + covariances from?), or via standardized NMEA sentences (cf. the <a href="https://wiki.ros.org/nmea_navsat_driver">NMEA driver</a>).</li>
 <li>The ROS message <a href="https://docs.ros.org/melodic/api/geometry_msgs/html/msg/TwistWithCovarianceStamped.html"><code>geometry_msgs/TwistWithCovarianceStamped.msg</code></a> could be fed directly into the <a href="https://docs.ros.org/melodic/api/robot_localization/html/index.html"><code>robot_localization</code></a> nodes of the ROS navigation stack.</li>
-<li>Additional ROSaic parameter: mosaic login name and password</li>
-<li>Additional ROSaic parameter: endianness of the system</li>
+<li>Additional ROSaic parameter: mosaic login name and password.</li>
+<li>Additional ROSaic parameter: endianness of the system.</li>
+<li>Equip ROSaic with an NTRIP client such that it can forward corrections on its own to the receiver.</li>
 </ul>
 
 <h2 id="adding-new-sbf-blocks-or-nmea-messages">Adding New SBF Blocks or NMEA messages</h2>
@@ -956,7 +942,7 @@ publish:
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2020-09-27</em>
+          <em>generated on 2020-10-03</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
