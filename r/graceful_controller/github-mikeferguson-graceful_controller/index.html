@@ -551,7 +551,7 @@ from base_local_planner and dwa_local_planner packages in the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-06-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-06-14
         </span>
       </td>
     </tr>
@@ -655,9 +655,148 @@ and Kuipers, ICRA 2011.</p>
 
 <p>Currently this does not implement section IV.B of the paper (which
 describes how to switch between poses along a path). Instead this controller
-has a naive approach which attempts to use the farthest pose in the path
+has a naive approach which attempts to find the farthest pose in the path
 which is both A) less than some maximum lookahead distance away, and B)
-reachable with our current control law parameters without collision.</p>
+reachable (without collision) using our control law (as determined by
+a forward simulation).</p>
+
+<h2 id="ros-topics">ROS Topics</h2>
+
+<p>As with nearly all navigation local controllers, our controller outputs
+both a global path and a local path as a <em>nav_msgs::Path</em>.</p>
+
+<p>The "local path" is derived through a forward simulation of where
+the robot is expected to travel by iteratively applying the control law.
+Unlike the DWA controller, our forward simulation is NOT based on applying
+the same command throughout a fixed simulation time, but rather based
+on calling our control law multiple times as we forward simulate our
+path to the "target pose". As long as the acceleration limits are
+correctly specified, and the robot controllers can execute the velocities
+commanded, this will be the true path that the robot will follow.</p>
+
+<p>An additional topic that is unique to our controller is the "target_pose"
+topic which is a <em>geometry_msgs::PoseStamped</em>. This is published every
+time we compute the command velocity for the robot and tells you which
+pose in the global plan we are using for computing the control law. It
+is potentially helpful in debugging parameter tuning issues.</p>
+
+<h2 id="parameters">Parameters</h2>
+
+<p>The underlying control law has several parameters which are best described
+by the original paper, these include:</p>
+
+<ul>
+<li>
+<strong>k1</strong> - controls convergence of control law.</li>
+<li>
+<strong>k2</strong> - controls convergence of control law.</li>
+<li>
+<strong>lambda</strong> - controls speed scaling based on curvature.</li>
+<li>
+<strong>beta</strong> - controls speed scaling based on curvature.</li>
+</ul>
+
+<p>Several parameters are used for selecting and simulating the target pose used
+to compute the control law:</p>
+
+<ul>
+<li>
+<strong>max_lookahead</strong> - the target pose cannot be further than this distance
+away from the robot. A good starting value for this is usually about 1m.
+Using poses that are further away will generally result in smoother
+operations, but simulating poses that are very far away can result in
+reduced performance, especially in tight or cluttered environments.
+If the controller cannot forward simulate to a pose this far away without
+colliding, it will iteratively select a target pose that is closer to the
+robot.
+
+<ul>
+<li>
+<strong>acc_dt</strong> - this parameter is used to set the maximum velocity that the
+control law can use when generating velocities during the path simulation.</li>
+</ul>
+</li>
+</ul>
+
+<p>There are several major "features" that are optional and configured through
+one or more parameters:</p>
+
+<ul>
+<li>
+<strong>odom_topic</strong> - by setting this parameter to the name of the odometry
+topic, the controller will subscribe to the odometry topic and limit
+the control law velocities to those that are feasible based on the current
+robot velocity. Without odometry, performance will be degraded.</li>
+<li>
+<strong>use_vel_topic</strong> - in ROS1 there is no standard way of defining a
+"speed limit map". If this parameter is set to true, the controller will
+subscribe to a <em>std_msgs::Float32</em> topic called "max_vel_x" and use this
+to supercede our <em>max_vel_x</em> parameter.</li>
+<li>
+<strong>initial_rotate_tolerance</strong> - when the robot is pointed in a very
+different direction from the path, the control law (depending on k1 and k2)
+may generate large sweeping arcs. To avoid this potentially undesired behavior
+when the robot begins executing a new path, the controller can produce an
+initial in-place rotation to get the robot headed towards the path before it
+starts using the control law to follow it. The initial rotate tolerance is
+the maximum angular difference (in radians) between robot heading and the
+target pose. This feature can be disabled by setting <em>initial_rotate_tolerance</em>
+to 0.0.</li>
+<li>
+<strong>prefer_final_rotation</strong> - similar to the initial rotation issue many
+plans may cause large arcs at the end of a path because the orientation of
+the final pose is significantly different from the direction the robot would
+drive to follow the path as planned. By setting <em>prefer_final_rotation</em> to
+true, the orientation of the final pose will be ignored and the robot will
+more closely follow the path as planned and then produce a final in-place
+rotation to align the robot heading with the goal.</li>
+<li>
+<strong>yaw_filter_tolerance</strong> - since the controller is highly dependent on the
+angular heading of the target pose it is important the angular values are
+smooth. Some global planners may produce very unsmooth headings due to
+discretization errors.</li>
+</ul>
+
+<p>Most of the above parameters can be left to their defaults and work well
+on a majority of robots. The following parameters, however, really do
+depend on the robot platform itself and must be set as accurately as
+possible:</p>
+
+<ul>
+<li>
+<strong>acc_lim_x</strong> - this is likely the <strong>most important</strong> parameter to set
+properly. If the acceleration limits are overestimated the robot will not
+be able to follow the generated commands. During braking, this can cause
+the robot to crash into obstacles. Units: meters/sec^2.</li>
+<li>
+<strong>acc_lim_theta</strong> - the same notes as for <em>acc_lim_x</em>, but in rad/sec^2.</li>
+<li>
+<strong>max_vel_x</strong> - this is the maximum velocity the controller is allowed to
+specify. Units: meters/sec.</li>
+<li>
+<strong>min_vel_x</strong> - when the commanded velocities have a high curvature, the
+robot is naturally slowed down (see the ICRA paper for details). The minimum
+velocity is the lowest velocity that will be generated when not executing
+an in-place rotation. Most robots have some amount of friction in their
+drivetrain and casters and cannot accurately move forward at speeds below
+some threshold, especially if also trying to turn slightly at the same time.
+Units: meters/sec.</li>
+<li>
+<strong>max_vel_theta</strong> - the maximum rotation velocity that will be produced by
+the control law. Units: rad/sec.</li>
+<li>
+<strong>min_in_place_vel_theta</strong> - this is the minimum rotation velocity that
+will be used for in-place rotations. As with <em>min_vel_x</em>, this is largely
+hardware dependent since the robot has some minimum rotational velocity
+that can be reliably controlled. Units: rad/sec.</li>
+<li>
+<strong>xy_goal_tolerance</strong> - this is the linear distance within which we consider
+the goal reached. When <em>prefer_final_rotation</em> is set to true, we will only
+generate final rotations once this tolerance is met. Units: meters.</li>
+<li>
+<strong>yaw_goal_tolerance</strong> - this is the angular distance within which we consider
+the goal reached. Units: radians.</li>
+</ul>
 
 <h2 id="example-config">Example Config</h2>
 
@@ -728,7 +867,7 @@ from base_local_planner and dwa_local_planner packages in the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-06-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-06-14
         </span>
       </td>
     </tr>
@@ -832,9 +971,148 @@ and Kuipers, ICRA 2011.</p>
 
 <p>Currently this does not implement section IV.B of the paper (which
 describes how to switch between poses along a path). Instead this controller
-has a naive approach which attempts to use the farthest pose in the path
+has a naive approach which attempts to find the farthest pose in the path
 which is both A) less than some maximum lookahead distance away, and B)
-reachable with our current control law parameters without collision.</p>
+reachable (without collision) using our control law (as determined by
+a forward simulation).</p>
+
+<h2 id="ros-topics">ROS Topics</h2>
+
+<p>As with nearly all navigation local controllers, our controller outputs
+both a global path and a local path as a <em>nav_msgs::Path</em>.</p>
+
+<p>The "local path" is derived through a forward simulation of where
+the robot is expected to travel by iteratively applying the control law.
+Unlike the DWA controller, our forward simulation is NOT based on applying
+the same command throughout a fixed simulation time, but rather based
+on calling our control law multiple times as we forward simulate our
+path to the "target pose". As long as the acceleration limits are
+correctly specified, and the robot controllers can execute the velocities
+commanded, this will be the true path that the robot will follow.</p>
+
+<p>An additional topic that is unique to our controller is the "target_pose"
+topic which is a <em>geometry_msgs::PoseStamped</em>. This is published every
+time we compute the command velocity for the robot and tells you which
+pose in the global plan we are using for computing the control law. It
+is potentially helpful in debugging parameter tuning issues.</p>
+
+<h2 id="parameters">Parameters</h2>
+
+<p>The underlying control law has several parameters which are best described
+by the original paper, these include:</p>
+
+<ul>
+<li>
+<strong>k1</strong> - controls convergence of control law.</li>
+<li>
+<strong>k2</strong> - controls convergence of control law.</li>
+<li>
+<strong>lambda</strong> - controls speed scaling based on curvature.</li>
+<li>
+<strong>beta</strong> - controls speed scaling based on curvature.</li>
+</ul>
+
+<p>Several parameters are used for selecting and simulating the target pose used
+to compute the control law:</p>
+
+<ul>
+<li>
+<strong>max_lookahead</strong> - the target pose cannot be further than this distance
+away from the robot. A good starting value for this is usually about 1m.
+Using poses that are further away will generally result in smoother
+operations, but simulating poses that are very far away can result in
+reduced performance, especially in tight or cluttered environments.
+If the controller cannot forward simulate to a pose this far away without
+colliding, it will iteratively select a target pose that is closer to the
+robot.
+
+<ul>
+<li>
+<strong>acc_dt</strong> - this parameter is used to set the maximum velocity that the
+control law can use when generating velocities during the path simulation.</li>
+</ul>
+</li>
+</ul>
+
+<p>There are several major "features" that are optional and configured through
+one or more parameters:</p>
+
+<ul>
+<li>
+<strong>odom_topic</strong> - by setting this parameter to the name of the odometry
+topic, the controller will subscribe to the odometry topic and limit
+the control law velocities to those that are feasible based on the current
+robot velocity. Without odometry, performance will be degraded.</li>
+<li>
+<strong>use_vel_topic</strong> - in ROS1 there is no standard way of defining a
+"speed limit map". If this parameter is set to true, the controller will
+subscribe to a <em>std_msgs::Float32</em> topic called "max_vel_x" and use this
+to supercede our <em>max_vel_x</em> parameter.</li>
+<li>
+<strong>initial_rotate_tolerance</strong> - when the robot is pointed in a very
+different direction from the path, the control law (depending on k1 and k2)
+may generate large sweeping arcs. To avoid this potentially undesired behavior
+when the robot begins executing a new path, the controller can produce an
+initial in-place rotation to get the robot headed towards the path before it
+starts using the control law to follow it. The initial rotate tolerance is
+the maximum angular difference (in radians) between robot heading and the
+target pose. This feature can be disabled by setting <em>initial_rotate_tolerance</em>
+to 0.0.</li>
+<li>
+<strong>prefer_final_rotation</strong> - similar to the initial rotation issue many
+plans may cause large arcs at the end of a path because the orientation of
+the final pose is significantly different from the direction the robot would
+drive to follow the path as planned. By setting <em>prefer_final_rotation</em> to
+true, the orientation of the final pose will be ignored and the robot will
+more closely follow the path as planned and then produce a final in-place
+rotation to align the robot heading with the goal.</li>
+<li>
+<strong>yaw_filter_tolerance</strong> - since the controller is highly dependent on the
+angular heading of the target pose it is important the angular values are
+smooth. Some global planners may produce very unsmooth headings due to
+discretization errors.</li>
+</ul>
+
+<p>Most of the above parameters can be left to their defaults and work well
+on a majority of robots. The following parameters, however, really do
+depend on the robot platform itself and must be set as accurately as
+possible:</p>
+
+<ul>
+<li>
+<strong>acc_lim_x</strong> - this is likely the <strong>most important</strong> parameter to set
+properly. If the acceleration limits are overestimated the robot will not
+be able to follow the generated commands. During braking, this can cause
+the robot to crash into obstacles. Units: meters/sec^2.</li>
+<li>
+<strong>acc_lim_theta</strong> - the same notes as for <em>acc_lim_x</em>, but in rad/sec^2.</li>
+<li>
+<strong>max_vel_x</strong> - this is the maximum velocity the controller is allowed to
+specify. Units: meters/sec.</li>
+<li>
+<strong>min_vel_x</strong> - when the commanded velocities have a high curvature, the
+robot is naturally slowed down (see the ICRA paper for details). The minimum
+velocity is the lowest velocity that will be generated when not executing
+an in-place rotation. Most robots have some amount of friction in their
+drivetrain and casters and cannot accurately move forward at speeds below
+some threshold, especially if also trying to turn slightly at the same time.
+Units: meters/sec.</li>
+<li>
+<strong>max_vel_theta</strong> - the maximum rotation velocity that will be produced by
+the control law. Units: rad/sec.</li>
+<li>
+<strong>min_in_place_vel_theta</strong> - this is the minimum rotation velocity that
+will be used for in-place rotations. As with <em>min_vel_x</em>, this is largely
+hardware dependent since the robot has some minimum rotational velocity
+that can be reliably controlled. Units: rad/sec.</li>
+<li>
+<strong>xy_goal_tolerance</strong> - this is the linear distance within which we consider
+the goal reached. When <em>prefer_final_rotation</em> is set to true, we will only
+generate final rotations once this tolerance is met. Units: meters.</li>
+<li>
+<strong>yaw_goal_tolerance</strong> - this is the angular distance within which we consider
+the goal reached. Units: radians.</li>
+</ul>
 
 <h2 id="example-config">Example Config</h2>
 
@@ -989,7 +1267,7 @@ from base_local_planner and dwa_local_planner packages in the
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2021-06-13</em>
+          <em>generated on 2021-06-14</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
