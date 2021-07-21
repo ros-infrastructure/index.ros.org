@@ -479,7 +479,7 @@ magni_viz
     
     
     
-    <a href="#noetic-assets" data-toggle="tab"><span class="label label-primary">2</span> Assets</a>
+    <a href="#noetic-assets" data-toggle="tab"><span class="label label-primary">1</span> Assets</a>
   </li>
   <li class="better-tabs">
     
@@ -565,7 +565,7 @@ magni_viz
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-06-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-07-20
         </span>
       </td>
     </tr>
@@ -662,18 +662,85 @@ magni_viz
       </div>
     </div>
     
-      <div class="row">
-        <div class="col-xs-12">
-          <div class="panel panel-default">
-            <div class="panel-heading"><span class="glyphicon glyphicon-file"></span> README </div>
-            <div class="panel-body">
-            <em>No README found.</em>
-             <em><a href="/r/magni_robot/github-UbiquityRobotics-magni_robot/#noetic">See repository README.</a></em>
-            
+      
+        <div class="row">
+          <div class="col-xs-12">
+            <div class="panel panel-default">
+              <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://github.com/UbiquityRobotics/magni_robot/tree/noetic-devel/magni_bringup/README.md" title="Open in git repository">magni_bringup/README.md</a></div>
+              <div class="panel-body">
+                    <div class="rendered-markdown">
+<h1 id="magni-bringup">Magni bringup</h1>
+
+<p>History:
+We decided to move many motor controller and other key operating mode parameters from base.yaml to robot.yaml.
+A lot of work was done to do this by Rohan but the issue has been only creaping along and needs closure so that it will finally be safe to use magni_robot repository along with ubiquity_motor and our main codeline will then be more supportable again.</p>
+
+<p><strong>Robot startup procedure:</strong>
+Magni robots start ros core and a set of base nodes on boot. This is done in the following order:
+1.) using <code>systemctl</code> the magni-base service file (<code>/usr/sbin/magni-base.service</code>) is ran. This:
+  a) starts roscore,
+  b) sets up environment variables,
+  c) ..., TODO what else is being launched there?
+  d) launches <code>base.launch</code>
+2.) <code>base.launch</code> launches robot base nodes:
+  a) <code>logitech.launch</code>
+  b) <code>rosbridge.launch</code> 
+  c) placeholder for other nodes that are NOT VARIABLE (don't change with robot config)
+  d) starts <code>launch_core.py</code>
+3.) <code>launch_core.py</code> creates and launches <code>core.launch</code> (by default in <code>/tmp/core.launch</code>) which starts up the rest of the robot nodes that are variable (change with robot config):
+  a) motor node: runs ubiquity_motor node with the parameters extracted from either <code>/etc/ubiquity/robot.yaml</code> OR <code>magni_bringup/param/robot.yaml</code> with respective priorities
+  b) robot description: all robot static and dynamic transforms. It gets its camera and lidar extrinsics from either <code>~/.ros/extrinsics/&lt;SENSOR&gt;_extrinsics_&lt;POSITION&gt;.yaml</code> OR <code>magni_description/extrinsics/&lt;SENSOR&gt;_extrinsics_&lt;POSITION&gt;.yaml</code> with respective priorities. 
+  c) other nodes like <code>controller_spawner</code>, <code>diagnostic_aggregator</code>, <code>oled_display_node</code>,... Exactly what gets launched can be seen in <code>magni_bringup/param/core_launch.em</code> from which core.launch is generated. Any addition to core.launch should be added inside the <code>core_launch.em</code> file</p>
+
+<p><strong>Useful commands for debugging</strong>
+If new additions need to be added to core.launch, add them into <code>magni_bringup/param/core_launch.em</code>, then edit the launch_core.py accordingly. You can then run the commands:</p>
+
+<p><code>python src/magni_robot/magni_bringup/scripts/launch_core.py --debug</code> uses launch_core.py to create the core.launch but does not start it (for debug purposes) - generated core.launch can be visually inspected for bugs.</p>
+
+<p><code>python src/magni_robot/magni_bringup/scripts/launch_core.py --launch_generate_path &lt;PATH&gt;</code> will generate the core.launch at <code>&lt;PATH&gt;</code> and launch it from there</p>
+
+<h2 id="design-choices-todo-write-up-nicely">Design choices (TODO write up nicely)</h2>
+
+<ul>
+<li>
+<p>we use <code>systemctl</code> to start on boot because:</p>
+
+<ul>
+<li>can easily be controlled: <code>systemctl start/stop/restart magni-base</code>
+</li>
+<li>easy(ish) to debug: <code>journalctl -u magni-base</code> TODO correct?</li>
+<li>is a standard way to start stuff on boot</li>
+</ul>
+</li>
+<li>
+<p>why robot.yaml is not a rosparam file: </p>
+
+<ul>
+<li>Explicit "overriding" behavior, which is easy to get subtly wrong with rosparam</li>
+<li>Clearer structure and names that we can set, instead of having to use the rosparam paths</li>
+<li>Part of the vision was to support non-rosparam-able configuration settings, like what app to launch by default</li>
+<li>Not everything in there is actually a ROS parameter, like force_time_sync or the camera/lidar extrinsics which is passed directly to xacro</li>
+<li>Allow for string comparison if statements for determining which nodes to launch, ex: "pi_sonar_v1" vs only having bools</li>
+</ul>
+</li>
+<li>
+<p>why does <code>launch_core.py</code> generate <code>core.launch</code> and then launches it:</p>
+
+<ul>
+<li>launch_core.py to generate the roslaunch XML based on the parameters. That might reduce the number of places we have to touch to add a new parameter.  - It also allows for switching between different nodes at launch easier, for things like picking which lidar we have etc.</li>
+<li>Debugging is much easier: you can actually see the parameters that were used by opening the generated launch file in the /tmp/ directory. The alternative is that you leave the param calculation to statements in urdf files which are much harder to debug.</li>
+<li>Creating the core.launch from python gives much more freedom to do stuff programmatically now and for possible changes in the future</li>
+</ul>
+</li>
+<li><p>internal base.yaml is still kept for non-user editable "parameters".</p></li>
+<li><p>extrinsics of camera and lidar are passed to magni.urdf.xacro from one of the following directories by priority a)<code>/.ros/extrinsics/</code>, b)<code>magni_description/extrinsics/</code>. This is done by passing the path of the yaml file into the urdf file where the x,y,z,roll,pitch,yaw are extracted from it. This is done because a) passing down the extrinsics params is in the same format both for launching on real robot (robot.yaml) and for launching in Gazebo (param in empty_world.launch)</p></li>
+</ul>
+</div>
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      
     
     <div class="row">
       <div class="col-xs-12">
@@ -1096,80 +1163,6 @@ Agrawal</li>
                   
                   <li>
                     <ul>
-                      
-                    </ul>
-                  </li>
-                </ul>
-              </li>
-            
-              <li><a href="https://github.com/UbiquityRobotics/magni_robot/tree/noetic-devel/magni_bringup/launch/core.launch" target="_blank">launch/core.launch</a>
-                <ul class="list-unstyled">
-                  
-                    <li><em> 
-    "Core" launch file for magni. This brings up just what is needed
-    for the motor controller and the URDF.
-</em></li>
-                  
-                  <li>
-                    <ul>
-                      
-                        
-                          <li><strong>raspicam_mount</strong> <em>&#91;default: forward&#93; </em></li>
-                        
-                      
-                        
-                          <li><strong>sonars_installed</strong> <em>&#91;default: false&#93; </em></li>
-                        
-                      
-                        
-                          <li><strong>oled_display</strong> <em>&#91;default: false&#93; </em></li>
-                        
-                      
-                        
-                          <li><strong>camera_extrinsics_file</strong> <em>&#91;default: -&#93; </em></li>
-                        
-                      
-                        
-                          <li><strong>controller_board_version</strong> <em>&#91;default: 0&#93; </em></li>
-                        
-                      
-                        
-                          <li><strong>controller_serial_port</strong> <em>&#91;default: /dev/ttyAMA0&#93; </em></li>
-                        
-                      
-                        
-                          <li><strong>controller_serial_baud</strong> <em>&#91;default: 38400&#93; </em></li>
-                        
-                      
-                        
-                          <li><strong>controller_pid_proportional</strong> <em>&#91;default: 5000&#93; </em></li>
-                        
-                      
-                        
-                          <li><strong>controller_pid_integral</strong> <em>&#91;default: 7&#93; </em></li>
-                        
-                      
-                        
-                          <li><strong>controller_pid_derivative</strong> <em>&#91;default: -110&#93; </em></li>
-                        
-                      
-                        
-                          <li><strong>controller_pid_denominator</strong> <em>&#91;default: 1000&#93; </em></li>
-                        
-                      
-                        
-                          <li><strong>controller_pid_moving_buffer_size</strong> <em>&#91;default: 70&#93; </em></li>
-                        
-                      
-                        
-                          <li><strong>controller_pid_velocity</strong> <em>&#91;default: 1500&#93; </em></li>
-                        
-                      
-                        
-                      
-                        
-                      
-                        
                       
                     </ul>
                   </li>
@@ -3704,7 +3697,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2021-07-20</em>
+          <em>generated on 2021-07-21</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
