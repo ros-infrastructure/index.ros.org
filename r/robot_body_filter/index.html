@@ -362,7 +362,7 @@ ga('send', 'pageview');
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-07-30
         </span>
       </td>
     </tr>
@@ -439,7 +439,7 @@ ga('send', 'pageview');
                 
                   <tr>
                     <td><a href="/p/robot_body_filter/github-peci1-robot_body_filter">robot_body_filter</a></td>
-                    <td>1.1.9</td>
+                    <td>1.2.0</td>
                   </tr>
                 
                 </tbody>
@@ -469,6 +469,25 @@ ga('send', 'pageview');
 </ul>
 
 <h2 id="build-status">Build Status</h2>
+
+<h3 id="continuous-integration">Continuous integration</h3>
+
+<table>
+<thead>
+<tr>
+<th>ROS Version</th>
+<th>Build Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Melodic</strong></td>
+<td>
+<a href="https://github.com/peci1/robot_body_filter/actions?query=workflow%3ACI"><img src="https://github.com/peci1/robot_body_filter/workflows/CI/badge.svg?branch=master" alt="Build Status"></a> <br> <a href="https://travis-ci.com/github/peci1/robot_body_filter"><img src="https://api.travis-ci.com/peci1/robot_body_filter.svg?branch=master&amp;status=passed" alt="Build Status"></a>
+</td>
+</tr>
+</tbody>
+</table>
 
 <h3 id="dev-job">Dev job</h3>
 
@@ -541,6 +560,192 @@ ga('send', 'pageview');
 
 <p>The basic workings of this filter are done via the <a href="http://wiki.ros.org/filters"><code>filters::FilterBase</code> API</a> implemented for <code>sensor_msgs::LaserScan</code> and <code>sensor_msgs::PointCloud2</code> types. This means you can load this filter into a FilterChain along other filters as usual. Different from the standard filters, this one can also publish several interesting topics and subscribes to TF.</p>
 
+<h3 id="general-overview">General overview</h3>
+
+<p>This filter reads robot model and the filter config, subscribes to TF, waits
+for data (laserscans or point clouds) and then cleans them from various
+artifacts (this is called data filtering).</p>
+
+<p>It can perform 3 kinds of data filters: <strong>clip</strong> the data based on the provided
+sensor limits (parameter <code>filter/do_clipping</code>), <strong>remove points that are inside
+or on the surface</strong> of the robot body (parameter <code>filter/do_contains_test</code>) and
+<strong>remove points that are seen through a part of the robot body</strong> (parameter
+<code>filter/do_shadow_test</code>). These kinds of tests are further referenced as 
+"clipping", "contains test" and "shadow test".</p>
+
+<p>If working with point clouds, the filter automatically recognizes whether it
+works with organized or non-organized clouds. In organized clouds, it marks
+the filtered-out points as <code>NaN</code>. In non-organized clouds, it removes the
+filtered-out points. In laserscans, removal is not an option, so the
+filtered-out points are marked with <code>NaN</code> (some guides suggest that
+<code>max_range + 1</code> should be used for marking invalid points, but this filter uses
+<code>NaN</code> as a safer option).</p>
+
+<h4 id="performance-tips">Performance tips</h4>
+
+<p>In general, the filter will be computationally expensive (clipping is fast,
+contains test is medium CPU intensive and shadow test is the most expensive
+part, because it basically performs raytracing). You can limit the required CPU
+power by limiting the filter only to parts that matter. E.g. if the robot has a
+link that can never be seen by the sensor, put it in the list of ignored links.
+The less links are processed, the better performance. If you're only interested
+in removing a few links, consider using the <code>only_links</code> parameter.</p>
+
+<p>To speed up shadow filtering, you can set <code>filter/max_shadow_distance</code>, which
+limits the number of points considered for shadow tests just to points close to
+the sensor. Setting this to e.g. three times the diameter of the robot should
+remove all of the shadow points caused by refraction by a part of the robot body.
+But you have to test this with real data.</p>
+
+<p>Performance also strongly depends on representation of the robot model.
+The filter reads <code>&lt;collision&gt;</code> tags from the robot URDF. You can use boxes,
+spheres and cylinders (which are fast to process), or you can use <strong>convex</strong>
+meshes (these are much worse performance-wise). If you pass a non-convex mesh,
+its convex hull will be used for the tests. Don't forget that each link
+can have multiple <code>&lt;collision&gt;</code> tags. If you do not have time to convert your
+meshes to the basic shapes (there is probably no good tool for it :(, just trial
+and error with restarting RViz), try to at least reduce the number of triangles
+in your meshes. You can use your high-quality meshes in <code>&lt;visual&gt;</code> tags.</p>
+
+<h4 id="model-inflation">Model inflation</h4>
+
+<p>You can utilize the builtin model inflation mechanism to slightly alter the
+size of the model. You will probably want to add a bit "margin" to the contains
+and shadow tests so that points that are millimeters outside the robot body will
+anyways get removed. You can set a default scale and padding which are used for
+all collisions. Different inflation can be used for contains tests and for
+shadow tests. Inflation can also be specified differently for each link. Look
+at the <code>body_model/inflation/*</code> parameters for details.</p>
+
+<p>Scaling means multiplying the shape dimensions by the given
+factor (with its center staying in the same place). Padding means adding the
+specified metric distance to each "dimension" of the shape. Padding a sphere
+by <code>p</code> just adds <code>p</code> to its radius; padding a cylinder adds <code>p</code> to its radius
+and <code>2p</code> to its length (you pad both the top and the bottom of the cylinder);
+padding a box adds <code>2p</code> to all its extents (again, you pad both of the opposing
+sides); padding a mesh pads each vertex of its convex hull by <code>p</code> along the
+direction from the mesh center to the vertex (mesh center is the center
+specified in the mesh file, e.g. DAE). Have a good look at the effects of mesh
+padding, as the results can be non-intuitive.</p>
+
+<h4 id="data-acquisition-modes">Data acquisition modes</h4>
+
+<p>The filter supports data captured in two modes - all at once (e.g. RGBD cameras),
+or each point at a different time instant (mostly lidars). This is handled by
+<code>sensor/point_by_point</code> setting. Each mode supports both laser scans and point
+cloud input (although all-at-once laserscans aren't that common). Point-by-point
+pointclouds are e.g. the output of 3D lidars like Ouster (where more points can
+have the same timestamp, but not all). If you want to use the point-by-point
+mode with pointclouds, make sure they contain not only the usual <code>x</code>, <code>y</code> and
+<code>z</code> fields, but also a <code>float32</code> field <code>stamps</code> (with time difference from the
+time in the header) and <code>float32</code> fields <code>vp_x</code>, <code>vp_y</code> and <code>vp_z</code> which contain
+the viewpoint (position of the sensor in filtering frame) from which the robot
+saw that point. </p>
+
+<p>When filtering in the point-by-point mode, the robot posture has to be updated
+several times during processing a single scan (to reflect the motion the robot
+has performed during acquiring the scan). The frequency of these updates can
+also have a significant impact on performance. Use parameter
+<code>filter/model_pose_update_interval</code> to set the interval for which the robot is
+considered stationary. The positions of the robot at the beginning and at the
+end of the scan are queried from TF. The intermediate positions are linearly
+interpolated between these two positions.</p>
+
+<h4 id="tf-frames">TF frames</h4>
+
+<p>The filter recognizes four logical TF frames (some of which may be the same
+physical frames).</p>
+
+<p><strong>Fixed frame</strong> is a frame that doesn't change within the duration of the
+processed scan. This means for all-at-once scans, this frame is not needed
+because the duration of the scan is zero. For point-by-point scans, it depends
+on the particular scenario. In static installations (like manipulators with
+sensors not attached to them), it can be the sensor frame. For stationary robots
+with the sensor attached to a movable part of their body, <code>base_link</code> will be a
+good choice. For completely mobile robots, you will need an external frame, e.g.
+<code>odom</code> or <code>map</code> (beware of cyclic dependencies - if the map is built from the
+filtered scans, you obviously cannot use <code>map</code> as the fixed frame for filtering
+the scans...).</p>
+
+<p><strong>Sensor frame</strong> is the frame in which the data were captured. Generally, it
+would be whatever is in <code>header.frame_id</code> field of the processed messages. You
+can use the filter for data from multiple sensors - in that case, you can leave
+the sensor frame unfilled and each message will be processed in the frame it has
+in its header.</p>
+
+<p><strong>Filtering frame</strong> is the frame in which the data filtering is done. For
+point-by-point scans, it has to be a fixed frame (possibly different from the
+fixed frame set in <code>frames/fixed</code>). For pointcloud scans, it should be the
+sensor frame (if all data are coming from a single sensor), or any other frame.
+It is also used as the frame in which all debugging outputs are published.</p>
+
+<p><strong>Output frame</strong> can only be used with pointcloud scans, and allows to transform
+the filtered pointcloud to a different frame before being published. It is just
+a convenience which can save you launching a transformation nodelet. By default,
+filtered pointclouds are output in the filtering frame.</p>
+
+<h4 id="bounding-shapes">Bounding shapes</h4>
+
+<p>As a byproduct, the filter can also compute various bounding shapes of the robot
+model. There are actually four robot models - one for contains test, one
+for shadow test, one for bounding sphere computation and one for bounding box
+(these models can differ by inflation and considered links).
+All bounding shapes are published in the filtering frame. For point-by-point scans,
+the bounding shapes correspond to the
+time instant specified in the header of the processed scan. The computation of
+bounding shapes is off by default, but enabling it is cheap (performance-wise).</p>
+
+<p>The <strong>bounding sphere</strong> is easy - the smallest sphere that contains the whole
+collision model for bounding sphere computation (with the specified exclusions removed).</p>
+
+<p>The <strong>bounding box</strong> is the smallest axis-aligned bounding box aligned to the
+filtering frame. It is built from the model for bounding box computation.</p>
+
+<p>The <strong>local bounding box</strong> is the smallest axis-aligned bounding box aligned to
+the frame specified in <code>local_bounding_box/frame_id</code>. It is especially useful
+with mobile robots when the desired frame is <code>base_link</code>. It is built from the model
+for bounding box computation.</p>
+
+<p>The <strong>oriented bounding box</strong> should be the smallest box containing the
+collision model. However, its computation is very bad conditioned, so the
+results can be very unsatisfactory. Currently, the oriented bounding box of each
+of the basic collision shapes is "tight", but merging the boxes is not optimal.
+A good algorithm would probably require costly and advanced iterative methods.
+The current implementation uses FCL in the background and merges the boxes using
+<code>fcl::OBB::operator+=()</code> without any further optimizations. It is built from the
+model for bounding box computation.</p>
+
+<p>The filter also supports publishing auxiliary pointclouds which "cut out" each
+of these bounding shapes. These are the input data converted to pointcloud in
+filtering frame from which all points belonging to the bounding shape are
+removed. Please note that the "base" used for cutting out is the input
+pointcloud, not the filtered one.</p>
+
+<h4 id="first-setup-debugging">First setup/debugging</h4>
+
+<p>The filter offers plenty of debugging outputs to make sure it does exactly
+what you want it to do. All the options are described in the last part of
+this page. Generally, you should look at the pointclouds visualizing which
+points got filtered out and you should also check the robot models used for
+filtering.</p>
+
+<p>Also, have a look in the [examples] folder to get some inspiration.</p>
+
+<h3 id="usage">Usage</h3>
+
+<p>This is a standard <code>filters::FilterBase&lt;T&gt;</code>-based filter which implements the
+<code>configure()</code> and <code>update(const T&amp;, T&amp;)</code> methods. This means it can be loaded
+e.g. as a part of a filter chain via the
+<a href="https://github.com/ros-perception/laser_filters"><code>laser_filters</code></a> package or
+the relatively new <a href="https://github.com/ctu-vras/sensor_filters"><code>sensor_filters</code></a>.
+This means the input and output data are not supplied in the form of topics,
+but they are instead passed to the <code>update()</code> method via the C++ API.</p>
+
+<p>This filter is a bit unusual - it subscribes and publishes several topics.
+Normally, filters only operate via the <code>update()</code> method and are not expected
+to publish anything. This filter is different, it requires a working ROS node
+handle, and can publish a lot of auxiliary or debug data.</p>
+
 <h3 id="subscribed-topics">Subscribed Topics</h3>
 
 <ul>
@@ -562,28 +767,63 @@ The model is read from a field defined by parameter
 
 <ul>
 <li>
-<p><code>scan_point_cloud_no_bbox</code> (<code>sensor_msgs/PointCloud2</code>)</p>
-
-<p>Point cloud with points inside body bounding box removed.
-Turned on by <code>bounding_box/publish_cut_out_pointcloud</code> parameter.</p>
-</li>
-<li>
 <p><code>scan_point_cloud_no_bsphere</code> (<code>sensor_msgs/PointCloud2</code>)</p>
 
 <p>Point cloud with points inside body bounding sphere removed.
-Turned on by <code>bounding_sphere/publish_cut_out_pointcloud</code> parameter.</p>
+Turned on by <code>bounding_sphere/publish_cut_out_pointcloud</code> parameter.
+Published in filtering frame.</p>
+</li>
+<li>
+<p><code>scan_point_cloud_no_bbox</code> (<code>sensor_msgs/PointCloud2</code>)</p>
+
+<p>Point cloud with points inside filtering frame axis-aligned bounding box
+removed. Turned on by <code>bounding_box/publish_cut_out_pointcloud</code> parameter.
+Published in filtering frame.</p>
+</li>
+<li>
+<p><code>scan_point_cloud_no_oriented_bbox</code> (<code>sensor_msgs/PointCloud2</code>)</p>
+
+<p>Point cloud with points inside oriented bounding box removed. Turned on by
+<code>oriented_bounding_box/publish_cut_out_pointcloud</code> parameter.
+Published in filtering frame. Please read the remarks above in the overview -
+the results can be non-satisfying.</p>
+</li>
+<li>
+<p><code>scan_point_cloud_no_local_bbox</code> (<code>sensor_msgs/PointCloud2</code>)</p>
+
+<p>Point cloud with points inside <code>local_bounding_box/frame_id</code> axis-aligned
+bounding box removed. Turned on by
+<code>local_bounding_box/publish_cut_out_pointcloud</code> parameter. Published in
+filtering frame.</p>
 </li>
 <li>
 <p><code>robot_bounding_sphere</code> (<code>robot_body_filter/SphereStamped</code>) </p>
 
 <p>Bounding sphere of the robot body. Turned on by 
-<code>bounding_sphere/compute</code> parameter.</p>
+<code>bounding_sphere/compute</code> parameter. Published in filtering frame.</p>
 </li>
 <li>
 <p><code>robot_bounding_box</code> (<code>geometry_msgs/PolygonStamped</code>) </p>
 
-<p>Bounding box of the robot body. First point is the minimal point, second one
-is the maximal point. Turned on by <code>bounding_box/compute</code> parameter.</p>
+<p>Axis-aligned bounding box of the robot body aligned to the filtering frame.
+First point is the minimal point, second one is the maximal point. Turned on
+by <code>bounding_box/compute</code> parameter. Published in filtering frame.</p>
+</li>
+<li>
+<p><code>robot_oriented_bounding_box</code> (<code>robot_body_filter/OrientedBoundingBoxStamped</code>)</p>
+
+<p>Oriented bounding box of the robot body. Turned on by
+<code>oriented_bounding_box/compute</code> parameter. Please read the remarks above
+in the overview - the results can be non-satisfying. Published in filtering
+frame.</p>
+</li>
+<li>
+<p><code>robot_local_bounding_box</code> (<code>geometry_msgs/PolygonStamped</code>) </p>
+
+<p>Axis-aligned bounding box of the robot body aligned to frame
+<code>local_bounding_box/frame_id</code>. First point is the minimal point, second one
+is the maximal point. Turned on by <code>local_bounding_box/compute</code> parameter.
+Published in frame <code>local_bounding_box/frame_id</code>.</p>
 </li>
 </ul>
 
@@ -658,23 +898,6 @@ PointCloud2 version.</p>
 to disable this limit.</p>
 </li>
 <li>
-<p><code>body_model/inflation/scale</code> (<code>float</code>, default <code>1.0</code>)</p>
-
-<p>A scale that is applied to the collision model for the purposes of
-collision checking.</p>
-</li>
-<li>
-<p><code>body_model/inflation/padding</code> (<code>float</code>, default <code>0.0 m</code>)</p>
-
-<p>Padding to be added to the collision model for the purposes of collision 
-checking.</p>
-</li>
-<li>
-<p><code>body_model/robot_description_param</code> (<code>string</code>, default: <code>"robot_description"</code>)</p>
-
-<p>Name of the parameter where the robot model can be found.</p>
-</li>
-<li>
 <p><code>filter/keep_clouds_organized</code> (<code>bool</code>, default <code>true</code>)</p>
 
 <p>Whether to keep pointclouds organized (if they were). Organized cloud has 
@@ -708,6 +931,105 @@ as <code>INSIDE</code>. If <code>false</code>, such points will be marked <code>
 as <code>SHADOW</code>. If <code>false</code>, such points will be marked <code>OUTSIDE</code>.</p>
 </li>
 <li>
+<p><code>filter/max_shadow_distance</code> (<code>float</code>, default is the value of <code>sensor/max_distance</code>)</p>
+
+<p>If greater than zero, specifies the maximum distance of a point from the sensor
+frame within which the point can be considered for shadow testing. All further
+points are classified as <code>OUTSIDE</code>. Setting this parameter to a low value may 
+greatly improve performance of the shadow filtering.</p>
+</li>
+<li>
+<p><code>body_model/inflation/scale</code> (<code>float</code>, default <code>1.0</code>)</p>
+
+<p>A scale that is applied to the collision model for the purposes of
+collision checking.</p>
+</li>
+<li>
+<p><code>body_model/inflation/padding</code> (<code>float</code>, default <code>0.0 m</code>)</p>
+
+<p>Padding to be added to the collision model for the purposes of collision 
+checking.</p>
+</li>
+<li>
+<p><code>body_model/inflation/contains_test/scale</code> (<code>float</code>, default <code>body_model/inflation/scale</code>)</p>
+
+<p>A scale that is applied to the collision model used for contains tests.</p>
+</li>
+<li>
+<p><code>body_model/inflation/contains_test/padding</code> (<code>float</code>, default <code>body_model/inflation/padding</code>)</p>
+
+<p>Padding to be added to the collision model used for contains tests.</p>
+</li>
+<li>
+<p><code>body_model/inflation/shadow_test/scale</code> (<code>float</code>, default <code>body_model/inflation/scale</code>)</p>
+
+<p>A scale that is applied to the collision model used for shadow tests.</p>
+</li>
+<li>
+<p><code>body_model/inflation/shadow_test/padding</code> (<code>float</code>, default <code>body_model/inflation/padding</code>)</p>
+
+<p>Padding to be added to the collision model used for shadow tests.</p>
+</li>
+<li>
+<p><code>body_model/inflation/bounding_sphere/scale</code> (<code>float</code>, default <code>body_model/inflation/scale</code>)</p>
+
+<p>A scale that is applied to the collision model used for bounding sphere computation.</p>
+</li>
+<li>
+<p><code>body_model/inflation/bounding_sphere/padding</code> (<code>float</code>, default <code>body_model/inflation/padding</code>)</p>
+
+<p>Padding to be added to the collision model used for bounding sphere computation.</p>
+</li>
+<li>
+<p><code>body_model/inflation/bounding_box/scale</code> (<code>float</code>, default <code>body_model/inflation/scale</code>)</p>
+
+<p>A scale that is applied to the collision model used for bounding box computation.</p>
+</li>
+<li>
+<p><code>body_model/inflation/bounding_box/padding</code> (<code>float</code>, default <code>body_model/inflation/padding</code>)</p>
+
+<p>Padding to be added to the collision model used for bounding box computation.</p>
+</li>
+<li>
+<p><code>body_model/inflation/per_link/scale</code> (<code>dict[str:float]</code>, default <code>{}</code>)</p>
+
+<p>A scale that is applied to the specified links for the purposes of
+collision checking. Links not specified here will use the default scale
+set in <code>body_model/inflation/contains_test/scale</code> or
+<code>body_model/inflation/shadow_test/scale</code>. Keys are names, values are scale.
+Names can be either names of links (<code>link</code>), names of collisions (
+<code>*::my_collision</code>), a combination of link name and zero-based collision
+index (<code>link::1</code>), or link name and collision name, e.g.
+<code>link::my_collision</code>. Any such name can have suffix <code>::contains</code>, 
+<code>::shadow</code>, <code>::bounding_sphere</code> or <code>::bounding_box</code>, which will only change
+the scale for contains or shadow tests or for bounding sphere or box computation.
+If a collision is matched by multiple entries, they have priority
+corresponding to the order they were introduced here (the entries do not
+"add up", but replace each other).</p>
+</li>
+<li>
+<p><code>body_model/inflation/per_link/padding</code> (<code>dict[str:float]</code>, default <code>{}</code>)</p>
+
+<p>Padding to be added to the specified links for the purposes of collision 
+checking. Links not specified here will use the default padding set in
+<code>body_model/inflation/contains_test/padding</code> or
+<code>body_model/inflation/shadow_test/padding</code>. Keys are names, values are
+padding. Names can be either names of links (<code>link</code>), names of collisions (
+<code>*::my_collision</code>), a combination of link name and zero-based collision
+index (<code>link::1</code>), or link name and collision name, e.g.
+<code>link::my_collision</code>. Any such name can have suffix <code>::contains</code>,
+<code>::shadow</code>, <code>::bounding_sphere</code> or <code>::bounding_box</code>, which will only change
+the padding for contains or shadow tests or for bounding sphere or box computation.
+If a collision is matched by multiple entries, they have priority
+corresponding to the order they were introduced here (the entries do not
+"add up", but replace each other).</p>
+</li>
+<li>
+<p><code>body_model/robot_description_param</code> (<code>string</code>, default: <code>"robot_description"</code>)</p>
+
+<p>Name of the parameter where the robot model can be found.</p>
+</li>
+<li>
 <p><code>transforms/buffer_length</code> (<code>float</code>, default <code>60.0 s</code>)</p>
 
 <p>Duration for which transforms will be stored in TF buffer.</p>
@@ -729,36 +1051,13 @@ how old scans you still want to process.</p>
 </ul>
 
 <p>If true, the filter won't publish anything until all transforms are reachable.
-- <code>bounding_sphere/compute</code> (<code>bool</code>, default <code>false</code>)</p>
-<div class="highlight"><pre><code class="language-" data-lang="">Whether to compute and publish bounding sphere.
+- <code>ignored_links/bounding_sphere</code> (<code>list[string]</code>, default <code>[]</code>)</p>
+<div class="highlight"><pre><code class="language-" data-lang="">List of links to be ignored in bounding sphere computation. Can be either 
+names of links (`link`), names of collisions (`*::my_collision`), a
+combination of link name and zero-based collision index (`link::1`), or link
+name and collision name, e.g. `link::my_collision`.
 </code></pre></div>
 <ul>
-<li>
-<p><code>bounding_box/compute</code> (<code>bool</code>, default <code>false</code>)</p>
-
-<p>Whether to compute and publish bounding box.</p>
-</li>
-<li>
-<p><code>bounding_sphere/publish_cut_out_pointcloud</code> (<code>bool</code>, default <code>false</code>)</p>
-
-<p>Whether to compute and publish pointcloud from which points in the
-bounding sphere are removed. Will be published on 
-<code>scan_point_cloud_no_bsphere</code>. Implies <code>bounding_box/compute</code>.</p>
-</li>
-<li>
-<p><code>bounding_box/publish_cut_out_pointcloud</code> (<code>bool</code>, default <code>false</code>)</p>
-
-<p>Whether to compute and publish pointcloud from which points in the
-bounding box are removed. Will be published on <code>scan_point_cloud_no_bbox</code>.
-Implies <code>bounding_sphere/compute</code>.</p>
-</li>
-<li>
-<p><code>ignored_links/bounding_sphere</code> (<code>list[string]</code>, default <code>[]</code>)</p>
-
-<p>List of links to be ignored in bounding sphere computation. Can be either 
-names of links or a combination of link name and collision index, e.g. 
-<code>link::1</code>, or link name and collision name, e.g. <code>link::my_collision</code>.</p>
-</li>
 <li>
 <p><code>ignored_links/bounding_box</code> (<code>list[string]</code>, default <code>[]</code>)</p>
 
@@ -780,6 +1079,18 @@ the sensor link - otherwise all points would be shadowed by the sensor
 itself. </p>
 </li>
 <li>
+<p><code>ignored_links/bounding_sphere</code> (<code>list[string]</code>, default <code>[]</code>)</p>
+
+<p>List of links to be ignored when computing the bounding sphere.
+Same naming rules as above.</p>
+</li>
+<li>
+<p><code>ignored_links/bounding_box</code> (<code>list[string]</code>, default <code>[]</code>)</p>
+
+<p>List of links to be ignored when computing the bounding box.
+Same naming rules as above.</p>
+</li>
+<li>
 <p><code>ignored_links/everywhere</code> (<code>list[string]</code>, default <code>[]</code>)</p>
 
 <p>List of links to be completely ignored. Same naming rules as above.</p>
@@ -791,11 +1102,95 @@ itself. </p>
 above-mentioned <code>ignored_links/*</code> filters will still be applied.</p>
 </li>
 <li>
+<p><code>bounding_sphere/compute</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish bounding sphere.</p>
+</li>
+<li>
+<p><code>bounding_box/compute</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish axis-aligned bounding box aligned to
+filtering frame.</p>
+</li>
+<li>
+<p><code>oriented_bounding_box/compute</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish oriented bounding box (see the remarks in
+the overview above; the result might be pretty bad).</p>
+</li>
+<li>
+<p><code>local_bounding_box/compute</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish axis-aligned bounding box aligned to
+frame <code>local_bounding_box/frame_id</code>.</p>
+</li>
+<li>
+<p><code>local_bounding_box/frame_id</code> (<code>str</code>, default: <code>frames/fixed</code>)</p>
+
+<p>The frame to which local bounding box is aligned.</p>
+</li>
+<li>
+<p><code>bounding_sphere/publish_cut_out_pointcloud</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish pointcloud from which points in the
+bounding sphere are removed. Will be published on 
+<code>scan_point_cloud_no_bsphere</code>. Implies <code>bounding_sphere/compute</code>.
+The "base" point cloud before cutting out are the input data,
+not the filtered data.</p>
+</li>
+<li>
+<p><code>bounding_box/publish_cut_out_pointcloud</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish pointcloud from which points in the
+bounding box are removed. Will be published on <code>scan_point_cloud_no_bbox</code>.
+Implies <code>bounding_box/compute</code>. The "base" point cloud before cutting out
+are the input data, not the filtered data.</p>
+</li>
+<li>
+<p><code>oriented_bounding_box/publish_cut_out_pointcloud</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish pointcloud from which points in the
+oriented bounding box are removed. Will be published on
+<code>scan_point_cloud_no_oriented_bbox</code>. Implies <code>oriented_bounding_box/compute</code>.
+The "base" point cloud before cutting out are the input data, not the
+filtered data.</p>
+</li>
+<li>
+<p><code>local_bounding_box/publish_cut_out_pointcloud</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish pointcloud from which points in the local
+bounding box are removed. Will be published on
+<code>scan_point_cloud_no_local_bbox</code>. Implies <code>local_bounding_box/compute</code>. The
+"base" point cloud before cutting out are the input data, not the filtered
+data.</p>
+</li>
+<li>
 <p><code>body_model/dynamic_robot_description/field_name</code> (<code>string</code>, 
 default <code>robot_model</code>)</p>
 
 <p>If robot model is published by dynamic reconfigure, this is the name of the 
 Config message field which holds the robot model.</p>
+</li>
+<li>
+<p><code>cloud/point_channels</code> (<code>list[string]</code>, default <code>["vp_"]</code>)</p>
+
+<p>List of channels of the incoming pointcloud that should be transformed as
+positional data. The 3D positions channel given by fields <code>x</code>, <code>y</code> and <code>z</code>
+is always transformed. This list contains prefixes of fields that form another
+channel(s). E.g. to transform the channel given by fields <code>vp_x</code>, <code>vp_y</code> and
+<code>vp_z</code>, add item <code>"vp_"</code> to the list. If a channel is not present in the cloud,
+nothing happens. This parameter is only available in the <code>PointCloud2</code> version
+of the filter.</p>
+</li>
+<li>
+<p><code>cloud/direction_channels</code> (<code>list[string]</code>, default <code>["normal_"]</code>)</p>
+
+<p>List of channels of the incoming pointcloud that should be transformed as
+directional data. This list contains prefixes of fields that form channel(s).
+E.g. to transform the channel given by fields <code>normal_x</code>, <code>normal_y</code> and
+<code>normal_z</code>, add item <code>"normal_"</code> to the list. If a channel is not present in the cloud,
+nothing happens. This parameter is only available in the <code>PointCloud2</code> version
+of the filter.</p>
 </li>
 </ul>
 
@@ -810,25 +1205,51 @@ Config message field which holds the robot model.</p>
 <p><code>robot_bounding_sphere_marker</code> (<code>visualization_msgs/Marker</code>) </p>
 
 <p>Marker of the bounding sphere of the robot body. Turned on by 
-<code>bounding_sphere/marker</code> parameter.</p>
+<code>bounding_sphere/marker</code> parameter. Published in filtering frame.</p>
 </li>
 <li>
 <p><code>robot_bounding_box_marker</code> (<code>visualization_msgs/Marker</code>) </p>
 
 <p>Marker of the bounding box of the robot body. Turned on by 
-<code>bounding_box/marker</code> parameter.</p>
+<code>bounding_box/marker</code> parameter. Published in filtering frame.</p>
+</li>
+<li>
+<p><code>robot_oriented_bounding_box_marker</code> (<code>visualization_msgs/Marker</code>) </p>
+
+<p>Marker of the oriented bounding box of the robot body. Turned on by 
+<code>oriented_bounding_box/marker</code> parameter. Published in filtering frame.</p>
+</li>
+<li>
+<p><code>robot_local_bounding_box_marker</code> (<code>visualization_msgs/Marker</code>) </p>
+
+<p>Marker of the local bounding box of the robot body. Turned on by 
+<code>local bounding_box/marker</code> parameter. Published in frame
+<code>local_bounding_box/frame_id</code>.</p>
 </li>
 <li>
 <p><code>robot_bounding_sphere_debug</code> (<code>visualization_msgs/MarkerArray</code>)</p>
 
 <p>Marker array containing the bounding sphere for each collision element.
-Turned on by <code>bounding_sphere/debug</code> parameter.</p>
+Turned on by <code>bounding_sphere/debug</code> parameter. Published in filtering frame.</p>
 </li>
 <li>
 <p><code>robot_bounding_box_debug</code> (<code>visualization_msgs/MarkerArray</code>)</p>
 
 <p>Marker array containing the bounding box for each collision element.
-Turned on by <code>bounding_box/debug</code> parameter.</p>
+Turned on by <code>bounding_box/debug</code> parameter. Published in filtering frame.</p>
+</li>
+<li>
+<p><code>robot_oriented_bounding_box_debug</code> (<code>visualization_msgs/MarkerArray</code>)</p>
+
+<p>Marker array containing the oriented bounding box for each collision element.
+Turned on by <code>oriented_bounding_box/debug</code> parameter. Published in filtering frame.</p>
+</li>
+<li>
+<p><code>robot_local_bounding_box_debug</code> (<code>visualization_msgs/MarkerArray</code>)</p>
+
+<p>Marker array containing the local bounding box for each collision element.
+Turned on by <code>local_bounding_box/debug</code> parameter. Published in frame
+<code>local_bounding_box/frame_id</code>.</p>
 </li>
 <li>
 <p><code>robot_model_for_contains_test</code> (<code>visualization_msgs/MarkerArray</code>)</p>
@@ -841,6 +1262,18 @@ Turned on by <code>debug/marker/contains</code> parameter.</p>
 
 <p>Marker array containing the exact robot model used for shadow tests.
 Turned on by <code>debug/marker/shadow</code> parameter.</p>
+</li>
+<li>
+<p><code>robot_model_for_bounding_sphere</code> (<code>visualization_msgs/MarkerArray</code>)</p>
+
+<p>Marker array containing the exact robot model used for computation of
+bounding sphere. Turned on by <code>debug/marker/bounding_sphere</code> parameter.</p>
+</li>
+<li>
+<p><code>robot_model_for_bounding_box</code> (<code>visualization_msgs/MarkerArray</code>)</p>
+
+<p>Marker array containing the exact robot model used for computation of
+bounding box. Turned on by <code>debug/marker/bounding_box</code> parameter.</p>
 </li>
 <li>
 <p><code>scan_point_cloud_inside</code> (<code>sensor_msgs/PointCloud2</code>)</p>
@@ -866,6 +1299,28 @@ Turned on by <code>debug/marker/shadow</code> parameter.</p>
 
 <ul>
 <li>
+<p><code>bounding_sphere/marker</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to publish a marker representing the bounding sphere.</p>
+</li>
+<li>
+<p><code>bounding_box/marker</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to publish a marker representing the axis-aligned bounding box
+aligned to the filtering frame.</p>
+</li>
+<li>
+<p><code>oriented_bounding_box/marker</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to publish a marker representing the oriented bounding box.</p>
+</li>
+<li>
+<p><code>local_bounding_box/marker</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to publish a marker representing the axis-aligned bounding box
+aligned to frame <code>local_bounding_box/frame_id</code>.</p>
+</li>
+<li>
 <p><code>bounding_sphere/debug</code> (<code>bool</code>, default <code>false</code>)</p>
 
 <p>Whether to compute and publish debug bounding spheres (marker array of 
@@ -874,8 +1329,21 @@ spheres for each collision).</p>
 <li>
 <p><code>bounding_box/debug</code> (<code>bool</code>, default <code>false</code>)</p>
 
-<p>Whether to compute and publish debug bounding boxes (marker array of boxes
-for each collision).</p>
+<p>Whether to compute and publish debug bounding boxes (marker array of
+axis-aligned boxes for each collision).</p>
+</li>
+<li>
+<p><code>oriented_bounding_box/debug</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish debug oriented bounding boxes (marker array
+of oriented boxes for each collision).</p>
+</li>
+<li>
+<p><code>local_bounding_box/debug</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish debug axis-aligned bounding boxes aligned to
+frame <code>local_bounding_box/frame_id</code> (marker array of axis-aligned boxes for
+each collision).</p>
 </li>
 <li>
 <p><code>debug/pcl/inside</code> (<code>bool</code>, default <code>false</code>)</p>
@@ -903,6 +1371,18 @@ model used for containment test.</p>
 
 <p>Whether to publish debugging marker array containing the exact robot body 
 model used for shadow test.</p>
+</li>
+<li>
+<p><code>debug/marker/bounding_sphere</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to publish debugging marker array containing the exact robot body 
+model used for computing the bounding sphere.</p>
+</li>
+<li>
+<p><code>debug/marker/bounding_box</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to publish debugging marker array containing the exact robot body 
+model used for computing the bounding box.</p>
 </li>
 </ul>
 </div>
@@ -952,7 +1432,7 @@ model used for shadow test.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-07-30
         </span>
       </td>
     </tr>
@@ -1029,7 +1509,7 @@ model used for shadow test.</p>
                 
                   <tr>
                     <td><a href="/p/robot_body_filter/github-peci1-robot_body_filter">robot_body_filter</a></td>
-                    <td>1.1.9</td>
+                    <td>1.2.0</td>
                   </tr>
                 
                 </tbody>
@@ -1059,6 +1539,25 @@ model used for shadow test.</p>
 </ul>
 
 <h2 id="build-status">Build Status</h2>
+
+<h3 id="continuous-integration">Continuous integration</h3>
+
+<table>
+<thead>
+<tr>
+<th>ROS Version</th>
+<th>Build Status</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Melodic</strong></td>
+<td>
+<a href="https://github.com/peci1/robot_body_filter/actions?query=workflow%3ACI"><img src="https://github.com/peci1/robot_body_filter/workflows/CI/badge.svg?branch=master" alt="Build Status"></a> <br> <a href="https://travis-ci.com/github/peci1/robot_body_filter"><img src="https://api.travis-ci.com/peci1/robot_body_filter.svg?branch=master&amp;status=passed" alt="Build Status"></a>
+</td>
+</tr>
+</tbody>
+</table>
 
 <h3 id="dev-job">Dev job</h3>
 
@@ -1131,6 +1630,192 @@ model used for shadow test.</p>
 
 <p>The basic workings of this filter are done via the <a href="http://wiki.ros.org/filters"><code>filters::FilterBase</code> API</a> implemented for <code>sensor_msgs::LaserScan</code> and <code>sensor_msgs::PointCloud2</code> types. This means you can load this filter into a FilterChain along other filters as usual. Different from the standard filters, this one can also publish several interesting topics and subscribes to TF.</p>
 
+<h3 id="general-overview">General overview</h3>
+
+<p>This filter reads robot model and the filter config, subscribes to TF, waits
+for data (laserscans or point clouds) and then cleans them from various
+artifacts (this is called data filtering).</p>
+
+<p>It can perform 3 kinds of data filters: <strong>clip</strong> the data based on the provided
+sensor limits (parameter <code>filter/do_clipping</code>), <strong>remove points that are inside
+or on the surface</strong> of the robot body (parameter <code>filter/do_contains_test</code>) and
+<strong>remove points that are seen through a part of the robot body</strong> (parameter
+<code>filter/do_shadow_test</code>). These kinds of tests are further referenced as 
+"clipping", "contains test" and "shadow test".</p>
+
+<p>If working with point clouds, the filter automatically recognizes whether it
+works with organized or non-organized clouds. In organized clouds, it marks
+the filtered-out points as <code>NaN</code>. In non-organized clouds, it removes the
+filtered-out points. In laserscans, removal is not an option, so the
+filtered-out points are marked with <code>NaN</code> (some guides suggest that
+<code>max_range + 1</code> should be used for marking invalid points, but this filter uses
+<code>NaN</code> as a safer option).</p>
+
+<h4 id="performance-tips">Performance tips</h4>
+
+<p>In general, the filter will be computationally expensive (clipping is fast,
+contains test is medium CPU intensive and shadow test is the most expensive
+part, because it basically performs raytracing). You can limit the required CPU
+power by limiting the filter only to parts that matter. E.g. if the robot has a
+link that can never be seen by the sensor, put it in the list of ignored links.
+The less links are processed, the better performance. If you're only interested
+in removing a few links, consider using the <code>only_links</code> parameter.</p>
+
+<p>To speed up shadow filtering, you can set <code>filter/max_shadow_distance</code>, which
+limits the number of points considered for shadow tests just to points close to
+the sensor. Setting this to e.g. three times the diameter of the robot should
+remove all of the shadow points caused by refraction by a part of the robot body.
+But you have to test this with real data.</p>
+
+<p>Performance also strongly depends on representation of the robot model.
+The filter reads <code>&lt;collision&gt;</code> tags from the robot URDF. You can use boxes,
+spheres and cylinders (which are fast to process), or you can use <strong>convex</strong>
+meshes (these are much worse performance-wise). If you pass a non-convex mesh,
+its convex hull will be used for the tests. Don't forget that each link
+can have multiple <code>&lt;collision&gt;</code> tags. If you do not have time to convert your
+meshes to the basic shapes (there is probably no good tool for it :(, just trial
+and error with restarting RViz), try to at least reduce the number of triangles
+in your meshes. You can use your high-quality meshes in <code>&lt;visual&gt;</code> tags.</p>
+
+<h4 id="model-inflation">Model inflation</h4>
+
+<p>You can utilize the builtin model inflation mechanism to slightly alter the
+size of the model. You will probably want to add a bit "margin" to the contains
+and shadow tests so that points that are millimeters outside the robot body will
+anyways get removed. You can set a default scale and padding which are used for
+all collisions. Different inflation can be used for contains tests and for
+shadow tests. Inflation can also be specified differently for each link. Look
+at the <code>body_model/inflation/*</code> parameters for details.</p>
+
+<p>Scaling means multiplying the shape dimensions by the given
+factor (with its center staying in the same place). Padding means adding the
+specified metric distance to each "dimension" of the shape. Padding a sphere
+by <code>p</code> just adds <code>p</code> to its radius; padding a cylinder adds <code>p</code> to its radius
+and <code>2p</code> to its length (you pad both the top and the bottom of the cylinder);
+padding a box adds <code>2p</code> to all its extents (again, you pad both of the opposing
+sides); padding a mesh pads each vertex of its convex hull by <code>p</code> along the
+direction from the mesh center to the vertex (mesh center is the center
+specified in the mesh file, e.g. DAE). Have a good look at the effects of mesh
+padding, as the results can be non-intuitive.</p>
+
+<h4 id="data-acquisition-modes">Data acquisition modes</h4>
+
+<p>The filter supports data captured in two modes - all at once (e.g. RGBD cameras),
+or each point at a different time instant (mostly lidars). This is handled by
+<code>sensor/point_by_point</code> setting. Each mode supports both laser scans and point
+cloud input (although all-at-once laserscans aren't that common). Point-by-point
+pointclouds are e.g. the output of 3D lidars like Ouster (where more points can
+have the same timestamp, but not all). If you want to use the point-by-point
+mode with pointclouds, make sure they contain not only the usual <code>x</code>, <code>y</code> and
+<code>z</code> fields, but also a <code>float32</code> field <code>stamps</code> (with time difference from the
+time in the header) and <code>float32</code> fields <code>vp_x</code>, <code>vp_y</code> and <code>vp_z</code> which contain
+the viewpoint (position of the sensor in filtering frame) from which the robot
+saw that point. </p>
+
+<p>When filtering in the point-by-point mode, the robot posture has to be updated
+several times during processing a single scan (to reflect the motion the robot
+has performed during acquiring the scan). The frequency of these updates can
+also have a significant impact on performance. Use parameter
+<code>filter/model_pose_update_interval</code> to set the interval for which the robot is
+considered stationary. The positions of the robot at the beginning and at the
+end of the scan are queried from TF. The intermediate positions are linearly
+interpolated between these two positions.</p>
+
+<h4 id="tf-frames">TF frames</h4>
+
+<p>The filter recognizes four logical TF frames (some of which may be the same
+physical frames).</p>
+
+<p><strong>Fixed frame</strong> is a frame that doesn't change within the duration of the
+processed scan. This means for all-at-once scans, this frame is not needed
+because the duration of the scan is zero. For point-by-point scans, it depends
+on the particular scenario. In static installations (like manipulators with
+sensors not attached to them), it can be the sensor frame. For stationary robots
+with the sensor attached to a movable part of their body, <code>base_link</code> will be a
+good choice. For completely mobile robots, you will need an external frame, e.g.
+<code>odom</code> or <code>map</code> (beware of cyclic dependencies - if the map is built from the
+filtered scans, you obviously cannot use <code>map</code> as the fixed frame for filtering
+the scans...).</p>
+
+<p><strong>Sensor frame</strong> is the frame in which the data were captured. Generally, it
+would be whatever is in <code>header.frame_id</code> field of the processed messages. You
+can use the filter for data from multiple sensors - in that case, you can leave
+the sensor frame unfilled and each message will be processed in the frame it has
+in its header.</p>
+
+<p><strong>Filtering frame</strong> is the frame in which the data filtering is done. For
+point-by-point scans, it has to be a fixed frame (possibly different from the
+fixed frame set in <code>frames/fixed</code>). For pointcloud scans, it should be the
+sensor frame (if all data are coming from a single sensor), or any other frame.
+It is also used as the frame in which all debugging outputs are published.</p>
+
+<p><strong>Output frame</strong> can only be used with pointcloud scans, and allows to transform
+the filtered pointcloud to a different frame before being published. It is just
+a convenience which can save you launching a transformation nodelet. By default,
+filtered pointclouds are output in the filtering frame.</p>
+
+<h4 id="bounding-shapes">Bounding shapes</h4>
+
+<p>As a byproduct, the filter can also compute various bounding shapes of the robot
+model. There are actually four robot models - one for contains test, one
+for shadow test, one for bounding sphere computation and one for bounding box
+(these models can differ by inflation and considered links).
+All bounding shapes are published in the filtering frame. For point-by-point scans,
+the bounding shapes correspond to the
+time instant specified in the header of the processed scan. The computation of
+bounding shapes is off by default, but enabling it is cheap (performance-wise).</p>
+
+<p>The <strong>bounding sphere</strong> is easy - the smallest sphere that contains the whole
+collision model for bounding sphere computation (with the specified exclusions removed).</p>
+
+<p>The <strong>bounding box</strong> is the smallest axis-aligned bounding box aligned to the
+filtering frame. It is built from the model for bounding box computation.</p>
+
+<p>The <strong>local bounding box</strong> is the smallest axis-aligned bounding box aligned to
+the frame specified in <code>local_bounding_box/frame_id</code>. It is especially useful
+with mobile robots when the desired frame is <code>base_link</code>. It is built from the model
+for bounding box computation.</p>
+
+<p>The <strong>oriented bounding box</strong> should be the smallest box containing the
+collision model. However, its computation is very bad conditioned, so the
+results can be very unsatisfactory. Currently, the oriented bounding box of each
+of the basic collision shapes is "tight", but merging the boxes is not optimal.
+A good algorithm would probably require costly and advanced iterative methods.
+The current implementation uses FCL in the background and merges the boxes using
+<code>fcl::OBB::operator+=()</code> without any further optimizations. It is built from the
+model for bounding box computation.</p>
+
+<p>The filter also supports publishing auxiliary pointclouds which "cut out" each
+of these bounding shapes. These are the input data converted to pointcloud in
+filtering frame from which all points belonging to the bounding shape are
+removed. Please note that the "base" used for cutting out is the input
+pointcloud, not the filtered one.</p>
+
+<h4 id="first-setup-debugging">First setup/debugging</h4>
+
+<p>The filter offers plenty of debugging outputs to make sure it does exactly
+what you want it to do. All the options are described in the last part of
+this page. Generally, you should look at the pointclouds visualizing which
+points got filtered out and you should also check the robot models used for
+filtering.</p>
+
+<p>Also, have a look in the [examples] folder to get some inspiration.</p>
+
+<h3 id="usage">Usage</h3>
+
+<p>This is a standard <code>filters::FilterBase&lt;T&gt;</code>-based filter which implements the
+<code>configure()</code> and <code>update(const T&amp;, T&amp;)</code> methods. This means it can be loaded
+e.g. as a part of a filter chain via the
+<a href="https://github.com/ros-perception/laser_filters"><code>laser_filters</code></a> package or
+the relatively new <a href="https://github.com/ctu-vras/sensor_filters"><code>sensor_filters</code></a>.
+This means the input and output data are not supplied in the form of topics,
+but they are instead passed to the <code>update()</code> method via the C++ API.</p>
+
+<p>This filter is a bit unusual - it subscribes and publishes several topics.
+Normally, filters only operate via the <code>update()</code> method and are not expected
+to publish anything. This filter is different, it requires a working ROS node
+handle, and can publish a lot of auxiliary or debug data.</p>
+
 <h3 id="subscribed-topics">Subscribed Topics</h3>
 
 <ul>
@@ -1152,28 +1837,63 @@ The model is read from a field defined by parameter
 
 <ul>
 <li>
-<p><code>scan_point_cloud_no_bbox</code> (<code>sensor_msgs/PointCloud2</code>)</p>
-
-<p>Point cloud with points inside body bounding box removed.
-Turned on by <code>bounding_box/publish_cut_out_pointcloud</code> parameter.</p>
-</li>
-<li>
 <p><code>scan_point_cloud_no_bsphere</code> (<code>sensor_msgs/PointCloud2</code>)</p>
 
 <p>Point cloud with points inside body bounding sphere removed.
-Turned on by <code>bounding_sphere/publish_cut_out_pointcloud</code> parameter.</p>
+Turned on by <code>bounding_sphere/publish_cut_out_pointcloud</code> parameter.
+Published in filtering frame.</p>
+</li>
+<li>
+<p><code>scan_point_cloud_no_bbox</code> (<code>sensor_msgs/PointCloud2</code>)</p>
+
+<p>Point cloud with points inside filtering frame axis-aligned bounding box
+removed. Turned on by <code>bounding_box/publish_cut_out_pointcloud</code> parameter.
+Published in filtering frame.</p>
+</li>
+<li>
+<p><code>scan_point_cloud_no_oriented_bbox</code> (<code>sensor_msgs/PointCloud2</code>)</p>
+
+<p>Point cloud with points inside oriented bounding box removed. Turned on by
+<code>oriented_bounding_box/publish_cut_out_pointcloud</code> parameter.
+Published in filtering frame. Please read the remarks above in the overview -
+the results can be non-satisfying.</p>
+</li>
+<li>
+<p><code>scan_point_cloud_no_local_bbox</code> (<code>sensor_msgs/PointCloud2</code>)</p>
+
+<p>Point cloud with points inside <code>local_bounding_box/frame_id</code> axis-aligned
+bounding box removed. Turned on by
+<code>local_bounding_box/publish_cut_out_pointcloud</code> parameter. Published in
+filtering frame.</p>
 </li>
 <li>
 <p><code>robot_bounding_sphere</code> (<code>robot_body_filter/SphereStamped</code>) </p>
 
 <p>Bounding sphere of the robot body. Turned on by 
-<code>bounding_sphere/compute</code> parameter.</p>
+<code>bounding_sphere/compute</code> parameter. Published in filtering frame.</p>
 </li>
 <li>
 <p><code>robot_bounding_box</code> (<code>geometry_msgs/PolygonStamped</code>) </p>
 
-<p>Bounding box of the robot body. First point is the minimal point, second one
-is the maximal point. Turned on by <code>bounding_box/compute</code> parameter.</p>
+<p>Axis-aligned bounding box of the robot body aligned to the filtering frame.
+First point is the minimal point, second one is the maximal point. Turned on
+by <code>bounding_box/compute</code> parameter. Published in filtering frame.</p>
+</li>
+<li>
+<p><code>robot_oriented_bounding_box</code> (<code>robot_body_filter/OrientedBoundingBoxStamped</code>)</p>
+
+<p>Oriented bounding box of the robot body. Turned on by
+<code>oriented_bounding_box/compute</code> parameter. Please read the remarks above
+in the overview - the results can be non-satisfying. Published in filtering
+frame.</p>
+</li>
+<li>
+<p><code>robot_local_bounding_box</code> (<code>geometry_msgs/PolygonStamped</code>) </p>
+
+<p>Axis-aligned bounding box of the robot body aligned to frame
+<code>local_bounding_box/frame_id</code>. First point is the minimal point, second one
+is the maximal point. Turned on by <code>local_bounding_box/compute</code> parameter.
+Published in frame <code>local_bounding_box/frame_id</code>.</p>
 </li>
 </ul>
 
@@ -1248,23 +1968,6 @@ PointCloud2 version.</p>
 to disable this limit.</p>
 </li>
 <li>
-<p><code>body_model/inflation/scale</code> (<code>float</code>, default <code>1.0</code>)</p>
-
-<p>A scale that is applied to the collision model for the purposes of
-collision checking.</p>
-</li>
-<li>
-<p><code>body_model/inflation/padding</code> (<code>float</code>, default <code>0.0 m</code>)</p>
-
-<p>Padding to be added to the collision model for the purposes of collision 
-checking.</p>
-</li>
-<li>
-<p><code>body_model/robot_description_param</code> (<code>string</code>, default: <code>"robot_description"</code>)</p>
-
-<p>Name of the parameter where the robot model can be found.</p>
-</li>
-<li>
 <p><code>filter/keep_clouds_organized</code> (<code>bool</code>, default <code>true</code>)</p>
 
 <p>Whether to keep pointclouds organized (if they were). Organized cloud has 
@@ -1298,6 +2001,105 @@ as <code>INSIDE</code>. If <code>false</code>, such points will be marked <code>
 as <code>SHADOW</code>. If <code>false</code>, such points will be marked <code>OUTSIDE</code>.</p>
 </li>
 <li>
+<p><code>filter/max_shadow_distance</code> (<code>float</code>, default is the value of <code>sensor/max_distance</code>)</p>
+
+<p>If greater than zero, specifies the maximum distance of a point from the sensor
+frame within which the point can be considered for shadow testing. All further
+points are classified as <code>OUTSIDE</code>. Setting this parameter to a low value may 
+greatly improve performance of the shadow filtering.</p>
+</li>
+<li>
+<p><code>body_model/inflation/scale</code> (<code>float</code>, default <code>1.0</code>)</p>
+
+<p>A scale that is applied to the collision model for the purposes of
+collision checking.</p>
+</li>
+<li>
+<p><code>body_model/inflation/padding</code> (<code>float</code>, default <code>0.0 m</code>)</p>
+
+<p>Padding to be added to the collision model for the purposes of collision 
+checking.</p>
+</li>
+<li>
+<p><code>body_model/inflation/contains_test/scale</code> (<code>float</code>, default <code>body_model/inflation/scale</code>)</p>
+
+<p>A scale that is applied to the collision model used for contains tests.</p>
+</li>
+<li>
+<p><code>body_model/inflation/contains_test/padding</code> (<code>float</code>, default <code>body_model/inflation/padding</code>)</p>
+
+<p>Padding to be added to the collision model used for contains tests.</p>
+</li>
+<li>
+<p><code>body_model/inflation/shadow_test/scale</code> (<code>float</code>, default <code>body_model/inflation/scale</code>)</p>
+
+<p>A scale that is applied to the collision model used for shadow tests.</p>
+</li>
+<li>
+<p><code>body_model/inflation/shadow_test/padding</code> (<code>float</code>, default <code>body_model/inflation/padding</code>)</p>
+
+<p>Padding to be added to the collision model used for shadow tests.</p>
+</li>
+<li>
+<p><code>body_model/inflation/bounding_sphere/scale</code> (<code>float</code>, default <code>body_model/inflation/scale</code>)</p>
+
+<p>A scale that is applied to the collision model used for bounding sphere computation.</p>
+</li>
+<li>
+<p><code>body_model/inflation/bounding_sphere/padding</code> (<code>float</code>, default <code>body_model/inflation/padding</code>)</p>
+
+<p>Padding to be added to the collision model used for bounding sphere computation.</p>
+</li>
+<li>
+<p><code>body_model/inflation/bounding_box/scale</code> (<code>float</code>, default <code>body_model/inflation/scale</code>)</p>
+
+<p>A scale that is applied to the collision model used for bounding box computation.</p>
+</li>
+<li>
+<p><code>body_model/inflation/bounding_box/padding</code> (<code>float</code>, default <code>body_model/inflation/padding</code>)</p>
+
+<p>Padding to be added to the collision model used for bounding box computation.</p>
+</li>
+<li>
+<p><code>body_model/inflation/per_link/scale</code> (<code>dict[str:float]</code>, default <code>{}</code>)</p>
+
+<p>A scale that is applied to the specified links for the purposes of
+collision checking. Links not specified here will use the default scale
+set in <code>body_model/inflation/contains_test/scale</code> or
+<code>body_model/inflation/shadow_test/scale</code>. Keys are names, values are scale.
+Names can be either names of links (<code>link</code>), names of collisions (
+<code>*::my_collision</code>), a combination of link name and zero-based collision
+index (<code>link::1</code>), or link name and collision name, e.g.
+<code>link::my_collision</code>. Any such name can have suffix <code>::contains</code>, 
+<code>::shadow</code>, <code>::bounding_sphere</code> or <code>::bounding_box</code>, which will only change
+the scale for contains or shadow tests or for bounding sphere or box computation.
+If a collision is matched by multiple entries, they have priority
+corresponding to the order they were introduced here (the entries do not
+"add up", but replace each other).</p>
+</li>
+<li>
+<p><code>body_model/inflation/per_link/padding</code> (<code>dict[str:float]</code>, default <code>{}</code>)</p>
+
+<p>Padding to be added to the specified links for the purposes of collision 
+checking. Links not specified here will use the default padding set in
+<code>body_model/inflation/contains_test/padding</code> or
+<code>body_model/inflation/shadow_test/padding</code>. Keys are names, values are
+padding. Names can be either names of links (<code>link</code>), names of collisions (
+<code>*::my_collision</code>), a combination of link name and zero-based collision
+index (<code>link::1</code>), or link name and collision name, e.g.
+<code>link::my_collision</code>. Any such name can have suffix <code>::contains</code>,
+<code>::shadow</code>, <code>::bounding_sphere</code> or <code>::bounding_box</code>, which will only change
+the padding for contains or shadow tests or for bounding sphere or box computation.
+If a collision is matched by multiple entries, they have priority
+corresponding to the order they were introduced here (the entries do not
+"add up", but replace each other).</p>
+</li>
+<li>
+<p><code>body_model/robot_description_param</code> (<code>string</code>, default: <code>"robot_description"</code>)</p>
+
+<p>Name of the parameter where the robot model can be found.</p>
+</li>
+<li>
 <p><code>transforms/buffer_length</code> (<code>float</code>, default <code>60.0 s</code>)</p>
 
 <p>Duration for which transforms will be stored in TF buffer.</p>
@@ -1319,36 +2121,13 @@ how old scans you still want to process.</p>
 </ul>
 
 <p>If true, the filter won't publish anything until all transforms are reachable.
-- <code>bounding_sphere/compute</code> (<code>bool</code>, default <code>false</code>)</p>
-<div class="highlight"><pre><code class="language-" data-lang="">Whether to compute and publish bounding sphere.
+- <code>ignored_links/bounding_sphere</code> (<code>list[string]</code>, default <code>[]</code>)</p>
+<div class="highlight"><pre><code class="language-" data-lang="">List of links to be ignored in bounding sphere computation. Can be either 
+names of links (`link`), names of collisions (`*::my_collision`), a
+combination of link name and zero-based collision index (`link::1`), or link
+name and collision name, e.g. `link::my_collision`.
 </code></pre></div>
 <ul>
-<li>
-<p><code>bounding_box/compute</code> (<code>bool</code>, default <code>false</code>)</p>
-
-<p>Whether to compute and publish bounding box.</p>
-</li>
-<li>
-<p><code>bounding_sphere/publish_cut_out_pointcloud</code> (<code>bool</code>, default <code>false</code>)</p>
-
-<p>Whether to compute and publish pointcloud from which points in the
-bounding sphere are removed. Will be published on 
-<code>scan_point_cloud_no_bsphere</code>. Implies <code>bounding_box/compute</code>.</p>
-</li>
-<li>
-<p><code>bounding_box/publish_cut_out_pointcloud</code> (<code>bool</code>, default <code>false</code>)</p>
-
-<p>Whether to compute and publish pointcloud from which points in the
-bounding box are removed. Will be published on <code>scan_point_cloud_no_bbox</code>.
-Implies <code>bounding_sphere/compute</code>.</p>
-</li>
-<li>
-<p><code>ignored_links/bounding_sphere</code> (<code>list[string]</code>, default <code>[]</code>)</p>
-
-<p>List of links to be ignored in bounding sphere computation. Can be either 
-names of links or a combination of link name and collision index, e.g. 
-<code>link::1</code>, or link name and collision name, e.g. <code>link::my_collision</code>.</p>
-</li>
 <li>
 <p><code>ignored_links/bounding_box</code> (<code>list[string]</code>, default <code>[]</code>)</p>
 
@@ -1370,6 +2149,18 @@ the sensor link - otherwise all points would be shadowed by the sensor
 itself. </p>
 </li>
 <li>
+<p><code>ignored_links/bounding_sphere</code> (<code>list[string]</code>, default <code>[]</code>)</p>
+
+<p>List of links to be ignored when computing the bounding sphere.
+Same naming rules as above.</p>
+</li>
+<li>
+<p><code>ignored_links/bounding_box</code> (<code>list[string]</code>, default <code>[]</code>)</p>
+
+<p>List of links to be ignored when computing the bounding box.
+Same naming rules as above.</p>
+</li>
+<li>
 <p><code>ignored_links/everywhere</code> (<code>list[string]</code>, default <code>[]</code>)</p>
 
 <p>List of links to be completely ignored. Same naming rules as above.</p>
@@ -1381,11 +2172,95 @@ itself. </p>
 above-mentioned <code>ignored_links/*</code> filters will still be applied.</p>
 </li>
 <li>
+<p><code>bounding_sphere/compute</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish bounding sphere.</p>
+</li>
+<li>
+<p><code>bounding_box/compute</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish axis-aligned bounding box aligned to
+filtering frame.</p>
+</li>
+<li>
+<p><code>oriented_bounding_box/compute</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish oriented bounding box (see the remarks in
+the overview above; the result might be pretty bad).</p>
+</li>
+<li>
+<p><code>local_bounding_box/compute</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish axis-aligned bounding box aligned to
+frame <code>local_bounding_box/frame_id</code>.</p>
+</li>
+<li>
+<p><code>local_bounding_box/frame_id</code> (<code>str</code>, default: <code>frames/fixed</code>)</p>
+
+<p>The frame to which local bounding box is aligned.</p>
+</li>
+<li>
+<p><code>bounding_sphere/publish_cut_out_pointcloud</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish pointcloud from which points in the
+bounding sphere are removed. Will be published on 
+<code>scan_point_cloud_no_bsphere</code>. Implies <code>bounding_sphere/compute</code>.
+The "base" point cloud before cutting out are the input data,
+not the filtered data.</p>
+</li>
+<li>
+<p><code>bounding_box/publish_cut_out_pointcloud</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish pointcloud from which points in the
+bounding box are removed. Will be published on <code>scan_point_cloud_no_bbox</code>.
+Implies <code>bounding_box/compute</code>. The "base" point cloud before cutting out
+are the input data, not the filtered data.</p>
+</li>
+<li>
+<p><code>oriented_bounding_box/publish_cut_out_pointcloud</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish pointcloud from which points in the
+oriented bounding box are removed. Will be published on
+<code>scan_point_cloud_no_oriented_bbox</code>. Implies <code>oriented_bounding_box/compute</code>.
+The "base" point cloud before cutting out are the input data, not the
+filtered data.</p>
+</li>
+<li>
+<p><code>local_bounding_box/publish_cut_out_pointcloud</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish pointcloud from which points in the local
+bounding box are removed. Will be published on
+<code>scan_point_cloud_no_local_bbox</code>. Implies <code>local_bounding_box/compute</code>. The
+"base" point cloud before cutting out are the input data, not the filtered
+data.</p>
+</li>
+<li>
 <p><code>body_model/dynamic_robot_description/field_name</code> (<code>string</code>, 
 default <code>robot_model</code>)</p>
 
 <p>If robot model is published by dynamic reconfigure, this is the name of the 
 Config message field which holds the robot model.</p>
+</li>
+<li>
+<p><code>cloud/point_channels</code> (<code>list[string]</code>, default <code>["vp_"]</code>)</p>
+
+<p>List of channels of the incoming pointcloud that should be transformed as
+positional data. The 3D positions channel given by fields <code>x</code>, <code>y</code> and <code>z</code>
+is always transformed. This list contains prefixes of fields that form another
+channel(s). E.g. to transform the channel given by fields <code>vp_x</code>, <code>vp_y</code> and
+<code>vp_z</code>, add item <code>"vp_"</code> to the list. If a channel is not present in the cloud,
+nothing happens. This parameter is only available in the <code>PointCloud2</code> version
+of the filter.</p>
+</li>
+<li>
+<p><code>cloud/direction_channels</code> (<code>list[string]</code>, default <code>["normal_"]</code>)</p>
+
+<p>List of channels of the incoming pointcloud that should be transformed as
+directional data. This list contains prefixes of fields that form channel(s).
+E.g. to transform the channel given by fields <code>normal_x</code>, <code>normal_y</code> and
+<code>normal_z</code>, add item <code>"normal_"</code> to the list. If a channel is not present in the cloud,
+nothing happens. This parameter is only available in the <code>PointCloud2</code> version
+of the filter.</p>
 </li>
 </ul>
 
@@ -1400,25 +2275,51 @@ Config message field which holds the robot model.</p>
 <p><code>robot_bounding_sphere_marker</code> (<code>visualization_msgs/Marker</code>) </p>
 
 <p>Marker of the bounding sphere of the robot body. Turned on by 
-<code>bounding_sphere/marker</code> parameter.</p>
+<code>bounding_sphere/marker</code> parameter. Published in filtering frame.</p>
 </li>
 <li>
 <p><code>robot_bounding_box_marker</code> (<code>visualization_msgs/Marker</code>) </p>
 
 <p>Marker of the bounding box of the robot body. Turned on by 
-<code>bounding_box/marker</code> parameter.</p>
+<code>bounding_box/marker</code> parameter. Published in filtering frame.</p>
+</li>
+<li>
+<p><code>robot_oriented_bounding_box_marker</code> (<code>visualization_msgs/Marker</code>) </p>
+
+<p>Marker of the oriented bounding box of the robot body. Turned on by 
+<code>oriented_bounding_box/marker</code> parameter. Published in filtering frame.</p>
+</li>
+<li>
+<p><code>robot_local_bounding_box_marker</code> (<code>visualization_msgs/Marker</code>) </p>
+
+<p>Marker of the local bounding box of the robot body. Turned on by 
+<code>local bounding_box/marker</code> parameter. Published in frame
+<code>local_bounding_box/frame_id</code>.</p>
 </li>
 <li>
 <p><code>robot_bounding_sphere_debug</code> (<code>visualization_msgs/MarkerArray</code>)</p>
 
 <p>Marker array containing the bounding sphere for each collision element.
-Turned on by <code>bounding_sphere/debug</code> parameter.</p>
+Turned on by <code>bounding_sphere/debug</code> parameter. Published in filtering frame.</p>
 </li>
 <li>
 <p><code>robot_bounding_box_debug</code> (<code>visualization_msgs/MarkerArray</code>)</p>
 
 <p>Marker array containing the bounding box for each collision element.
-Turned on by <code>bounding_box/debug</code> parameter.</p>
+Turned on by <code>bounding_box/debug</code> parameter. Published in filtering frame.</p>
+</li>
+<li>
+<p><code>robot_oriented_bounding_box_debug</code> (<code>visualization_msgs/MarkerArray</code>)</p>
+
+<p>Marker array containing the oriented bounding box for each collision element.
+Turned on by <code>oriented_bounding_box/debug</code> parameter. Published in filtering frame.</p>
+</li>
+<li>
+<p><code>robot_local_bounding_box_debug</code> (<code>visualization_msgs/MarkerArray</code>)</p>
+
+<p>Marker array containing the local bounding box for each collision element.
+Turned on by <code>local_bounding_box/debug</code> parameter. Published in frame
+<code>local_bounding_box/frame_id</code>.</p>
 </li>
 <li>
 <p><code>robot_model_for_contains_test</code> (<code>visualization_msgs/MarkerArray</code>)</p>
@@ -1431,6 +2332,18 @@ Turned on by <code>debug/marker/contains</code> parameter.</p>
 
 <p>Marker array containing the exact robot model used for shadow tests.
 Turned on by <code>debug/marker/shadow</code> parameter.</p>
+</li>
+<li>
+<p><code>robot_model_for_bounding_sphere</code> (<code>visualization_msgs/MarkerArray</code>)</p>
+
+<p>Marker array containing the exact robot model used for computation of
+bounding sphere. Turned on by <code>debug/marker/bounding_sphere</code> parameter.</p>
+</li>
+<li>
+<p><code>robot_model_for_bounding_box</code> (<code>visualization_msgs/MarkerArray</code>)</p>
+
+<p>Marker array containing the exact robot model used for computation of
+bounding box. Turned on by <code>debug/marker/bounding_box</code> parameter.</p>
 </li>
 <li>
 <p><code>scan_point_cloud_inside</code> (<code>sensor_msgs/PointCloud2</code>)</p>
@@ -1456,6 +2369,28 @@ Turned on by <code>debug/marker/shadow</code> parameter.</p>
 
 <ul>
 <li>
+<p><code>bounding_sphere/marker</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to publish a marker representing the bounding sphere.</p>
+</li>
+<li>
+<p><code>bounding_box/marker</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to publish a marker representing the axis-aligned bounding box
+aligned to the filtering frame.</p>
+</li>
+<li>
+<p><code>oriented_bounding_box/marker</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to publish a marker representing the oriented bounding box.</p>
+</li>
+<li>
+<p><code>local_bounding_box/marker</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to publish a marker representing the axis-aligned bounding box
+aligned to frame <code>local_bounding_box/frame_id</code>.</p>
+</li>
+<li>
 <p><code>bounding_sphere/debug</code> (<code>bool</code>, default <code>false</code>)</p>
 
 <p>Whether to compute and publish debug bounding spheres (marker array of 
@@ -1464,8 +2399,21 @@ spheres for each collision).</p>
 <li>
 <p><code>bounding_box/debug</code> (<code>bool</code>, default <code>false</code>)</p>
 
-<p>Whether to compute and publish debug bounding boxes (marker array of boxes
-for each collision).</p>
+<p>Whether to compute and publish debug bounding boxes (marker array of
+axis-aligned boxes for each collision).</p>
+</li>
+<li>
+<p><code>oriented_bounding_box/debug</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish debug oriented bounding boxes (marker array
+of oriented boxes for each collision).</p>
+</li>
+<li>
+<p><code>local_bounding_box/debug</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to compute and publish debug axis-aligned bounding boxes aligned to
+frame <code>local_bounding_box/frame_id</code> (marker array of axis-aligned boxes for
+each collision).</p>
 </li>
 <li>
 <p><code>debug/pcl/inside</code> (<code>bool</code>, default <code>false</code>)</p>
@@ -1493,6 +2441,18 @@ model used for containment test.</p>
 
 <p>Whether to publish debugging marker array containing the exact robot body 
 model used for shadow test.</p>
+</li>
+<li>
+<p><code>debug/marker/bounding_sphere</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to publish debugging marker array containing the exact robot body 
+model used for computing the bounding sphere.</p>
+</li>
+<li>
+<p><code>debug/marker/bounding_box</code> (<code>bool</code>, default <code>false</code>)</p>
+
+<p>Whether to publish debugging marker array containing the exact robot body 
+model used for computing the bounding box.</p>
 </li>
 </ul>
 </div>
@@ -1760,7 +2720,7 @@ model used for shadow test.</p>
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2021-07-20</em>
+          <em>generated on 2021-07-30</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
