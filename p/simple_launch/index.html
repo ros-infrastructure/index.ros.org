@@ -187,7 +187,7 @@ ga('send', 'pageview');
       <input type="radio" name="options" id="foxy-radio" autocomplete="off"> foxy
     </label>
   
-    <label id="rolling-option" class="distro-button btn btn-xs btn-default" href="#rolling" data="rolling">
+    <label id="rolling-option" class="distro-button btn btn-xs btn-primary" href="#rolling" data="rolling">
       <input type="radio" name="options" id="rolling-radio" autocomplete="off"> rolling
     </label>
   
@@ -429,7 +429,7 @@ simple_launch
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>1.2.0</td>
+                <td>1.2.1</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -477,7 +477,7 @@ simple_launch
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-11-02
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-01-25
         </span>
       </td>
     </tr>
@@ -681,15 +681,69 @@ simple_launch
     sl.node(package='composition', plugin='Talker', name='talker')
 
 </code></pre></div>
+<h2 id="simulation-and-use_sim_time">Simulation and <code>use_sim_time</code>
+</h2>
+
+<p>Calling <code>sl.auto_sim_time(force = None)</code> will detect (and return) if the <code>/clock</code> topic is advertized (typically by a simulator).
+If this is the case then all subsequent nodes will be run with <code>use_sim_time:=True</code>, unless this parameter is explicitely given.</p>
+
+<p>If a Boolean (or Boolean launch argument) is given to <code>sl.auto_sim_time</code> then <code>/clock</code> will not be checked and the corresponding argument will be forwarded to all nodes. This can be useful when the simulator itself in run through the launch file, to avoid race conditions as <code>/clock</code> will not be advertized at the time of the launch.</p>
+
+<h3 id="spawn-a-model">Spawn a model</h3>
+
+<p>The <code>sl.spawn_ign_model(name, topic, spawn_args = [])</code> functions allows easily spawing a model from its <code>robot_description</code>:</p>
+
+<ul>
+<li>
+<code>name</code> is the name this model will get in Ignition</li>
+<li>
+<code>topic</code> is the topic to obtain the model from, default is <code>robot_description</code> (relative to the current namespace)</li>
+<li>
+<code>spawn_args</code> are any additional spawn arguments, e.g. the initial pose</li>
+</ul>
+
+<h3 id="ignition-world">Ignition world</h3>
+
+<p>The <code>IgnitionBridge</code> class has a few static methods to interact with a <strong>running Ignition</strong>. Namely:</p>
+
+<ul>
+<li>
+<code>IgnitionBridge.world()</code> returns the current world name</li>
+<li>
+<code>IgnitionBridge.model_prefix(model)</code> builds the Ignition topic relative to the given model <code>/world/&lt;world&gt;/model/&lt;model&gt;</code>
+</li>
+<li>
+<code>IgnitionBridge.has_model(model)</code> returns <code>True</code> of <code>False</code> depending on the passed model existing in Ignition already</li>
+</ul>
+
+<h3 id="ignition-bridge">Ignition bridge</h3>
+
+<p>The <code>IgnitionBridge</code> class allows easily creating bridges when using Ignition. Ignition has to be already running in order to get information on the simulation scene.</p>
+
+<p>An instance is created with: <code>bridge = IgnitionBridge(&lt;ignition_topic&gt;, &lt;ros_topic&gt;, &lt;ros_message&gt;, direction)</code> where <code>direction</code> is either:</p>
+
+<ul>
+<li>
+<code>IgnitionBridge.ign2ros</code> for Ignition -&gt; ROS</li>
+<li>
+<code>IgnitionBridge.ros2ign</code> for ROS -&gt; Ignition</li>
+<li>
+<code>IgnitionBridge.bidirectional</code> for both</li>
+</ul>
+
+<p>The Ignition message type is deduced from the ros message type. Remapping will be set to the given <code>ros_topic</code>.</p>
+
+<p>The SimpleLauncher instance can then run all created bridges with: <code>sl.create_ign_bridge([bridges], &lt;node_name&gt;)</code>, as illustrated in the examples at this end of this document.</p>
+
 <h2 id="other-shortcuts">Other shortcuts</h2>
 
-<h2 id="string-substitution-concatenation">String / substitution concatenation</h2>
+<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
 
 <p>The following syntax builds <code>&lt;robot name&gt;.xacro</code>:</p>
 
 <p><code>file_name = sl.name_join(sl.arg('robot'), '.xacro')</code></p>
 
-<h2 id="path-concatenation">Path concatenation</h2>
+<h3 id="path-concatenation">Path concatenation</h3>
 
 <p>The following syntax builds <code>&lt;my_package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.name_join(sl.arg('robot'), '.xacro')
@@ -823,6 +877,67 @@ def generate_launch_description():
     return sl.launch_description()
 
 </code></pre></div>
+<h3 id="auto-sim-time">auto sim time</h3>
+
+<p>Here we run Ignition and force all other nodes to <code>use_sim_time:=True</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, IgnitionBridge
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    sl.declare_arg('use_sim_time', default_value=True)
+
+    # now all nodes in this launch file will use_sim_time:=True
+    sl.auto_sim_time(sl.arg('use_sim_time'))
+
+    # run Ignition Gazebo + clock bridge 
+    sl.include('ros_ign_gazebo','ign_gazebo.launch.py',launch_arguments={'''some sdf world'''}})
+    sl.create_ign_bridge(IgnitionBridge.clock(), 'ign_clock')
+
+    # run other nodes with sim time
+
+    return sl.launch_description()
+
+
+</code></pre></div>
+<h3 id="ignition-bridge">Ignition bridge</h3>
+
+<p>The file below runs a bridge for joint states and pose, together with a standard clock bridge.
+We assume the corresponding plugins do exist in the robot description.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, IgnitionBridge
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    # namespace is a launch argument, not a Python string
+    sl.declare_arg('robot', default_value = 'turtlebot')
+    robot = sl.arg('robot')
+
+    with sl.group(ns = robot):
+        # assume some robot_state_publisher publishes the robot_description
+
+        # spawn in Ignition at default pose if not already here
+        # uses IgnitionBridge.has_model(robot) under the hood and calls ros_ign_gazebo::create
+        sl.spawn_ign_model(robot)
+
+        # create a bridge for joint states @ /world/&lt;world&gt;/model/&lt;robot&gt;/joint_state
+        # note the relative ROS topic 'joint_states' that is actually namespaced     
+        ign_js_topic = sl.name_join(IgnitionBridge.model_prefix(robot), '/joint_state')
+        js_bridge = IgnitionBridge(ign_js_topic, 'joint_states', 'sensor_msgs/JointState', IgnitionBridge.ign2ros)        
+
+        # pose publisher bridge @ /model/&lt;robot&gt;
+        pose_bridge = IgnitionBridge(sl.name_join('/model/', robot, '/pose'),
+                                        'pose_gt', 'geometry_msgs/Pose', IgnitionBridge.ign2ros)
+
+        # create bridge, also add standard /clock topic
+        sl.create_ign_bridge([IgnitionBridge.clock(), js_bridge, pose_bridge], 'ign_bridge')
+
+    return sl.launch_description()
+
+
+</code></pre></div>
 </div>
               </div>
             </div>
@@ -838,6 +953,13 @@ def generate_launch_description():
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-simple_launch">Changelog for package simple_launch</h1>
+
+<h2 id="1-2-1-2022-01-24">1.2.1 (2022-01-24)</h2>
+
+<ul>
+<li>  add Ignition support</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
 
 <h2 id="1-2-0-2021-11-02">1.2.0 (2021-11-02)</h2>
 
@@ -1438,7 +1560,7 @@ simple_launch
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>1.2.0</td>
+                <td>1.2.1</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -1486,7 +1608,7 @@ simple_launch
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-11-02
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-01-25
         </span>
       </td>
     </tr>
@@ -1690,15 +1812,69 @@ simple_launch
     sl.node(package='composition', plugin='Talker', name='talker')
 
 </code></pre></div>
+<h2 id="simulation-and-use_sim_time">Simulation and <code>use_sim_time</code>
+</h2>
+
+<p>Calling <code>sl.auto_sim_time(force = None)</code> will detect (and return) if the <code>/clock</code> topic is advertized (typically by a simulator).
+If this is the case then all subsequent nodes will be run with <code>use_sim_time:=True</code>, unless this parameter is explicitely given.</p>
+
+<p>If a Boolean (or Boolean launch argument) is given to <code>sl.auto_sim_time</code> then <code>/clock</code> will not be checked and the corresponding argument will be forwarded to all nodes. This can be useful when the simulator itself in run through the launch file, to avoid race conditions as <code>/clock</code> will not be advertized at the time of the launch.</p>
+
+<h3 id="spawn-a-model">Spawn a model</h3>
+
+<p>The <code>sl.spawn_ign_model(name, topic, spawn_args = [])</code> functions allows easily spawing a model from its <code>robot_description</code>:</p>
+
+<ul>
+<li>
+<code>name</code> is the name this model will get in Ignition</li>
+<li>
+<code>topic</code> is the topic to obtain the model from, default is <code>robot_description</code> (relative to the current namespace)</li>
+<li>
+<code>spawn_args</code> are any additional spawn arguments, e.g. the initial pose</li>
+</ul>
+
+<h3 id="ignition-world">Ignition world</h3>
+
+<p>The <code>IgnitionBridge</code> class has a few static methods to interact with a <strong>running Ignition</strong>. Namely:</p>
+
+<ul>
+<li>
+<code>IgnitionBridge.world()</code> returns the current world name</li>
+<li>
+<code>IgnitionBridge.model_prefix(model)</code> builds the Ignition topic relative to the given model <code>/world/&lt;world&gt;/model/&lt;model&gt;</code>
+</li>
+<li>
+<code>IgnitionBridge.has_model(model)</code> returns <code>True</code> of <code>False</code> depending on the passed model existing in Ignition already</li>
+</ul>
+
+<h3 id="ignition-bridge">Ignition bridge</h3>
+
+<p>The <code>IgnitionBridge</code> class allows easily creating bridges when using Ignition. Ignition has to be already running in order to get information on the simulation scene.</p>
+
+<p>An instance is created with: <code>bridge = IgnitionBridge(&lt;ignition_topic&gt;, &lt;ros_topic&gt;, &lt;ros_message&gt;, direction)</code> where <code>direction</code> is either:</p>
+
+<ul>
+<li>
+<code>IgnitionBridge.ign2ros</code> for Ignition -&gt; ROS</li>
+<li>
+<code>IgnitionBridge.ros2ign</code> for ROS -&gt; Ignition</li>
+<li>
+<code>IgnitionBridge.bidirectional</code> for both</li>
+</ul>
+
+<p>The Ignition message type is deduced from the ros message type. Remapping will be set to the given <code>ros_topic</code>.</p>
+
+<p>The SimpleLauncher instance can then run all created bridges with: <code>sl.create_ign_bridge([bridges], &lt;node_name&gt;)</code>, as illustrated in the examples at this end of this document.</p>
+
 <h2 id="other-shortcuts">Other shortcuts</h2>
 
-<h2 id="string-substitution-concatenation">String / substitution concatenation</h2>
+<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
 
 <p>The following syntax builds <code>&lt;robot name&gt;.xacro</code>:</p>
 
 <p><code>file_name = sl.name_join(sl.arg('robot'), '.xacro')</code></p>
 
-<h2 id="path-concatenation">Path concatenation</h2>
+<h3 id="path-concatenation">Path concatenation</h3>
 
 <p>The following syntax builds <code>&lt;my_package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.name_join(sl.arg('robot'), '.xacro')
@@ -1832,6 +2008,67 @@ def generate_launch_description():
     return sl.launch_description()
 
 </code></pre></div>
+<h3 id="auto-sim-time">auto sim time</h3>
+
+<p>Here we run Ignition and force all other nodes to <code>use_sim_time:=True</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, IgnitionBridge
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    sl.declare_arg('use_sim_time', default_value=True)
+
+    # now all nodes in this launch file will use_sim_time:=True
+    sl.auto_sim_time(sl.arg('use_sim_time'))
+
+    # run Ignition Gazebo + clock bridge 
+    sl.include('ros_ign_gazebo','ign_gazebo.launch.py',launch_arguments={'''some sdf world'''}})
+    sl.create_ign_bridge(IgnitionBridge.clock(), 'ign_clock')
+
+    # run other nodes with sim time
+
+    return sl.launch_description()
+
+
+</code></pre></div>
+<h3 id="ignition-bridge">Ignition bridge</h3>
+
+<p>The file below runs a bridge for joint states and pose, together with a standard clock bridge.
+We assume the corresponding plugins do exist in the robot description.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, IgnitionBridge
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    # namespace is a launch argument, not a Python string
+    sl.declare_arg('robot', default_value = 'turtlebot')
+    robot = sl.arg('robot')
+
+    with sl.group(ns = robot):
+        # assume some robot_state_publisher publishes the robot_description
+
+        # spawn in Ignition at default pose if not already here
+        # uses IgnitionBridge.has_model(robot) under the hood and calls ros_ign_gazebo::create
+        sl.spawn_ign_model(robot)
+
+        # create a bridge for joint states @ /world/&lt;world&gt;/model/&lt;robot&gt;/joint_state
+        # note the relative ROS topic 'joint_states' that is actually namespaced     
+        ign_js_topic = sl.name_join(IgnitionBridge.model_prefix(robot), '/joint_state')
+        js_bridge = IgnitionBridge(ign_js_topic, 'joint_states', 'sensor_msgs/JointState', IgnitionBridge.ign2ros)        
+
+        # pose publisher bridge @ /model/&lt;robot&gt;
+        pose_bridge = IgnitionBridge(sl.name_join('/model/', robot, '/pose'),
+                                        'pose_gt', 'geometry_msgs/Pose', IgnitionBridge.ign2ros)
+
+        # create bridge, also add standard /clock topic
+        sl.create_ign_bridge([IgnitionBridge.clock(), js_bridge, pose_bridge], 'ign_bridge')
+
+    return sl.launch_description()
+
+
+</code></pre></div>
 </div>
               </div>
             </div>
@@ -1847,6 +2084,13 @@ def generate_launch_description():
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-simple_launch">Changelog for package simple_launch</h1>
+
+<h2 id="1-2-1-2022-01-24">1.2.1 (2022-01-24)</h2>
+
+<ul>
+<li>  add Ignition support</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
 
 <h2 id="1-2-0-2021-11-02">1.2.0 (2021-11-02)</h2>
 
@@ -2282,7 +2526,1130 @@ jQuery(function() {
   <div class="distro distro-rolling">
     <div class="container-fluid">
       
-          <div class="alert alert-warning">No version for distro <strong>rolling</strong>. Known supported distros are highlighted in the buttons above.</div>
+        
+        
+        
+
+        <div class="row">
+          <div class="col-md-10">
+            
+
+<div class="well well-sm">
+  
+  <table class="table">
+    <tr>
+      <td width="100px" class="text-center">
+        <img style="width: 80px" src="/assets/package.png">
+      </td>
+      <td>
+        <h3 style="margin-top: 5px">
+          <a style="text-decoration:none" href="/p/simple_launch">simple_launch</a> <small>package from <a style="text-decoration:none" href="/r/simple_launch/github-oKermorgant-simple_launch">simple_launch</a> repo</small>
+        </h3>
+          
+            
+            
+              <span class="label label-default pkg-label">
+
+simple_launch
+</span>
+            
+          
+      </td>
+    </tr>
+  </table>
+  <div class="top-buffer distro distro-rolling">
+    
+<table class="table table-condensed instance-switch">
+  <tr>
+    <td>
+      <div id="repo-switch" class="btn-group btn-group-justified" role="group">
+        <div class="btn-group" style="width: 50px">
+          <a type="button" class="btn btn-xs btn-default" data-toggle="tooltip" data-placement="left" title="View Instances" 
+            href="/packages/simple_launch"><span class="glyphicon glyphicon-th"></span></a>
+        </div>
+        <div class="btn-group" style="width: 90%" role="group">
+          <div class="dropdown">
+            <!-- TODO: add disabled when only 1 version is known? -->
+            <button class="btn btn-xs btn-default dropdown-toggle" type="button" id="dropdownMenu1" data-toggle="dropdown" title="Select Instance">
+              <span class="pull-left" style="width: 100%; text-align: left">
+                <span class="pull-right"><span class="caret"></span></span> 
+              <span class="glyphicon glyphicon-none"></span>
+                  github-oKermorgant-simple_launch
+              </span>
+            </button>
+            <ul class="dropdown-menu" role="menu">
+              
+                <li role="presentation">
+                  <a id="github-oKermorgant-simple_launch" role="menuitem" tabindex="-1" href="/p/simple_launch/github-oKermorgant-simple_launch" data="github-oKermorgant-simple_launch">
+                    <span class="glyphicon glyphicon-none"></span>
+                    github-oKermorgant-simple_launch
+                  </a>
+                </li>
+              
+            </ul>
+          </div>
+        </div>
+      </div>
+    </td>
+  </tr>
+</table>
+
+  </div>
+</div>
+
+            <div class="visible-xs visible-sm">
+              
+              
+              
+
+
+
+<div class="list-group list-group-sm list-group-horizontal list-group-justified">
+  <a class="list-group-item text-center"
+     target="_blank"
+     href="http://docs.ros2.org/rolling/api/simple_launch/"
+     title="View API documentation on docs.ros.org"
+     >
+       <span style="margin-right: 5px;" class="glyphicon glyphicon-file"></span>
+       <br>
+       API Docs
+  </a>
+  <a class="list-group-item text-center"
+     target="_blank"
+     href="https://github.com/oKermorgant/simple_launch/tree/devel/."
+     title="View source code on repository">
+       <span class="glyphicon glyphicon-folder-open" style="margin-right:5px;"></span>
+       <br>
+       Browse Code
+  </a>
+  
+  
+  
+  
+  <a class="list-group-item text-center"
+     target="_blank" 
+     href="http://http404error.github.io/roseco/graph.html?id=ros.json&focus=simple_launch&height=1&depth=2&tred=standard&metagroup=false&colorby=Health&direction=LR"
+     title="View RosEco package graph"
+     >
+       <span style="margin-right: 5px;" class="glyphicon glyphicon-tree-deciduous"></span>
+       <br>
+       RosEco
+  </a>
+  
+</div>
+
+            </div>
+            
+
+
+
+<ul class="nav nav-tabs nav-justified" id="rolling-tabs" style="margin-bottom:20px">
+  <li class="better-tabs active">
+    <a href="#rolling-overview" data-toggle="tab">Overview</a>
+  </li>
+  <li class="better-tabs">
+    
+    
+    
+    
+    
+    <a href="#rolling-assets" data-toggle="tab"><span class="label label-default">0</span> Assets</a>
+  </li>
+  <li class="better-tabs">
+    
+    
+    
+    
+    <a href="#rolling-deps" data-toggle="tab"><span class="label label-primary">4</span> Dependencies</a>
+  </li>
+  <li class="better-tabs">
+    
+    <a href="#rolling-tutorials" data-toggle="tab"><span class="label label-default">0</span> Tutorials</a>
+  </li>
+  <li class="better-tabs">
+    <a href="#rolling-questions" data-toggle="tab"><span id="rolling-questions-count" class="label label-primary">0</span> Q & A</a>
+  </li>
+</ul>
+
+<div class="tab-content">
+  <div class="tab-pane active" id="rolling-overview">
+    
+    <div class="row">
+      <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
+        <div class="panel panel-default">
+          <div class="panel-heading"><h4 class="panel-title">Package Summary</h4></div>
+          <div class="panel-body">
+            <table class="table table-condensed">
+              <tr>
+                <td style="width:100px;" class="text-right"><strong>Tags</strong></td>
+                <td>
+                  
+                  
+                    <em>No category tags.</em>
+                  
+                </td>
+              </tr>
+              <tr>
+                <td class="text-right"><strong>Version</strong></td>
+                <td>1.2.1</td>
+              </tr>
+              <tr>
+                <td class="text-right"><strong>License</strong></td>
+                <td>MIT</td>
+              </tr>
+              <tr>
+                <td class="text-right"><strong>Build type</strong></td>
+                <td>
+                  
+                    <span class="label label-default">
+                  
+                    AMENT_PYTHON</span>
+                </td>
+              </tr>
+              <tr>
+                <td class="text-right"><strong>Use</strong></td>
+                <td>
+                
+                  <span class="label label-success">RECOMMENDED</span>
+                
+                </td>
+              </tr>
+            </table>
+          </div>
+          <div class="panel-heading"><h3 class="panel-title">Repository Summary</h3></div>
+          <div class="panel-body">
+            
+            
+            
+
+  <table class="table table-condensed">
+    <tr>
+      <td style="width:100px;" class="text-right"><b>Checkout URI</b></td>
+      <td><a class="label label-default" href="https://github.com/oKermorgant/simple_launch.git">https://github.com/oKermorgant/simple_launch.git</a></td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>VCS Type</b></td>
+      <td><span class="label label-default">git</span></td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>VCS Version</b></td>
+      <td><span class="label label-default">devel</span></td>
+    </tr>
+    <tr>
+      <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
+      <td>
+        
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-01-25
+        </span>
+      </td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>Dev Status</b></td>
+      <td>
+        
+          
+            <span class="label label-primary">
+          
+          MAINTAINED
+        </span>
+      </td>
+    </tr>
+              <tr>
+                <td class="text-right"><b>CI status</b></td>
+                <td class="ci-status">
+                  
+                  
+                    <span class="label label-default" title="No CI information available for this package.">No Continuous Integration</span>
+                  
+                </td>
+              </tr>
+    <tr>
+      <td class="text-right"><b>Released</b></td>
+      <td>
+        
+          <span class="label label-primary"><span class="glyphicon glyphicon-flash"></span> RELEASED
+        </span>
+      </td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>Tags</b></td>
+      <td>
+        
+        
+          <em>No category tags.</em>
+        
+      </td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>Contributing</b></td>
+      <td>
+        <a class="label label-primary" href="/r/simple_launch/#rolling-contribute-lists-help-wanted">
+          Help Wanted (<span class="contribute-lists-help-wanted-count">0</span>)
+        </a>
+        <br>
+        <a class="label label-primary" href="/r/simple_launch/#rolling-contribute-lists-good-first-issue">
+          Good First Issues (<span class="contribute-lists-good-first-issue-count">0</span>)
+        </a>
+        <br>
+        <a class="label label-primary" href="/r/simple_launch/#rolling-contribute-lists-pull-requests">
+          Pull Requests to Review (<span class="contribute-lists-pull-requests-count">0</span>)
+        </a>
+      </td>
+    </tr>
+  </table>
+
+          </div>
+        </div>
+      </div>
+      <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
+        <div class="panel panel-default">
+          <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
+          <div class="panel-body">
+            
+    Python helper class for the ROS 2 launch system
+  
+          </div>
+          <div class="panel-heading"><h4 class="panel-title">Additional Links</h4></div>
+          <div class="panel-body">
+            
+            
+              <em>No additional links.</em>
+            
+          </div>
+          <div class="panel-heading"><h4 class="panel-title">Maintainers</h4></div>
+          <div class="panel-body">
+            
+            
+              <ul class="list-unstyled">
+                
+                  <li>Olivier Kermorgant</li>
+                
+              </ul>
+            
+          </div>
+          <div class="panel-heading"><h4 class="panel-title">Authors</h4></div>
+          <div class="panel-body">
+            
+            
+              <em>No additional authors.</em>
+            
+          </div>
+        </div>
+      </div>
+    </div>
+    
+      
+        <div class="row">
+          <div class="col-xs-12">
+            <div class="panel panel-default">
+              <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://github.com/oKermorgant/simple_launch/tree/devel/./README.md" title="Open in git repository">README.md</a></div>
+              <div class="panel-body">
+                    <div class="rendered-markdown">
+<h1 id="simple_launch">simple_launch</h1>
+
+<p>This package provides a Python class to help writing ROS 2 launch files.</p>
+
+<p>The motivation behind this package is that the ROS 2 launch Python syntax may not be suited for many simple cases such as running basic nodes, spawning a <code>robot_state_publisher</code>, and grouping nodes in namespaces or components..</p>
+
+<p><strong>Thanks</strong>: this package is inspired by <a href="https://github.com/bponsler/ros2_launch_util">ros2_launch_util</a>.</p>
+
+<p>The entry point is the <code>SimpleLauncher</code> class, which has several capabilities.</p>
+
+<h2 id="basic-syntax">Basic syntax</h2>
+
+<h3 id="namespace-and-argument-parser-initialization">Namespace and argument parser initialization</h3>
+
+<p><code>sl = SimpleLauncher(namespace)</code></p>
+
+<h3 id="node-registration">Node registration</h3>
+
+<p><code>sl.node(package, executable, **node_args)</code> where </p>
+
+<ul>
+<li>
+<code>package</code> is the node package</li>
+<li>
+<code>executable</code> is the name of the executable</li>
+<li>
+<code>node_args</code> are any additional <code>Node</code> arguments given as a list</li>
+</ul>
+
+<h3 id="launch-file-include">Launch file include</h3>
+
+<p><code>sl.include(package, launch_file, launch_dir = None, launch_arguments=None)</code> where</p>
+
+<ul>
+<li>
+<code>package</code> is the package of the included launch file</li>
+<li>
+<code>launch_file</code> is the name of the launch file</li>
+<li>
+<code>launch_dir</code> is its directory inside the package share (<code>None</code> to have it found)</li>
+<li>
+<code>launch_arguments</code> is a list of arguments to pass to the included launch file</li>
+</ul>
+
+<h3 id="robust-types-for-parameters">Robust types for parameters</h3>
+
+<p>In the launch API, differents types are expected for:</p>
+
+<ul>
+<li>node parameters: a list of dictionaries</li>
+<li>node remappings: a list of (<code>key</code>, <code>value</code>) pairs</li>
+<li>included launch arguments: a list of (<code>key</code>, <code>value</code>) pairs</li>
+</ul>
+
+<p>The <code>sl.include</code> and <code>sl.node</code> syntax allow using any type (the simplest being a single dictionary)  and will convert to the one expected by the API.</p>
+
+<h2 id="launch-arguments">Launch arguments</h2>
+
+<p>The helper class allows declaring launch arguments and getting them in return:</p>
+
+<h3 id="declare-a-launch-argument">Declare a launch argument</h3>
+
+<p><code>sl.declare_arg(name, default_value, description = None)</code></p>
+
+<h3 id="retrieve-a-launch-argument">Retrieve a launch argument</h3>
+
+<p><code>sl.arg(name)</code>: returns the argument <code>name</code></p>
+
+<h3 id="retrieve-several-arguments-as-a-dictionary">Retrieve several arguments as a dictionary</h3>
+
+<p><code>sl.arg_map(('robot', 'x', 'y'))</code>: returns <code>{'robot': &lt;robot arg value&gt;, 'x': &lt;x arg value&gt;, 'y': &lt;y arg value&gt;}</code></p>
+
+<h2 id="node-groups">Node groups</h2>
+
+<p>Groups are created through the <code>sl.with()</code> syntax and accepts both a namespace and/or an if/unless condition:</p>
+
+<h3 id="by-namespace">By namespace</h3>
+<div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(ns=sub_namespace):
+    sl.node(package, executable)
+
+</code></pre></div>
+<h3 id="from-conditional-arguments">From conditional arguments</h3>
+<div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
+    sl.node(package, executable)
+
+  with sl.group(unless_arg='dont_do'):
+    sl.node(package, executable)
+
+</code></pre></div>
+<p>If <code>if_arg</code> / <code>unless_arg</code> is a string then the corresponding launch argument is used. Otherwise the raw value is passed as a condition (Boolean / Substitution).</p>
+
+<h3 id="creating-containers">Creating containers</h3>
+
+<p>This syntax adds the <code>composition/composition::Talker</code> as a ComposableNode </p>
+<div class="highlight"><pre><code class="language-" data-lang="">  with sl.container(name='my_container', output='screen'):
+    sl.node(package='composition', plugin='Talker', name='talker')
+
+</code></pre></div>
+<h2 id="simulation-and-use_sim_time">Simulation and <code>use_sim_time</code>
+</h2>
+
+<p>Calling <code>sl.auto_sim_time(force = None)</code> will detect (and return) if the <code>/clock</code> topic is advertized (typically by a simulator).
+If this is the case then all subsequent nodes will be run with <code>use_sim_time:=True</code>, unless this parameter is explicitely given.</p>
+
+<p>If a Boolean (or Boolean launch argument) is given to <code>sl.auto_sim_time</code> then <code>/clock</code> will not be checked and the corresponding argument will be forwarded to all nodes. This can be useful when the simulator itself in run through the launch file, to avoid race conditions as <code>/clock</code> will not be advertized at the time of the launch.</p>
+
+<h3 id="spawn-a-model">Spawn a model</h3>
+
+<p>The <code>sl.spawn_ign_model(name, topic, spawn_args = [])</code> functions allows easily spawing a model from its <code>robot_description</code>:</p>
+
+<ul>
+<li>
+<code>name</code> is the name this model will get in Ignition</li>
+<li>
+<code>topic</code> is the topic to obtain the model from, default is <code>robot_description</code> (relative to the current namespace)</li>
+<li>
+<code>spawn_args</code> are any additional spawn arguments, e.g. the initial pose</li>
+</ul>
+
+<h3 id="ignition-world">Ignition world</h3>
+
+<p>The <code>IgnitionBridge</code> class has a few static methods to interact with a <strong>running Ignition</strong>. Namely:</p>
+
+<ul>
+<li>
+<code>IgnitionBridge.world()</code> returns the current world name</li>
+<li>
+<code>IgnitionBridge.model_prefix(model)</code> builds the Ignition topic relative to the given model <code>/world/&lt;world&gt;/model/&lt;model&gt;</code>
+</li>
+<li>
+<code>IgnitionBridge.has_model(model)</code> returns <code>True</code> of <code>False</code> depending on the passed model existing in Ignition already</li>
+</ul>
+
+<h3 id="ignition-bridge">Ignition bridge</h3>
+
+<p>The <code>IgnitionBridge</code> class allows easily creating bridges when using Ignition. Ignition has to be already running in order to get information on the simulation scene.</p>
+
+<p>An instance is created with: <code>bridge = IgnitionBridge(&lt;ignition_topic&gt;, &lt;ros_topic&gt;, &lt;ros_message&gt;, direction)</code> where <code>direction</code> is either:</p>
+
+<ul>
+<li>
+<code>IgnitionBridge.ign2ros</code> for Ignition -&gt; ROS</li>
+<li>
+<code>IgnitionBridge.ros2ign</code> for ROS -&gt; Ignition</li>
+<li>
+<code>IgnitionBridge.bidirectional</code> for both</li>
+</ul>
+
+<p>The Ignition message type is deduced from the ros message type. Remapping will be set to the given <code>ros_topic</code>.</p>
+
+<p>The SimpleLauncher instance can then run all created bridges with: <code>sl.create_ign_bridge([bridges], &lt;node_name&gt;)</code>, as illustrated in the examples at this end of this document.</p>
+
+<h2 id="other-shortcuts">Other shortcuts</h2>
+
+<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
+
+<p>The following syntax builds <code>&lt;robot name&gt;.xacro</code>:</p>
+
+<p><code>file_name = sl.name_join(sl.arg('robot'), '.xacro')</code></p>
+
+<h3 id="path-concatenation">Path concatenation</h3>
+
+<p>The following syntax builds <code>&lt;my_package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.name_join(sl.arg('robot'), '.xacro')
+urdf_file = sl.path_join(get_package_share_directory(package), 'urdf', file_name)
+
+</code></pre></div>
+<h3 id="find-a-share-file">Find a share file</h3>
+
+<p><code>path = sl.find(package, file_name, file_dir = None)</code> where:</p>
+
+<ul>
+<li>
+<code>package</code> is the name of the package or None</li>
+<li>
+<code>file_name</code> is the name of the file to find</li>
+<li>
+<code>file_dir</code> is the path inside the package</li>
+</ul>
+
+<p>If <code>file_dir</code> is <code>None</code> then the <code>find</code> function will actually look for the file inside the package share, assuming that <code>package</code> and <code>file_name</code> are raw strings.</p>
+
+<h3 id="robot-state-publisher">Robot state publisher</h3>
+
+<p><code>sl.robot_state_publisher(package, description_file, description_dir=None, xacro_args=None, prefix_gz_plugins=False, **node_args)</code> where</p>
+
+<ul>
+<li>
+<code>description_file</code> is a URDF or xacro file</li>
+<li>
+<code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
+<li>
+<code>xacro_args</code> are passed to xacro</li>
+<li>
+<code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
+<li>
+<code>node_args</code> are any additional arguments for <code>robot_state_publisher</code> (typically remapping)</li>
+</ul>
+
+<h3 id="joint-state-publisher">Joint state publisher</h3>
+
+<p><code>sl.joint_state_publisher(use_gui, **node_args)</code>: fires up a <code>joint_state_publisher</code>, with or without the gui.</p>
+
+<h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
+
+<p>If any unavailable functionality is needed, the <code>sl.entity(entity)</code> function adds any passed <code>Entity</code> at the current namespace / conditional / composition level.</p>
+
+<h2 id="examples">Examples</h2>
+
+<p>Examples can be found in the corresponding folder.</p>
+
+<h3 id="launch-with-arguments">Launch with arguments</h3>
+
+<p>Here is a file spawning a <code>robot_state_publisher</code> and its <code>joint_state_publisher</code>, where:</p>
+
+<ul>
+<li>
+<code>prefix</code>, <code>x</code> and <code>y</code> are launch arguments that are passed to xacro</li>
+<li>
+<code>use_gui</code> tells whether <code>joint_state_publisher</code> should run the gui</li>
+</ul>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher
+
+def generate_launch_description():
+    '''
+    Launch description for a single robot - runs the two nodes in their own namespace
+    '''
+    sl = SimpleLauncher()
+
+    sl.declare_arg('prefix', default_value = '', description='name of the robot (+ tf prefix)')
+    sl.declare_arg('x', default_value = 0, description='x-offset of the robot')
+    sl.declare_arg('y', default_value = 0, description='y-offset of the robot')
+    sl.declare_arg('use_gui', default_value = True, description='Use JSP gui')
+
+    xacro_args = sl.arg_map(('prefix', 'x', 'y'))
+    xacro_args['prefix'] = [xacro_args['prefix'], ':']                            
+
+    with sl.group(ns=sl.arg('prefix')):
+        sl.robot_state_publisher('simple_launch', 'turret.xacro', xacro_args = xacro_args)
+        sl.joint_state_publisher(sources_list = ['source_joints'], use_gui = sl.arg('use_gui'))
+
+    return sl.launch_description()
+
+</code></pre></div>
+<h3 id="conditional-blocks-and-includes">Conditional blocks and includes</h3>
+
+<p>The file below fires up either <code>robot1</code> or <code>robot2</code> (or both) and also has a boolean argument to spawn <code>RViz2</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    # conditional args
+    sl.declare_arg('robot1', default_value=False, description='use robot 1')
+    sl.declare_arg('robot2', default_value=True, description='use robot 2')
+    sl.declare_arg('no_robot2', default_value=False, description='cancel use of robot 2')
+    sl.declare_arg('rviz', default_value=False, description='Bringup RViz2')
+
+    # numeric args
+    sl.declare_arg('robot2_x', default_value=1, description='x-offset of robot 2')
+    sl.declare_arg('robot2_y', default_value=1, description='y-offset of robot 2')
+
+    with sl.group(if_arg='robot1'):
+        sl.include('simple_launch', 'included_launch.py', launch_arguments = [('prefix', 'robot1')])
+
+    with sl.group(if_arg='robot2'):
+        with sl.group(unless_arg='no_robot2'):
+            args = [('prefix', 'robot2'), ('x', sl.arg('robot2_x')), ('y', sl.arg('robot2_y'))]
+            sl.include('simple_launch', 'included_launch.py', launch_arguments=args)
+
+    with sl.group(if_arg='rviz'):
+        rviz_config = sl.find('simple_launch', 'turret.rviz')
+        sl.node('rviz2', 'rviz2', arguments = ['-d', rviz_config])
+
+    return sl.launch_description()
+
+</code></pre></div>
+<h3 id="composition">Composition</h3>
+
+<p>The file below is another way to write the <a href="https://index.ros.org/doc/ros2/Tutorials/Composition/#composition-using-launch-actions">composition launch example</a>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    with sl.container(name='my_container', output='screen'):
+        sl.node(package='composition', plugin='Talker', name='talker')
+        sl.node(package='composition', plugin='Listener', name='listener')
+
+    return sl.launch_description()
+
+</code></pre></div>
+<h3 id="auto-sim-time">auto sim time</h3>
+
+<p>Here we run Ignition and force all other nodes to <code>use_sim_time:=True</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, IgnitionBridge
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    sl.declare_arg('use_sim_time', default_value=True)
+
+    # now all nodes in this launch file will use_sim_time:=True
+    sl.auto_sim_time(sl.arg('use_sim_time'))
+
+    # run Ignition Gazebo + clock bridge 
+    sl.include('ros_ign_gazebo','ign_gazebo.launch.py',launch_arguments={'''some sdf world'''}})
+    sl.create_ign_bridge(IgnitionBridge.clock(), 'ign_clock')
+
+    # run other nodes with sim time
+
+    return sl.launch_description()
+
+
+</code></pre></div>
+<h3 id="ignition-bridge">Ignition bridge</h3>
+
+<p>The file below runs a bridge for joint states and pose, together with a standard clock bridge.
+We assume the corresponding plugins do exist in the robot description.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, IgnitionBridge
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    # namespace is a launch argument, not a Python string
+    sl.declare_arg('robot', default_value = 'turtlebot')
+    robot = sl.arg('robot')
+
+    with sl.group(ns = robot):
+        # assume some robot_state_publisher publishes the robot_description
+
+        # spawn in Ignition at default pose if not already here
+        # uses IgnitionBridge.has_model(robot) under the hood and calls ros_ign_gazebo::create
+        sl.spawn_ign_model(robot)
+
+        # create a bridge for joint states @ /world/&lt;world&gt;/model/&lt;robot&gt;/joint_state
+        # note the relative ROS topic 'joint_states' that is actually namespaced     
+        ign_js_topic = sl.name_join(IgnitionBridge.model_prefix(robot), '/joint_state')
+        js_bridge = IgnitionBridge(ign_js_topic, 'joint_states', 'sensor_msgs/JointState', IgnitionBridge.ign2ros)        
+
+        # pose publisher bridge @ /model/&lt;robot&gt;
+        pose_bridge = IgnitionBridge(sl.name_join('/model/', robot, '/pose'),
+                                        'pose_gt', 'geometry_msgs/Pose', IgnitionBridge.ign2ros)
+
+        # create bridge, also add standard /clock topic
+        sl.create_ign_bridge([IgnitionBridge.clock(), js_bridge, pose_bridge], 'ign_bridge')
+
+    return sl.launch_description()
+
+
+</code></pre></div>
+</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      
+    
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="panel panel-default">
+          <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
+          <div class="panel-body">
+            
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-simple_launch">Changelog for package simple_launch</h1>
+
+<h2 id="1-2-1-2022-01-24">1.2.1 (2022-01-24)</h2>
+
+<ul>
+<li>  add Ignition support</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
+
+<h2 id="1-2-0-2021-11-02">1.2.0 (2021-11-02)</h2>
+
+<ul>
+<li>  make it clearer for the prefix_gz_plugins param</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
+
+<h2 id="1-1-0-2021-09-25">1.1.0 (2021-09-25)</h2>
+
+<ul>
+<li>  add capacity to prefix and namespace Gazebo-published messages, as
+an alternative to using Gazebo namespaces that also remap /tf</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
+
+<h2 id="1-0-6-2021-09-22">1.0.6 (2021-09-22)</h2>
+
+<ul>
+<li>  node arguments is a raw list and accepts substitutions</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
+
+<h2 id="1-0-5-2021-09-22">1.0.5 (2021-09-22)</h2>
+
+<ul>
+<li>  automagically convert to expected type for node parameters,
+remappings, launch arguments</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
+
+<h2 id="1-0-4-2021-09-03">1.0.4 (2021-09-03)</h2>
+
+<ul>
+<li>  some Python2 legacy bugs</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
+
+<h2 id="1-0-3-2021-04-17">1.0.3 (2021-04-17)</h2>
+
+<ul>
+<li>  solve typo in node_args</li>
+<li>  better handling of node arguments in nested lists</li>
+<li>  bug fixes around Substitutions</li>
+<li>  Merge pull request
+<a href="https://github.com/oKermorgant/simple_launch/issues/1">#1</a> from
+oKermorgant/master deduce executable from package name if needed</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
+
+<h2 id="1-0-2-2020-12-08">1.0.2 (2020-12-08)</h2>
+
+<ul>
+<li>  composition with existing container</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
+
+<h2 id="1-0-1-2020-10-12">1.0.1 (2020-10-12)</h2>
+
+<ul>
+<li>  PythonExpression shortcut</li>
+<li>  xacro args now take substitution args</li>
+<li>  add LoadComposableNode feature for existing containers</li>
+<li>  add name_join and path_join to combine raw str and Substitution
+stuff</li>
+<li>  first commit</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
+</div>
+            
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="rolling-tutorials">
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Wiki Tutorials</h3>
+      </div>
+      <div class="panel-body">
+        
+        <em>See <a href="http://wiki.ros.org/simple_launch/Tutorials" target="_blank">ROS Wiki Tutorials</a> for more details.</em>
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Source Tutorials</h3>
+      </div>
+      <div class="panel-body">
+        <em>Not currently indexed.</em>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="rolling-deps">
+    <div class="row">
+      <div class="col-sm-5">
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <h3 class="panel-title">Package Dependencies</h3>
+          </div>
+          <div class="panel-body">
+            
+              <table class="table table-condensed table-striped">
+                <thead>
+                  <th class="text-center">Deps</th>
+                  <th class="text-center"><span class="glyphicon glyphicon-th" title="Package instances"></span></th>
+                  <th style="width: 100%">Name</th>
+                </thead>
+                <tbody>
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/launch#rolling-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/launch" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/launch#rolling">launch</a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/launch_ros#rolling-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/launch_ros" class="label label-primary">
+                            2
+                          </a>
+                        </td>
+                        <td><a href="/p/launch_ros#rolling">launch_ros</a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/xacro#rolling-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/xacro" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/xacro#rolling">xacro</a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/ament_index_python#rolling-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/ament_index_python" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/ament_index_python#rolling">ament_index_python</a></td>
+                      </tr>
+                    
+                  
+                </tbody>
+              </table>
+            
+          </div>
+          <div class="panel-heading">
+            <h3 class="panel-title">System Dependencies</h3>
+          </div>
+          <div class="panel-body">
+            
+              <em>No direct system dependencies.</em>
+            
+          </div>
+        </div>
+      </div>
+
+      <div class="col-sm-7">
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <h3 class="panel-title">Dependant Packages</h3>
+          </div>
+          <div class="panel-body">
+            
+              <em>No known dependants.</em>
+            
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="rolling-assets">
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Launch files</h3>
+      </div>
+      <div class="panel-body">
+        
+          <em>No launch files found</em>
+        
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Messages</h3>
+      </div>
+      <div class="panel-body">
+        
+          <em>No message files found.</em>
+        
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Services</h3>
+      </div>
+      <div class="panel-body">
+        
+          <em>No service files found</em>
+        
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Plugins</h3>
+      </div>
+      <div class="panel-body">
+        
+          <em>No plugins found.</em>
+        
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="rolling-questions">
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Recent questions tagged <kbd>simple_launch</kbd> at <strong><a href="https://answers.ros.org" target="_blank">answers.ros.org</a></strong></h3>
+      </div>
+      <div id="rolling-question-list" class="panel-body" style="display: none;"></div>
+      <div id="rolling-no-question-list" class="panel-body" style="display: none;">
+        <p>No questions yet, you can ask one <a href="https://answers.ros.org/questions/ask/?tags=simple_launch,rolling">here</a>.</p>
+      </div>
+      <div id="rolling-get-question-fail" class="panel-body alert alert-warning" style="display: none;">
+        <p>Failed to get question list, you can ticket an issue <a href="https://github.com/ros2/rosindex/issues/new" target="_blank" class="alert-link">here</a> </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="text/javascript" src="/js/package_body_tabs.js"></script>
+
+<script id="rolling-question-list-template" type="text/html">
+  <p>
+    Browse <a href="https://answers.ros.org/questions/scope:all/sort:activity-desc/tags:simple_launch/page:1/">recent questions</a>
+    or see the <a href="https://answers.ros.org/questions/scope:all/sort:votes-desc/tags:simple_launch/page:1/">higest voted ones</a>.
+  </p>
+  
+  <div class="list-group">
+    {{#questions}}
+    <div class="list-group-item mb-1">
+      <a href="{{link}}">
+        <h4 class="w-75 float-left">{{title}}</h4>
+        <small class="w-25">{{updated}}</small>
+      </a>
+      <hr>
+      <div class="question-description question-description-collapsed" id="question-description-{{id}}" title="{{link}}">
+        {{&description}}
+      </div>
+      <a class="question-description-toggle" id="question-description-{{id}}-toggle">Show more</a>
+      <a class="question-link"  target="_blank" href="{{link}}">View on answers.ros.org</a>
+    </div>
+    {{/questions}}
+  </div>
+  
+</script>
+
+<script type="text/javascript" src="/js/jquery.jfeed.pack.js"></script>
+<link rel="stylesheet" type="text/css" href="/css/prettify.css"/>
+<script type="text/javascript" src="/js/prettify.js"></script>
+<script type="text/javascript" src="/js/mustache.js"></script>
+<script type="text/javascript" src="/js/showdown.min.js"></script>
+<script src=/js/contribution_suggestions.js></script>
+<script type="text/javascript">
+jQuery.browser = {};
+(function () {
+    jQuery.browser.msie = false;
+    jQuery.browser.version = 0;
+    if (navigator.userAgent.match(/MSIE ([0-9]+)\./)) {
+        jQuery.browser.msie = true;
+        jQuery.browser.version = RegExp.$1;
+    }
+})();
+jQuery(function() {
+    jQuery.getFeed({
+        url: "https://answers.ros.org/feeds/rss/?tags=simple_launch",
+        success: function(feed) {
+            if (feed.items.length > 0) {
+              var converter = new showdown.Converter();
+              var questions = feed.items.slice(0, 10).map(function(question) {
+                  question.description = converter.makeHtml(question.description);
+                  question.id = Math.round(Math.random() * 99999.0);
+                  return question;
+              });
+              var template = jQuery("#rolling-question-list-template").text();
+              Mustache.parse(template);
+              var rendered = Mustache.render(template, {questions: questions});
+              jQuery("#rolling-question-list").html(rendered);
+              jQuery("#rolling-question-list pre").addClass("prettyprint");
+              jQuery("#rolling-question-list img").each(function() {
+                if (jQuery(this).attr("src").startsWith("/upfiles")) {
+                   jQuery(this).attr("src", "https://answers.ros.org" + jQuery(this).attr("src"));
+                }
+              });
+              jQuery("#rolling-question-list .question-description").each(function() {
+                jQuery(this).click( function() {
+                  if (jQuery(this).hasClass("question-description-collapsed")) {
+                    window.open(jQuery(this).attr("title"));
+                  }
+                })
+              });
+              jQuery("#rolling-question-list .question-description-toggle").each(function() {
+                jQuery(this).click( function() {
+                  if (jQuery(this).prev().hasClass("question-description-collapsed")) {
+                    jQuery(this).html("Show less");
+                  } else {
+                    jQuery(this).html("Show more");
+                  }
+                  jQuery(this).prev().toggleClass( "question-description-collapsed", 1000 );
+                })
+              });
+              jQuery("#rolling-question-list").show();
+              PR.prettyPrint();
+            } else {
+              jQuery("#rolling-no-question-list").show();
+            }
+            jQuery("#rolling-questions-count").text(feed.items.length);
+        },
+        error: function(res, err) {
+          console.error("Failed to get feed:", err)
+          jQuery("#rolling-get-question-fail").show();
+        }
+    });
+    // Update the count on the links to the contribution suggestions
+    updateContributionSuggestionsCountOnPackage('https://github.com/oKermorgant/simple_launch.git');
+});
+</script>
+
+          </div>
+          <div class="col-md-2 hidden-xs hidden-sm">
+            
+            
+            
+
+
+
+<div class="list-group list-group-sm ">
+  <a class="list-group-item"
+     target="_blank"
+     href="http://docs.ros2.org/rolling/api/simple_launch/"
+     title="View API documentation on docs.ros.org"
+     >
+       <span style="margin-right: 5px;" class="glyphicon glyphicon-file"></span>
+       
+       API Docs
+  </a>
+  <a class="list-group-item"
+     target="_blank"
+     href="https://github.com/oKermorgant/simple_launch/tree/devel/."
+     title="View source code on repository">
+       <span class="glyphicon glyphicon-folder-open" style="margin-right:5px;"></span>
+       
+       Browse Code
+  </a>
+  
+  
+  
+  
+  <a class="list-group-item"
+     target="_blank" 
+     href="http://http404error.github.io/roseco/graph.html?id=ros.json&focus=simple_launch&height=1&depth=2&tred=standard&metagroup=false&colorby=Health&direction=LR"
+     title="View RosEco package graph"
+     >
+       <span style="margin-right: 5px;" class="glyphicon glyphicon-tree-deciduous"></span>
+       
+       RosEco
+  </a>
+  
+</div>
+
+          </div>
+        </div>
       
     </div>
   </div>
@@ -2409,7 +3776,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2021-11-03</em>
+          <em>generated on 2022-01-25</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
