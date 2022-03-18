@@ -358,7 +358,7 @@ ga('send', 'pageview');
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-03-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-03-17
         </span>
       </td>
     </tr>
@@ -435,7 +435,7 @@ ga('send', 'pageview');
                 
                   <tr>
                     <td><a href="/p/grepros/github-suurjaak-grepros">grepros</a></td>
-                    <td>0.4.3</td>
+                    <td>0.4.4</td>
                   </tr>
                 
                 </tbody>
@@ -524,7 +524,9 @@ Using ROS1 live topics requires ROS master to be running.</p>
 </ul>
 </li>
 <li><a href="https://github.com/suurjaak/grepros/tree/master/#sql-dialects">SQL dialects</a></li>
+<li><a href="https://github.com/suurjaak/grepros/tree/master/#notes-on-ros1-vs-ros2">Notes on ROS1 vs ROS2</a></li>
 <li><a href="https://github.com/suurjaak/grepros/tree/master/#all-command-line-arguments">All command-line arguments</a></li>
+<li><a href="https://github.com/suurjaak/grepros/tree/master/#dependencies">Dependencies</a></li>
 <li><a href="https://github.com/suurjaak/grepros/tree/master/#attribution">Attribution</a></li>
 <li><a href="https://github.com/suurjaak/grepros/tree/master/#license">License</a></li>
 </ul>
@@ -586,11 +588,10 @@ if they happen to match paths on disk.</p>
 
 <p>Requires ROS Python packages
 (ROS1: rospy, roslib, rosbag, genpy;
- ROS2: rclpy, rosidl_parser, rosidl_runtime_py).</p>
+ ROS2: rclpy, rosidl_parser, rosidl_runtime_py, builtin_interfaces).</p>
 
-<p>If you don't want to install the ROS1 stack, and are only interested
-in using bag files, not grepping from or publishing to live topics,
-minimal ROS1 Python packages can also be installed separately with:</p>
+<p>For ROS1, if only using bag files and no live topics, minimal ROS1 Python
+packages can also be installed separately with:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">pip install rospy rosbag roslib roslz4 \
 --extra-index-url https://rospypi.github.io/simple/
 </code></pre></div>
@@ -644,6 +645,13 @@ colcon build --packages-select grepros
 <p>Reindex unindexed ROS1 bags before processing
 (warning: creates backup copies of files, into same directory as file):</p>
 <div class="highlight"><pre><code class="language-" data-lang="">--reindex-if-unindexed
+--reindex-if-unindexed --progress
+</code></pre></div>
+<p>Decompress archived ROS bags before processing
+(<code>.zst</code> <code>.zstd</code> extensions, requires <code>zstandard</code> Python package)
+(warning: unpacks archived file to disk, into same directory as file):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">--decompress
+--decompress --progress
 </code></pre></div>
 <p>Order bag messages first by topic or type, and only then by time:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">--order-bag-by topic
@@ -1251,6 +1259,40 @@ will be taken from the default dialect configuration:</p>
   <span class="na">invalid_char_repl</span><span class="pi">:</span>    <span class="s1">'</span><span class="s">__'</span>
 
 </code></pre></div>
+<h2 id="notes-on-ros1-vs-ros2">Notes on ROS1 vs ROS2</h2>
+
+<p>In ROS1, message type packages do not need to be installed locally to be able to
+read messages from bags or live topics, as bags and topic publishers provide
+message type definition texts, and message classes can be generated at run-time
+from the type definition text. This is what rosbag does automatically,
+and so does grepros.</p>
+
+<p>Additionally, each ROS1 message type has a hash code computed from its type
+definition text, available both in live topic metadata, and bag metadata.
+The message type definition hash code allows to recognize changes
+in message type packages and use the correct version of the message type.</p>
+
+<p>ROS2 does not provide message type definitions, neither in bagfiles nor in live
+topics. Due to this, the message type packages always need to be installed.
+Also, ROS2 does not provide options for generating type classes at run-time,
+and it does not have the concept of a message type hash.</p>
+
+<p>These are serious limitations in ROS2 compared to ROS1, at least with versions
+up to ROS2 Foxy and ROS2 Galactic, and require extra work to smooth over.
+Without knowing which version of a message type package a bag was recorded with,
+reading bag messages with changed definitions can result in undefined behaviour.</p>
+
+<p>If the serialized message structure happens to match (e.g. a change swapped 
+the order of two <code>int32</code> fields), messages will probably be deserialized
+seemingly successfully but with invalid content. If the serialized structure
+does not match, the result is a run-time error.</p>
+
+<p>Because of this, it is prudent to always include a snapshot archive of used
+message type packages, when recording ROS2 bags.</p>
+
+<p>grepros does provide the message type hash itself in ROS2 exports, by calculating
+the ROS2 message type hash on its own from the locally installed type definition.</p>
+
 <h2 id="all-command-line-arguments">All command-line arguments</h2>
 <div class="highlight"><pre><code class="language-" data-lang="">positional arguments:
   PATTERN               pattern(s) to find in message field values,
@@ -1408,6 +1450,7 @@ Bag input control:
                         order bag messages by topic or type first and then by time
   --reindex-if-unindexed
                         reindex unindexed bags (ROS1 only; makes backup copies)
+  --decompress          decompress archived bags with recognized extensions (.zst .zstd)
 
 Live topic control:
   --publish-prefix PREFIX
@@ -1424,6 +1467,46 @@ Live topic control:
                         timestamps from subsribed live ROS topics
 
 </code></pre></div>
+<h2 id="dependencies">Dependencies</h2>
+
+<p>Requires the following 3rd-party Python packages:</p>
+
+<ul>
+<li>ROS1: rospy, roslib, rosbag, genpy</li>
+<li>ROS2: rclpy, rosidl_parser, rosidl_runtime_py, builtin_interfaces</li>
+</ul>
+
+<p>Optional, for decompressing archived bags:</p>
+
+<ul>
+<li>zstandard (<a href="https://pypi.org/project/zstandard/">https://pypi.org/project/zstandard/</a>)</li>
+</ul>
+
+<p>Optional, for faster reading of ROS1 bags:</p>
+
+<ul>
+<li>embag (<a href="https://github.com/embarktrucks/embag">https://github.com/embarktrucks/embag</a>)</li>
+</ul>
+
+<p>Optional, for Postgres output:</p>
+
+<ul>
+<li>psycopg2 (<a href="https://pypi.org/project/psycopg2">https://pypi.org/project/psycopg2</a>)</li>
+</ul>
+
+<p>Optional, for Parquet output:</p>
+
+<ul>
+<li>pandas (<a href="https://pypi.org/project/pandas">https://pypi.org/project/pandas</a>)</li>
+<li>pyarrow (<a href="https://pypi.org/project/pyarrow">https://pypi.org/project/pyarrow</a>)</li>
+</ul>
+
+<p>Optional, for generating API documentation:</p>
+
+<ul>
+<li>doxypypy (<a href="https://pypi.org/project/doxypypy">https://pypi.org/project/doxypypy</a>)</li>
+</ul>
+
 <h2 id="attribution">Attribution</h2>
 
 <p>Includes a modified version of step, Simple Template Engine for Python,
@@ -1490,7 +1573,7 @@ see <a href="https://github.com/suurjaak/grepros/tree/master/LICENSE.md">LICENSE
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-03-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-03-17
         </span>
       </td>
     </tr>
@@ -1567,7 +1650,7 @@ see <a href="https://github.com/suurjaak/grepros/tree/master/LICENSE.md">LICENSE
                 
                   <tr>
                     <td><a href="/p/grepros/github-suurjaak-grepros">grepros</a></td>
-                    <td>0.4.3</td>
+                    <td>0.4.4</td>
                   </tr>
                 
                 </tbody>
@@ -1656,7 +1739,9 @@ Using ROS1 live topics requires ROS master to be running.</p>
 </ul>
 </li>
 <li><a href="https://github.com/suurjaak/grepros/tree/master/#sql-dialects">SQL dialects</a></li>
+<li><a href="https://github.com/suurjaak/grepros/tree/master/#notes-on-ros1-vs-ros2">Notes on ROS1 vs ROS2</a></li>
 <li><a href="https://github.com/suurjaak/grepros/tree/master/#all-command-line-arguments">All command-line arguments</a></li>
+<li><a href="https://github.com/suurjaak/grepros/tree/master/#dependencies">Dependencies</a></li>
 <li><a href="https://github.com/suurjaak/grepros/tree/master/#attribution">Attribution</a></li>
 <li><a href="https://github.com/suurjaak/grepros/tree/master/#license">License</a></li>
 </ul>
@@ -1718,11 +1803,10 @@ if they happen to match paths on disk.</p>
 
 <p>Requires ROS Python packages
 (ROS1: rospy, roslib, rosbag, genpy;
- ROS2: rclpy, rosidl_parser, rosidl_runtime_py).</p>
+ ROS2: rclpy, rosidl_parser, rosidl_runtime_py, builtin_interfaces).</p>
 
-<p>If you don't want to install the ROS1 stack, and are only interested
-in using bag files, not grepping from or publishing to live topics,
-minimal ROS1 Python packages can also be installed separately with:</p>
+<p>For ROS1, if only using bag files and no live topics, minimal ROS1 Python
+packages can also be installed separately with:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">pip install rospy rosbag roslib roslz4 \
 --extra-index-url https://rospypi.github.io/simple/
 </code></pre></div>
@@ -1776,6 +1860,13 @@ colcon build --packages-select grepros
 <p>Reindex unindexed ROS1 bags before processing
 (warning: creates backup copies of files, into same directory as file):</p>
 <div class="highlight"><pre><code class="language-" data-lang="">--reindex-if-unindexed
+--reindex-if-unindexed --progress
+</code></pre></div>
+<p>Decompress archived ROS bags before processing
+(<code>.zst</code> <code>.zstd</code> extensions, requires <code>zstandard</code> Python package)
+(warning: unpacks archived file to disk, into same directory as file):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">--decompress
+--decompress --progress
 </code></pre></div>
 <p>Order bag messages first by topic or type, and only then by time:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">--order-bag-by topic
@@ -2383,6 +2474,40 @@ will be taken from the default dialect configuration:</p>
   <span class="na">invalid_char_repl</span><span class="pi">:</span>    <span class="s1">'</span><span class="s">__'</span>
 
 </code></pre></div>
+<h2 id="notes-on-ros1-vs-ros2">Notes on ROS1 vs ROS2</h2>
+
+<p>In ROS1, message type packages do not need to be installed locally to be able to
+read messages from bags or live topics, as bags and topic publishers provide
+message type definition texts, and message classes can be generated at run-time
+from the type definition text. This is what rosbag does automatically,
+and so does grepros.</p>
+
+<p>Additionally, each ROS1 message type has a hash code computed from its type
+definition text, available both in live topic metadata, and bag metadata.
+The message type definition hash code allows to recognize changes
+in message type packages and use the correct version of the message type.</p>
+
+<p>ROS2 does not provide message type definitions, neither in bagfiles nor in live
+topics. Due to this, the message type packages always need to be installed.
+Also, ROS2 does not provide options for generating type classes at run-time,
+and it does not have the concept of a message type hash.</p>
+
+<p>These are serious limitations in ROS2 compared to ROS1, at least with versions
+up to ROS2 Foxy and ROS2 Galactic, and require extra work to smooth over.
+Without knowing which version of a message type package a bag was recorded with,
+reading bag messages with changed definitions can result in undefined behaviour.</p>
+
+<p>If the serialized message structure happens to match (e.g. a change swapped 
+the order of two <code>int32</code> fields), messages will probably be deserialized
+seemingly successfully but with invalid content. If the serialized structure
+does not match, the result is a run-time error.</p>
+
+<p>Because of this, it is prudent to always include a snapshot archive of used
+message type packages, when recording ROS2 bags.</p>
+
+<p>grepros does provide the message type hash itself in ROS2 exports, by calculating
+the ROS2 message type hash on its own from the locally installed type definition.</p>
+
 <h2 id="all-command-line-arguments">All command-line arguments</h2>
 <div class="highlight"><pre><code class="language-" data-lang="">positional arguments:
   PATTERN               pattern(s) to find in message field values,
@@ -2540,6 +2665,7 @@ Bag input control:
                         order bag messages by topic or type first and then by time
   --reindex-if-unindexed
                         reindex unindexed bags (ROS1 only; makes backup copies)
+  --decompress          decompress archived bags with recognized extensions (.zst .zstd)
 
 Live topic control:
   --publish-prefix PREFIX
@@ -2556,6 +2682,46 @@ Live topic control:
                         timestamps from subsribed live ROS topics
 
 </code></pre></div>
+<h2 id="dependencies">Dependencies</h2>
+
+<p>Requires the following 3rd-party Python packages:</p>
+
+<ul>
+<li>ROS1: rospy, roslib, rosbag, genpy</li>
+<li>ROS2: rclpy, rosidl_parser, rosidl_runtime_py, builtin_interfaces</li>
+</ul>
+
+<p>Optional, for decompressing archived bags:</p>
+
+<ul>
+<li>zstandard (<a href="https://pypi.org/project/zstandard/">https://pypi.org/project/zstandard/</a>)</li>
+</ul>
+
+<p>Optional, for faster reading of ROS1 bags:</p>
+
+<ul>
+<li>embag (<a href="https://github.com/embarktrucks/embag">https://github.com/embarktrucks/embag</a>)</li>
+</ul>
+
+<p>Optional, for Postgres output:</p>
+
+<ul>
+<li>psycopg2 (<a href="https://pypi.org/project/psycopg2">https://pypi.org/project/psycopg2</a>)</li>
+</ul>
+
+<p>Optional, for Parquet output:</p>
+
+<ul>
+<li>pandas (<a href="https://pypi.org/project/pandas">https://pypi.org/project/pandas</a>)</li>
+<li>pyarrow (<a href="https://pypi.org/project/pyarrow">https://pypi.org/project/pyarrow</a>)</li>
+</ul>
+
+<p>Optional, for generating API documentation:</p>
+
+<ul>
+<li>doxypypy (<a href="https://pypi.org/project/doxypypy">https://pypi.org/project/doxypypy</a>)</li>
+</ul>
+
 <h2 id="attribution">Attribution</h2>
 
 <p>Includes a modified version of step, Simple Template Engine for Python,
@@ -2706,7 +2872,7 @@ see <a href="https://github.com/suurjaak/grepros/tree/master/LICENSE.md">LICENSE
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2022-03-02</em>
+          <em>generated on 2022-03-18</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
