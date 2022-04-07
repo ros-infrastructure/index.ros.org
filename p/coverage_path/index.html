@@ -350,6 +350,14 @@ kinematics_exchanger
           
             
             
+              <a class="label label-primary pkg-label" href="/p/roi_assignment/github-cpswarm-swarm_functions">
+
+roi_assignment
+</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/state_exchanger/github-cpswarm-swarm_functions">
 
 state_exchanger
@@ -495,7 +503,7 @@ task_allocation
     
     
     
-    <a href="#noetic-deps" data-toggle="tab"><span class="label label-primary">7</span> Dependencies</a>
+    <a href="#noetic-deps" data-toggle="tab"><span class="label label-primary">10</span> Dependencies</a>
   </li>
   <li class="better-tabs">
     
@@ -574,7 +582,7 @@ task_allocation
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-01-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-04-06
         </span>
       </td>
     </tr>
@@ -703,10 +711,10 @@ task_allocation
 
 <p>The following packages of the <a href="https://github.com/cpswarm/swarm_functions">swarm functions library</a> are required:
 * area_division (only if <code>divide_area=true</code>)
-* state_exchanger</p>
+* state_exchanger (only if <code>divide_area=true</code>)</p>
 
 <p>The following packages of the <a href="https://github.com/cpswarm/sensing_actuation">sensing and actuation library</a> are required:
-* area_provider (only if <code>divide_area=false</code>)</p>
+* area_provider</p>
 
 <p>Further required packages are:
 * <a href="https://wiki.ros.org/roscpp/">roscpp</a>
@@ -732,17 +740,19 @@ task_allocation
 
 <h3 id="coverage_path">coverage_path</h3>
 
-<p>The <code>coverage_path</code> node generates a path that allows a CPS to cover a given area. It uses the area assigned by the area_division package. The generated coverage path is based on a <a href="https://en.wikipedia.org/wiki/Minimum_spanning_tree">minimum spanning tree</a> to optimally sweep the area. The path is regenerated when area to be covered changes. The path can be retrieved either as a whole or waypoint after waypoint. In the latter case, the current waypoint is returned, based on the current position of the CPS.</p>
+<p>The <code>coverage_path</code> node generates a path that allows a CPS to cover a given area. The area can be provided in three different ways, prioritized in the following order:
+1. If the coordinates of a region of interest (ROI) are passed in with the action goal, its area is used. The corresponding grid map is retrieved from the <code>area_provider</code> package.
+2. If <code>divide_area=true</code>, the map is retrieved from the <code>area_division</code> package. It divides the area to be covered among multiple CPSs and provides the grid map of the area assigned to this CPS. When the swarm composition changes, the map is retrieved again and the path is regenerated.
+3. Otherwise, the whole area is covered by this CPS. The grid map is retrieved from the <code>area_provider</code> package.</p>
+
+<p>The generated coverage path is based on a <a href="https://en.wikipedia.org/wiki/Minimum_spanning_tree">minimum spanning tree</a> to optimally sweep the area. The path can be retrieved either as a whole (action) or waypoint after waypoint (service). In the latter case, the current waypoint is returned, based on the current position of the CPS.</p>
 
 <h4 id="subscribed-topics">Subscribed Topics</h4>
 
 <ul>
 <li>
-<code>area/assigned</code> (<a href="https://docs.ros.org/api/nav_msgs/html/msg/OccupancyGrid.html">nav_msgs/OccupancyGrid</a>)
-The area to be covered by this CPS. Only called if <code>divide_area=true</code>.</li>
-<li>
-<code>area/map</code> (<a href="https://docs.ros.org/api/nav_msgs/html/msg/OccupancyGrid.html">nav_msgs/OccupancyGrid</a>)
-The area to be covered. Only called if <code>divide_area=false</code>.</li>
+<code>swarm_state</code> (<a href="https://cpswarm.github.io/cpswarm_msgs/html/msg/ArrayOfStates.html">cpswarm_msgs/ArrayOfStates</a>)
+The behavior states of the other swarm members. Only subscribed if <code>divide_area=true</code>. Once the composition of the swarm changes (members joining or leaving), the assigned area is retrieved again from the <code>area_division</code> package and the path is regenerated.</li>
 </ul>
 
 <h4 id="published-topics">Published Topics</h4>
@@ -750,58 +760,72 @@ The area to be covered. Only called if <code>divide_area=false</code>.</li>
 <ul>
 <li>
 <code>coverage_path/path</code> (<a href="http://docs.ros.org/api/nav_msgs/html/msg/Path.html">nav_msgs/Path</a>)
-The generated path for visualization purposes. Only published if the parameter <code>visualize</code> is set to true.</li>
+The generated path for visualization purposes. Only published if <code>visualize=true</code>.</li>
 <li>
 <code>coverage_path/waypoint</code> (<a href="http://docs.ros.org/api/geometry_msgs/html/msg/PointStamped.html">geometry_msgs/PointStamped</a>)
-The current waypoint of the generated path for visualization purposes. Only published if the parameter <code>visualize</code> is set to true.</li>
+The current waypoint of the generated path for visualization purposes. Only published if <code>visualize=true</code>.</li>
 <li>
 <code>coverage_path/mst</code> (<a href="http://docs.ros.org/api/geometry_msgs/html/msg/PoseArray.html">geometry_msgs/PoseArray</a>)
-The minimum spanning tree of the area for visualization purposes. Only published if the parameter <code>visualize</code> is set to true.</li>
+The minimum spanning tree of the area for visualization purposes. Only published if <code>visualize=true</code>.</li>
 </ul>
 
 <h4 id="services">Services</h4>
 
 <ul>
 <li>
-<code>coverage_path/path</code> (<a href="http://docs.ros.org/api/nav_msgs/html/srv/GetPlan.html">nav_msgs/GetPlan</a>)
-Provides the complete generated path.</li>
-<li>
 <code>coverage_path/waypoint</code> (<a href="https://cpswarm.github.io/cpswarm_msgs/html/srv/GetWaypoint.html">cpswarm_msgs/GetWaypoint</a>)
-Provides the current waypoint of the generated path.</li>
+Provides the current waypoint of the generated path. If the current waypoint is within the tolerance to the position provided in the request, the next waypoint is selected and returned. A new path is generated if it has not been generated by the action or the swarm composition changed and <code>divide_area=true</code>.</li>
 </ul>
 
 <h4 id="services-called">Services Called</h4>
 
 <ul>
 <li>
-<code>area/get_area</code> (<a href="https://cpswarm.github.io/cpswarm_msgs/html/srv/GetPoints.html">cpswarm_msgs/GetPoints</a>)
-Get the points defining the polygon of the area to be covered.</li>
+<code>rois/get_map</code> (<a href="https://cpswarm.github.io/cpswarm_msgs/html/srv/GetMap.html">cpswarm_msgs/GetMap</a>)
+Get the grid map of the ROI to be covered including any required rotation and translation. Only called if the ROI coordinates are passed in with the action goal.</li>
+<li>
+<code>area/get_divided_map</code> (<a href="https://cpswarm.github.io/cpswarm_msgs/html/srv/GetMap.html">cpswarm_msgs/GetMap</a>)
+Get the grid map of the area assigned to this CPS including any required rotation and translation. Only called if <code>divide_area=true</code>.</li>
+<li>
+<code>area/get_map</code> (<a href="https://cpswarm.github.io/cpswarm_msgs/html/srv/GetMap.html">cpswarm_msgs/GetMap</a>)
+Get the grid map of the area to be covered including any required rotation and translation.</li>
+</ul>
+
+<h4 id="action-servers">Action Servers</h4>
+
+<ul>
+<li>
+<code>coverage_path/generate</code> (<a href="https://cpswarm.github.io/cpswarm_msgs/html/action/PathGenerationAction.html">cpswarm_msgs/PathGenerationAction</a>)
+The action server implements a <a href="https://docs.ros.org/en/api/actionlib/html/classactionlib_1_1SimpleActionClient.html">simple action client</a>. The goal contains the starting point of the coverage path. If area coordinates are also passed (optional), the path is generated for the ROI matching these coordinates. If no matching ROI is found, the generation fails. If no coordinates are given, either the complete mission area or a subset (in case of <code>divide_area=true</code>) is covered. If the path generation is successful, the result contains the complete path.</li>
 </ul>
 
 <h4 id="parameters">Parameters</h4>
 
 <ul>
 <li>
-<code>~loop_rate</code> (real, default: <code>1.5</code>)
-The frequency in Hz at which to run the control loops.</li>
-<li>
 <code>~queue_size</code> (integer, default: <code>1</code>)
 The size of the message queue used for publishing and subscribing to topics.</li>
 <li>
 <code>~resolution</code> (real, default: <code>1.0</code>)
-The grid map underlying the path planning will be downsampled to this resolution in meter / cell.</li>
+The spacing between two adjacent coverage path legs in meter.</li>
 <li>
 <code>~visualize</code> (boolean, default: <code>false</code>)
 Whether to publish the coverage path on a topic for visualization.</li>
 <li>
 <code>~divide_area</code> (boolean, default: <code>false</code>)
-Whether to divide the area among the CPSs before generating the path or to generate the path on the complete map. If <code>true</code>, downsampling is not available.</li>
+Whether to divide the area among the CPSs in the swarm before generating the path. Joining or leaving swarm members will trigger regeneration of the path.</li>
 <li>
 <code>~vertical</code> (boolean, default: <code>false</code>)
 Whether the sweeping pattern is vertical or horizontal.</li>
 <li>
-<code>~turning_points</code> (boolean, default: <code>false</code>)
+<code>~turning_points</code> (boolean, default: <code>true</code>)
 Whether there are only waypoints at turning points of the path or also waypoints regularly spaced on straight line segments of the path.</li>
+<li>
+<code>swarm_timeout</code> (real, default: <code>5.0</code>)
+The time in seconds after which it is assumed that a swarm member has left the swarm if no messages have been received. Only in combination with <code>divide_area=true</code>.</li>
+<li>
+<code>states</code> (string list, default <code>[]</code>)
+Only CPSs in these states are considered part of the swarm. Only in combination with <code>divide_area=true</code>.</li>
 </ul>
 
 <h2 id="code-api">Code API</h2>
@@ -892,6 +916,57 @@ Whether there are only waypoints at turning points of the path or also waypoints
                           </a>
                         </td>
                         <td><a href="/p/catkin#noetic">catkin</a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center"></td>
+                        <td class="text-center">
+                          <span class="label label-danger">0</span>
+                        </td>
+                        <td>area_provider</td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/area_division#noetic-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/area_division" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/area_division#noetic">area_division</a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/state_exchanger#noetic-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/state_exchanger" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/state_exchanger#noetic">state_exchanger</a></td>
                       </tr>
                     
                   
@@ -2401,7 +2476,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2022-01-17</em>
+          <em>generated on 2022-04-07</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">

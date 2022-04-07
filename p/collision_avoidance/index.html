@@ -350,6 +350,14 @@ kinematics_exchanger
           
             
             
+              <a class="label label-primary pkg-label" href="/p/roi_assignment/github-cpswarm-swarm_functions">
+
+roi_assignment
+</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/state_exchanger/github-cpswarm-swarm_functions">
 
 state_exchanger
@@ -495,7 +503,7 @@ task_allocation
     
     
     
-    <a href="#noetic-deps" data-toggle="tab"><span class="label label-primary">6</span> Dependencies</a>
+    <a href="#noetic-deps" data-toggle="tab"><span class="label label-primary">7</span> Dependencies</a>
   </li>
   <li class="better-tabs">
     
@@ -574,7 +582,7 @@ task_allocation
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-01-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-04-06
         </span>
       </td>
     </tr>
@@ -695,17 +703,19 @@ task_allocation
 <h2 id="dependencies">Dependencies</h2>
 
 <p>This package depends on the following message definitions:
+* <a href="https://wiki.ros.org/std_msgs">std_msgs</a>
 * <a href="https://wiki.ros.org/geometry_msgs">geometry_msgs</a>
 * <a href="https://cpswarm.github.io/cpswarm_msgs/html/index-msg.html">cpswarm_msgs</a></p>
 
 <p>The communication between CPSs is based on the <a href="https://github.com/cpswarm/swarmio">CPSwarm Communication Library</a>.</p>
 
+<p>The currently running behavior is determined from <a href="https://wiki.ros.org/flexbe/">FlexBE</a>. It requires the patch described in <a href="https://github.com/team-vigir/flexbe_behavior_engine/pull/161">this pull request</a>.</p>
+
 <p>The following packages of the <a href="https://github.com/cpswarm/swarm_functions">swarm functions library</a> are required:
 * kinematics_exchanger</p>
 
 <p>The following packages of the <a href="https://github.com/cpswarm/sensing_actuation">sensing and actuation library</a> are required:
-* *_pos_provider (if position setpoints are used by the behavior algorithms)
-* *_vel_provider
+* *_pos_provider
 * *_pos_controller (if position setpoints are used by the behavior algorithms)
 * *_vel_controller (if velocity setpoints are used by the behavior algorithms)</p>
 
@@ -733,7 +743,16 @@ task_allocation
 
 <h3 id="collision_avoidance">collision_avoidance</h3>
 
-<p>The <code>collision_avoidance</code> node constantly monitors for close by CPSs using position information received through the <a href="https://github.com/cpswarm/swarmio">CPSwarm Communication Library</a>. In case there are CPSs closer than <code>equi_dist</code>, it calculates the repulsion from them as the sum of the pair potentials in terms of inverse distance. It then calculates a velocity with reduced magnitude into a direction that lets the CPS repulse from the other CPSs while maintaining its desired direction. In case that position setpoints are used, it converts the velocity into an appropriate position. The avoidance velocity and position setpoints are published to the respective controllers of the <a href="https://github.com/cpswarm/sensing_actuation">sensing and actuation library</a>.</p>
+<p>The <code>collision_avoidance</code> node constantly monitors for close by CPSs using position information received through the <a href="https://github.com/cpswarm/swarmio">CPSwarm Communication Library</a>. In case there are CPSs closer than <code>dist_avoid</code>, it calculates the repulsion from each CPS as a vector pointing away from the other CPS. There are three different repulsion functions to calculate the vector magnitude in the range <code>[0,1]</code>:
+* <code>linear</code>: The repulsion increases linearly, inverse to the distance between the CPSs.
+* <code>sine</code>: The repulsion increases following the sine function with decreasing CPS distance.
+* <code>exp</code>: The repulsion increases following the exponential function with decreasing CPS distance.</p>
+
+<p>The repulsion magnitude is maximal for CPSs closer than <code>dist_critical</code>. The overall repulsion is the sum of the repulsion from each CPS. To calculate the resulting avoidance direction, the desired target direction of the CPS is added to the repulsion vector. To make CPSs move slower when close to each other, the magnitude of the avoidance vector follows a linear function that increases with the distance to the closest CPS: It is minimal with <code>dist_critical/2</code> at distance <code>dist_critical</code> and maximal with <code>dist_avoid/2</code> at distance <code>dist_avoid</code>.</p>
+
+<p>For velocity setpoints, the generated avoidance vector represents the velocity. For position setpoints, the vector is added to the current CPS's position to get the new position. The avoidance velocity and position setpoints are published to the respective controllers of the <a href="https://github.com/cpswarm/sensing_actuation">sensing and actuation library</a>.</p>
+
+<p>A limitation of this approach is that there can be deadlocks when repulsion and goal directions cancel each other.</p>
 
 <h4 id="subscribed-topics">Subscribed Topics</h4>
 
@@ -748,11 +767,11 @@ The originally desired target velocity of this CPS in case of no collision avoid
 <code>pos_provider/pose</code> (<a href="https://docs.ros.org/api/geometry_msgs/html/msg/PoseStamped.html">geometry_msgs/PoseStamped</a>)
 The current position of this CPS.</li>
 <li>
-<code>vel_provider/velocity</code> (<a href="https://docs.ros.org/api/geometry_msgs/html/msg/TwistStamped.html">geometry_msgs/TwistStamped</a>)
-The current velocity of this CPS.</li>
-<li>
 <code>swarm_position_rel</code> (<a href="https://cpswarm.github.io/cpswarm_msgs/html/msg/ArrayOfVectors.html">cpswarm_msgs/ArrayOfVectors</a>)
 The relative positions of the other swarm members (distance and bearing).</li>
+<li>
+<code>flexbe/behavior_update</code> (<a href="https://docs.ros.org/api/std_msgs/html/msg/String.html">std_msgs/String</a>)
+The current behavior state of this CPS.</li>
 </ul>
 
 <h4 id="published-topics">Published Topics</h4>
@@ -764,6 +783,9 @@ The intermediate goal position where the CPS shall move to during collision avoi
 <li>
 <code>vel_controller/ca_target_velocity</code> (<a href="http://docs.ros.org/api/geometry_msgs/html/msg/Twist.html">geometry_msgs/Twist</a>)
 The intermediate target velocity which the CPS shall move at during collision avoidance. Only published if velocity setpoints are used by the behavior algorithm.</li>
+<li>
+<code>collision_avoidance/direction</code> (<a href="http://docs.ros.org/api/geometry_msgs/html/msg/PoseStamped.html">geometry_msgs/PoseStamped</a>)
+Direction of collision avoidance. Current position with orientation into avoidance direction. Only published if <code>visualize</code> is <code>true</code>.</li>
 </ul>
 
 <h4 id="parameters">Parameters</h4>
@@ -776,20 +798,20 @@ The frequency in Hz at which to run the control loops.</li>
 <code>~queue_size</code> (integer, default: <code>1</code>)
 The size of the message queue used for publishing and subscribing to topics.</li>
 <li>
-<code>~repulsion/equi_dist</code> (real, default: <code>10.0</code>)
-Desired equilibrium distance between CPSs in meter.</li>
+<code>~dist_critical</code> (real, default: <code>1.0</code>)
+Distance between CPSs in meter below which the collision avoidance will work maximally.</li>
 <li>
-<code>~repulsion/repulse_spring</code> (real, default: <code>1.0</code>)
-Repulsion spring constant of half-spring per square second.</li>
+<code>~dist_avoid</code> (real, default: <code>3.0</code>)
+Distance between CPSs in meter below which collision avoidance is active.</li>
 <li>
-<code>~repulsion/repulse_max</code> (real, default: <code>1.0</code>)
-Maximum repulsion between CPSs in meter in order to avoid over excitation.</li>
+<code>~visualize</code> (boolean, default: <code>false</code>)
+Whether to visualize the avoidance direction by publishing on a ROS topic.</li>
 <li>
-<code>~repulsion/avoid_vel</code> (real, default: <code>1.0</code>)
-Target velocity during collision avoidance in meter per second.</li>
+<code>~repulsion_shape</code> (string, default: <code>linear</code>)
+The shape of the repulsion function, can be sine, exp, or linear.</li>
 <li>
-<code>~repulsion/accel_time</code> (real, default: <code>1.0</code>)
-Characteristic time needed by the CPS to reach the target velocity in seconds.</li>
+<code>~excluded</code> (string list, default: <code>[]</code>)
+No collision avoidance in these states.</li>
 </ul>
 
 <h2 id="code-api">Code API</h2>
@@ -890,6 +912,26 @@ Characteristic time needed by the CPS to reach the target velocity in seconds.</
                           
                           
                           
+                          <a href="/p/kinematics_exchanger#noetic-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/kinematics_exchanger" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/kinematics_exchanger#noetic">kinematics_exchanger</a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
                           <a href="/p/roscpp#noetic-deps" >
                             <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
                           </a>
@@ -930,16 +972,16 @@ Characteristic time needed by the CPS to reach the target velocity in seconds.</
                           
                           
                           
-                          <a href="/p/geometry_msgs#noetic-deps" >
+                          <a href="/p/std_msgs#noetic-deps" >
                             <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
                           </a>
                         </td>
                         <td class="text-center">
-                          <a href="/packages/geometry_msgs" class="label label-primary">
+                          <a href="/packages/std_msgs" class="label label-primary">
                             2
                           </a>
                         </td>
-                        <td><a href="/p/geometry_msgs#noetic">geometry_msgs</a></td>
+                        <td><a href="/p/std_msgs#noetic">std_msgs</a></td>
                       </tr>
                     
                   
@@ -950,16 +992,16 @@ Characteristic time needed by the CPS to reach the target velocity in seconds.</
                           
                           
                           
-                          <a href="/p/smach_msgs#noetic-deps" >
+                          <a href="/p/geometry_msgs#noetic-deps" >
                             <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
                           </a>
                         </td>
                         <td class="text-center">
-                          <a href="/packages/smach_msgs" class="label label-default">
-                            1
+                          <a href="/packages/geometry_msgs" class="label label-primary">
+                            2
                           </a>
                         </td>
-                        <td><a href="/p/smach_msgs#noetic">smach_msgs</a></td>
+                        <td><a href="/p/geometry_msgs#noetic">geometry_msgs</a></td>
                       </tr>
                     
                   
@@ -1005,7 +1047,30 @@ Characteristic time needed by the CPS to reach the target velocity in seconds.</
           </div>
           <div class="panel-body">
             
-              <em>No known dependants.</em>
+              <table class="table table-condensed table-striped">
+                <thead>
+                  <th>Name</th>
+                  <th>Repo</th>
+                  <th class="text-center">Deps</th>
+                </thead>
+                <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/swarm_functions/github-cpswarm-swarm_functions#noetic">swarm_functions</a></td>
+                      <td><a href="/r/swarm_functions/github-cpswarm-swarm_functions">github-cpswarm-swarm_functions</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/swarm_functions/github-cpswarm-swarm_functions#noetic-deps" class="inactive">
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                </tbody>
+              </table>
             
           </div>
         </div>
@@ -1367,7 +1432,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2022-01-17</em>
+          <em>generated on 2022-04-07</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
