@@ -358,7 +358,7 @@ ga('send', 'pageview');
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-06-03
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-06-07
         </span>
       </td>
     </tr>
@@ -435,12 +435,12 @@ ga('send', 'pageview');
                 
                   <tr>
                     <td><a href="/p/performance_report/gitlab-ApexAI-performance_test">performance_report</a></td>
-                    <td>1.1.0</td>
+                    <td>1.1.1</td>
                   </tr>
                 
                   <tr>
                     <td><a href="/p/performance_test/gitlab-ApexAI-performance_test">performance_test</a></td>
-                    <td>1.1.0</td>
+                    <td>1.1.1</td>
                   </tr>
                 
                   <tr>
@@ -478,12 +478,12 @@ are automatically recorded when the application is running:</p>
 <li>
 <strong>latency</strong>: corresponds to the time a message takes to travel from a publisher to subscriber. The
 latency is measured by timestamping the sample when it's published and subtracting the timestamp
-(from the sample) from the measured time when the sample arrives at the subscriber.</li>
+(from the sample) from the measured time when the sample arrives at the subscriber (only logged when a subscriber is created)</li>
 <li>
-<strong>CPU usage</strong>: percentage of the total system wide CPU usage</li>
+<strong>CPU usage</strong>: percentage of the total system wide CPU usage (logged separately for each instance of <code>perf_test</code>)</li>
 <li>
 <strong>resident memory</strong>: heap allocations, shared memory segments, stack (used for system's internal
-work).</li>
+work) (logged separately for each instance of <code>perf_test</code>)</li>
 <li>
 <strong>sample statistics</strong>: number of samples received, sent, and lost per experiment run.</li>
 </ul>
@@ -544,6 +544,14 @@ plugins</a> to learn how to test a specific middleware implementation.</li>
 <td>Duration of the experiment</td>
 <td>30s</td>
 </tr>
+<tr>
+<td>Number of publisher(s)</td>
+<td>1 (default)</td>
+</tr>
+<tr>
+<td>Number of subscriber(s)</td>
+<td>1 (default)</td>
+</tr>
 </tbody>
 </table>
 
@@ -552,10 +560,10 @@ plugins</a> to learn how to test a specific middleware implementation.</li>
 <li><p>Install <a href="https://github.com/eclipse-cyclonedds/cyclonedds">Cyclone DDS</a> to /opt/cyclonedds</p></li>
 <li><p>Build performance_test with the <a href="https://gitlab.com/ApexAI/performance_test/-/tree/master/#eclipse-cyclone-dds">CMake build flag</a> for Cyclone DDS:</p></li>
 </ol>
-<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nb">source</span> /opt/ros/rolling/setup.bash
-<span class="nb">cd</span> ~/perf_test_ws
-colcon build <span class="nt">--cmake-args</span> <span class="nt">-DPERFORMANCE_TEST_CYCLONEDDS_ENABLED</span><span class="o">=</span>ON
-<span class="nb">source</span> ./install/setup.bash
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">    <span class="nb">source</span> /opt/ros/rolling/setup.bash
+    <span class="nb">cd</span> ~/perf_test_ws
+    colcon build <span class="nt">--cmake-args</span> <span class="nt">-DPERFORMANCE_TEST_CYCLONEDDS_ENABLED</span><span class="o">=</span>ON
+    <span class="nb">source</span> ./install/setup.bash
 
 </code></pre></div>
 <ol>
@@ -617,27 +625,20 @@ different possibilities are explained below.</p>
 <p>For running tests on a single machine, you can choose between the following options:</p>
 
 <ol>
-<li>Intraprocess means that the publisher and subscriber threads are in the same process.
-This is the default configuration.</li>
+<li>Intraprocess means that the publisher and subscriber threads are in the same process.</li>
+</ol>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">    perf_test &lt;options&gt; <span class="nt">--num-sub-threads</span> 1 <span class="nt">--num-pub-threads</span> 1
+
+</code></pre></div>
+<ol>
 <li>Interprocess means that the publisher and subscriber are in different processes. To test
 interprocess communication, two instances of the performance_test must be run, e.g.</li>
 </ol>
-<div class="highlight"><pre><code class="language-bash" data-lang="bash">    perf_test &lt;options&gt; <span class="nt">--num-sub-threads</span> 1 <span class="nt">--num-pub-threads</span> 0 &amp;
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">    <span class="c"># Start the subscriber first</span>
+    perf_test &lt;options&gt; <span class="nt">--num-sub-threads</span> 1 <span class="nt">--num-pub-threads</span> 0 &amp;
     <span class="nb">sleep </span>1  <span class="c"># give the subscriber time to finish initializing</span>
     perf_test &lt;options&gt; <span class="nt">--num-sub-threads</span> 0 <span class="nt">--num-pub-threads</span> 1
 
-</code></pre></div>
-<div class="highlight"><pre><code class="language-" data-lang="">1. :point_up: CPU and Resident Memory measurements are logged separately for the publisher and
-   subscriber processes.
-1. Latency is only logged for the subscriber process, because it is calculated after the
-   sample is received.
-1. Some plugins also support zero copy transfer. With zero copy transfer, the publisher
-   requests a loan from a pre-allocated shared memory pool, where it writes the sample. The
-   subscriber reads the sample from that same location. When running, use the `--zero-copy`
-   argument for both the publisher and subscriber processes.
-1. :memo: The transport is dependent on the middleware
-1. It is recommended to start the subscriber process first, and delay for a short amount of time,
-   so that there isn't a full queue for it to process right from the start.
 </code></pre></div>
 <p>On a distributed system, testing latency is difficult, because the clocks are probably not
 perfectly synchronized between the two devices. To work around this, the performance_test tool
@@ -656,15 +657,17 @@ in non-relay mode.</p>
 
 <h2 id="middleware-plugins">Middleware plugins</h2>
 
-<h3 id="native-plugins">Native plugins</h3>
-
 <p>The performance test tool can measure the performance of a variety of communication solutions
 from different vendors. In this case there is no <a href="http://docs.ros2.org/beta2/developer_overview.html#internal-api-architecture-overview">rclcpp or rmw
 layer</a>
-overhead over the publisher and subscriber routines. The following plugins are currently
-implemented:</p>
+overhead over the publisher and subscriber routines.</p>
 
-<h4 id="eclipse-cyclone-dds">Eclipse Cyclone DDS</h4>
+<p>The performance_test tool implements an executor that runs the publisher(s) and/or the subscriber(s) in
+their own thread.</p>
+
+<p>The following plugins are currently implemented:</p>
+
+<h3 id="eclipse-cyclone-dds">Eclipse Cyclone DDS</h3>
 
 <ul>
 <li><a href="https://github.com/eclipse-cyclonedds/cyclonedds/tree/0.9.0b1">Eclipse Cyclone DDS 0.9.0b1</a></li>
@@ -695,7 +698,7 @@ the loaned sample API, but iceoryx will still transport the samples.</li>
 | INTRA | UDP                 | UDP                |</li>
 </ul>
 
-<h4 id="eclipse-cyclone-dds-c-binding">Eclipse Cyclone DDS C++ binding</h4>
+<h3 id="eclipse-cyclone-dds-c-binding">Eclipse Cyclone DDS C++ binding</h3>
 
 <ul>
 <li><a href="https://github.com/eclipse-cyclonedds/cyclonedds-cxx/tree/0.9.0b1">Eclipse Cyclone DDS C++ bindings 0.9.0b1</a></li>
@@ -726,7 +729,7 @@ the loaned sample API, but iceoryx will still transport the samples.</li>
 | INTRA | UDP                 | UDP                |</li>
 </ul>
 
-<h4 id="eclipse-iceoryx">Eclipse iceoryx</h4>
+<h3 id="eclipse-iceoryx">Eclipse iceoryx</h3>
 
 <ul>
 <li><a href="https://github.com/eclipse-iceoryx/iceoryx/tree/release_1.0">iceoryx 1.0</a></li>
@@ -752,7 +755,7 @@ must be running.</li>
 | zero copy | zero copy           | Not supported by performance_test |</li>
 </ul>
 
-<h4 id="eprosima-fast-dds">eProsima Fast DDS</h4>
+<h3 id="eprosima-fast-dds">eProsima Fast DDS</h3>
 
 <ul>
 <li><a href="https://github.com/eProsima/Fast-DDS/tree/v2.6.0">FastDDS 2.6.0</a></li>
@@ -769,7 +772,7 @@ must be running.</li>
 | UDP   | UDP                 | UDP                |</li>
 </ul>
 
-<h4 id="oci-opendds">OCI OpenDDS</h4>
+<h3 id="oci-opendds">OCI OpenDDS</h3>
 
 <ul>
 <li><a href="https://github.com/objectcomputing/OpenDDS/tree/DDS-3.13.2">OpenDDS 3.13.2</a></li>
@@ -786,7 +789,7 @@ must be running.</li>
 | TCP   | TCP                 | TCP                |</li>
 </ul>
 
-<h4 id="rti-connext-dds">RTI Connext DDS</h4>
+<h3 id="rti-connext-dds">RTI Connext DDS</h3>
 
 <ul>
 <li><a href="https://www.rti.com/products/connext-dds-professional">RTI Connext DDS 5.3.1+</a></li>
@@ -813,7 +816,7 @@ environment:</li>
 | INTRA | SHMEM               | UDP                |</li>
 </ul>
 
-<h4 id="rti-connext-dds-micro">RTI Connext DDS Micro</h4>
+<h3 id="rti-connext-dds-micro">RTI Connext DDS Micro</h3>
 
 <ul>
 <li><a href="https://www.rti.com/products/connext-dds-micro">Connext DDS Micro 3.0.3</a></li>
@@ -830,7 +833,12 @@ environment:</li>
 | INTRA | SHMEM               | UDP                |</li>
 </ul>
 
-<h3 id="ros-2-middleware-plugins">ROS 2 Middleware plugins</h3>
+<h2 id="framework-plugins">Framework plugins</h2>
+
+<p>The performance_test tool can also measure the end-to-end latency of a framework. In this case, the
+executor of the framework is used to run the publisher(s) and/or the subscriber(s)</p>
+
+<h3 id="ros-2">ROS 2</h3>
 
 <p>The performance test tool can also measure the performance of a variety of RMW implementations,
 through the ROS2 <code>rclcpp::publisher</code> and <code>rclcpp::subscriber</code> API.</p>
@@ -866,7 +874,7 @@ to use a different RMW implementation with ROS 2.</li>
 <li>Default transports: depends on underlying RMW implementation</li>
 </ul>
 
-<h4 id="apex-os-polling-subscription">Apex.OS Polling Subscription</h4>
+<h3 id="apex-os">Apex.OS</h3>
 
 <ul>
 <li>Apex.OS Polling Subscription with wait-set</li>
@@ -1059,7 +1067,7 @@ messages, and thus the compilation load, by adding <code>-DPERFORMANCE_TEST_MINI
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-06-03
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-06-07
         </span>
       </td>
     </tr>
@@ -1136,12 +1144,12 @@ messages, and thus the compilation load, by adding <code>-DPERFORMANCE_TEST_MINI
                 
                   <tr>
                     <td><a href="/p/performance_report/gitlab-ApexAI-performance_test">performance_report</a></td>
-                    <td>1.1.0</td>
+                    <td>1.1.1</td>
                   </tr>
                 
                   <tr>
                     <td><a href="/p/performance_test/gitlab-ApexAI-performance_test">performance_test</a></td>
-                    <td>1.1.0</td>
+                    <td>1.1.1</td>
                   </tr>
                 
                   <tr>
@@ -1179,12 +1187,12 @@ are automatically recorded when the application is running:</p>
 <li>
 <strong>latency</strong>: corresponds to the time a message takes to travel from a publisher to subscriber. The
 latency is measured by timestamping the sample when it's published and subtracting the timestamp
-(from the sample) from the measured time when the sample arrives at the subscriber.</li>
+(from the sample) from the measured time when the sample arrives at the subscriber (only logged when a subscriber is created)</li>
 <li>
-<strong>CPU usage</strong>: percentage of the total system wide CPU usage</li>
+<strong>CPU usage</strong>: percentage of the total system wide CPU usage (logged separately for each instance of <code>perf_test</code>)</li>
 <li>
 <strong>resident memory</strong>: heap allocations, shared memory segments, stack (used for system's internal
-work).</li>
+work) (logged separately for each instance of <code>perf_test</code>)</li>
 <li>
 <strong>sample statistics</strong>: number of samples received, sent, and lost per experiment run.</li>
 </ul>
@@ -1245,6 +1253,14 @@ plugins</a> to learn how to test a specific middleware implementation.</li>
 <td>Duration of the experiment</td>
 <td>30s</td>
 </tr>
+<tr>
+<td>Number of publisher(s)</td>
+<td>1 (default)</td>
+</tr>
+<tr>
+<td>Number of subscriber(s)</td>
+<td>1 (default)</td>
+</tr>
 </tbody>
 </table>
 
@@ -1253,10 +1269,10 @@ plugins</a> to learn how to test a specific middleware implementation.</li>
 <li><p>Install <a href="https://github.com/eclipse-cyclonedds/cyclonedds">Cyclone DDS</a> to /opt/cyclonedds</p></li>
 <li><p>Build performance_test with the <a href="https://gitlab.com/ApexAI/performance_test/-/tree/master/#eclipse-cyclone-dds">CMake build flag</a> for Cyclone DDS:</p></li>
 </ol>
-<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nb">source</span> /opt/ros/rolling/setup.bash
-<span class="nb">cd</span> ~/perf_test_ws
-colcon build <span class="nt">--cmake-args</span> <span class="nt">-DPERFORMANCE_TEST_CYCLONEDDS_ENABLED</span><span class="o">=</span>ON
-<span class="nb">source</span> ./install/setup.bash
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">    <span class="nb">source</span> /opt/ros/rolling/setup.bash
+    <span class="nb">cd</span> ~/perf_test_ws
+    colcon build <span class="nt">--cmake-args</span> <span class="nt">-DPERFORMANCE_TEST_CYCLONEDDS_ENABLED</span><span class="o">=</span>ON
+    <span class="nb">source</span> ./install/setup.bash
 
 </code></pre></div>
 <ol>
@@ -1318,27 +1334,20 @@ different possibilities are explained below.</p>
 <p>For running tests on a single machine, you can choose between the following options:</p>
 
 <ol>
-<li>Intraprocess means that the publisher and subscriber threads are in the same process.
-This is the default configuration.</li>
+<li>Intraprocess means that the publisher and subscriber threads are in the same process.</li>
+</ol>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">    perf_test &lt;options&gt; <span class="nt">--num-sub-threads</span> 1 <span class="nt">--num-pub-threads</span> 1
+
+</code></pre></div>
+<ol>
 <li>Interprocess means that the publisher and subscriber are in different processes. To test
 interprocess communication, two instances of the performance_test must be run, e.g.</li>
 </ol>
-<div class="highlight"><pre><code class="language-bash" data-lang="bash">    perf_test &lt;options&gt; <span class="nt">--num-sub-threads</span> 1 <span class="nt">--num-pub-threads</span> 0 &amp;
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">    <span class="c"># Start the subscriber first</span>
+    perf_test &lt;options&gt; <span class="nt">--num-sub-threads</span> 1 <span class="nt">--num-pub-threads</span> 0 &amp;
     <span class="nb">sleep </span>1  <span class="c"># give the subscriber time to finish initializing</span>
     perf_test &lt;options&gt; <span class="nt">--num-sub-threads</span> 0 <span class="nt">--num-pub-threads</span> 1
 
-</code></pre></div>
-<div class="highlight"><pre><code class="language-" data-lang="">1. :point_up: CPU and Resident Memory measurements are logged separately for the publisher and
-   subscriber processes.
-1. Latency is only logged for the subscriber process, because it is calculated after the
-   sample is received.
-1. Some plugins also support zero copy transfer. With zero copy transfer, the publisher
-   requests a loan from a pre-allocated shared memory pool, where it writes the sample. The
-   subscriber reads the sample from that same location. When running, use the `--zero-copy`
-   argument for both the publisher and subscriber processes.
-1. :memo: The transport is dependent on the middleware
-1. It is recommended to start the subscriber process first, and delay for a short amount of time,
-   so that there isn't a full queue for it to process right from the start.
 </code></pre></div>
 <p>On a distributed system, testing latency is difficult, because the clocks are probably not
 perfectly synchronized between the two devices. To work around this, the performance_test tool
@@ -1357,15 +1366,17 @@ in non-relay mode.</p>
 
 <h2 id="middleware-plugins">Middleware plugins</h2>
 
-<h3 id="native-plugins">Native plugins</h3>
-
 <p>The performance test tool can measure the performance of a variety of communication solutions
 from different vendors. In this case there is no <a href="http://docs.ros2.org/beta2/developer_overview.html#internal-api-architecture-overview">rclcpp or rmw
 layer</a>
-overhead over the publisher and subscriber routines. The following plugins are currently
-implemented:</p>
+overhead over the publisher and subscriber routines.</p>
 
-<h4 id="eclipse-cyclone-dds">Eclipse Cyclone DDS</h4>
+<p>The performance_test tool implements an executor that runs the publisher(s) and/or the subscriber(s) in
+their own thread.</p>
+
+<p>The following plugins are currently implemented:</p>
+
+<h3 id="eclipse-cyclone-dds">Eclipse Cyclone DDS</h3>
 
 <ul>
 <li><a href="https://github.com/eclipse-cyclonedds/cyclonedds/tree/0.9.0b1">Eclipse Cyclone DDS 0.9.0b1</a></li>
@@ -1396,7 +1407,7 @@ the loaned sample API, but iceoryx will still transport the samples.</li>
 | INTRA | UDP                 | UDP                |</li>
 </ul>
 
-<h4 id="eclipse-cyclone-dds-c-binding">Eclipse Cyclone DDS C++ binding</h4>
+<h3 id="eclipse-cyclone-dds-c-binding">Eclipse Cyclone DDS C++ binding</h3>
 
 <ul>
 <li><a href="https://github.com/eclipse-cyclonedds/cyclonedds-cxx/tree/0.9.0b1">Eclipse Cyclone DDS C++ bindings 0.9.0b1</a></li>
@@ -1427,7 +1438,7 @@ the loaned sample API, but iceoryx will still transport the samples.</li>
 | INTRA | UDP                 | UDP                |</li>
 </ul>
 
-<h4 id="eclipse-iceoryx">Eclipse iceoryx</h4>
+<h3 id="eclipse-iceoryx">Eclipse iceoryx</h3>
 
 <ul>
 <li><a href="https://github.com/eclipse-iceoryx/iceoryx/tree/release_1.0">iceoryx 1.0</a></li>
@@ -1453,7 +1464,7 @@ must be running.</li>
 | zero copy | zero copy           | Not supported by performance_test |</li>
 </ul>
 
-<h4 id="eprosima-fast-dds">eProsima Fast DDS</h4>
+<h3 id="eprosima-fast-dds">eProsima Fast DDS</h3>
 
 <ul>
 <li><a href="https://github.com/eProsima/Fast-DDS/tree/v2.6.0">FastDDS 2.6.0</a></li>
@@ -1470,7 +1481,7 @@ must be running.</li>
 | UDP   | UDP                 | UDP                |</li>
 </ul>
 
-<h4 id="oci-opendds">OCI OpenDDS</h4>
+<h3 id="oci-opendds">OCI OpenDDS</h3>
 
 <ul>
 <li><a href="https://github.com/objectcomputing/OpenDDS/tree/DDS-3.13.2">OpenDDS 3.13.2</a></li>
@@ -1487,7 +1498,7 @@ must be running.</li>
 | TCP   | TCP                 | TCP                |</li>
 </ul>
 
-<h4 id="rti-connext-dds">RTI Connext DDS</h4>
+<h3 id="rti-connext-dds">RTI Connext DDS</h3>
 
 <ul>
 <li><a href="https://www.rti.com/products/connext-dds-professional">RTI Connext DDS 5.3.1+</a></li>
@@ -1514,7 +1525,7 @@ environment:</li>
 | INTRA | SHMEM               | UDP                |</li>
 </ul>
 
-<h4 id="rti-connext-dds-micro">RTI Connext DDS Micro</h4>
+<h3 id="rti-connext-dds-micro">RTI Connext DDS Micro</h3>
 
 <ul>
 <li><a href="https://www.rti.com/products/connext-dds-micro">Connext DDS Micro 3.0.3</a></li>
@@ -1531,7 +1542,12 @@ environment:</li>
 | INTRA | SHMEM               | UDP                |</li>
 </ul>
 
-<h3 id="ros-2-middleware-plugins">ROS 2 Middleware plugins</h3>
+<h2 id="framework-plugins">Framework plugins</h2>
+
+<p>The performance_test tool can also measure the end-to-end latency of a framework. In this case, the
+executor of the framework is used to run the publisher(s) and/or the subscriber(s)</p>
+
+<h3 id="ros-2">ROS 2</h3>
 
 <p>The performance test tool can also measure the performance of a variety of RMW implementations,
 through the ROS2 <code>rclcpp::publisher</code> and <code>rclcpp::subscriber</code> API.</p>
@@ -1567,7 +1583,7 @@ to use a different RMW implementation with ROS 2.</li>
 <li>Default transports: depends on underlying RMW implementation</li>
 </ul>
 
-<h4 id="apex-os-polling-subscription">Apex.OS Polling Subscription</h4>
+<h3 id="apex-os">Apex.OS</h3>
 
 <ul>
 <li>Apex.OS Polling Subscription with wait-set</li>
@@ -1760,7 +1776,7 @@ messages, and thus the compilation load, by adding <code>-DPERFORMANCE_TEST_MINI
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-06-03
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-06-07
         </span>
       </td>
     </tr>
@@ -1837,12 +1853,12 @@ messages, and thus the compilation load, by adding <code>-DPERFORMANCE_TEST_MINI
                 
                   <tr>
                     <td><a href="/p/performance_report/gitlab-ApexAI-performance_test">performance_report</a></td>
-                    <td>1.1.0</td>
+                    <td>1.1.1</td>
                   </tr>
                 
                   <tr>
                     <td><a href="/p/performance_test/gitlab-ApexAI-performance_test">performance_test</a></td>
-                    <td>1.1.0</td>
+                    <td>1.1.1</td>
                   </tr>
                 
                   <tr>
@@ -1880,12 +1896,12 @@ are automatically recorded when the application is running:</p>
 <li>
 <strong>latency</strong>: corresponds to the time a message takes to travel from a publisher to subscriber. The
 latency is measured by timestamping the sample when it's published and subtracting the timestamp
-(from the sample) from the measured time when the sample arrives at the subscriber.</li>
+(from the sample) from the measured time when the sample arrives at the subscriber (only logged when a subscriber is created)</li>
 <li>
-<strong>CPU usage</strong>: percentage of the total system wide CPU usage</li>
+<strong>CPU usage</strong>: percentage of the total system wide CPU usage (logged separately for each instance of <code>perf_test</code>)</li>
 <li>
 <strong>resident memory</strong>: heap allocations, shared memory segments, stack (used for system's internal
-work).</li>
+work) (logged separately for each instance of <code>perf_test</code>)</li>
 <li>
 <strong>sample statistics</strong>: number of samples received, sent, and lost per experiment run.</li>
 </ul>
@@ -1946,6 +1962,14 @@ plugins</a> to learn how to test a specific middleware implementation.</li>
 <td>Duration of the experiment</td>
 <td>30s</td>
 </tr>
+<tr>
+<td>Number of publisher(s)</td>
+<td>1 (default)</td>
+</tr>
+<tr>
+<td>Number of subscriber(s)</td>
+<td>1 (default)</td>
+</tr>
 </tbody>
 </table>
 
@@ -1954,10 +1978,10 @@ plugins</a> to learn how to test a specific middleware implementation.</li>
 <li><p>Install <a href="https://github.com/eclipse-cyclonedds/cyclonedds">Cyclone DDS</a> to /opt/cyclonedds</p></li>
 <li><p>Build performance_test with the <a href="https://gitlab.com/ApexAI/performance_test/-/tree/master/#eclipse-cyclone-dds">CMake build flag</a> for Cyclone DDS:</p></li>
 </ol>
-<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nb">source</span> /opt/ros/rolling/setup.bash
-<span class="nb">cd</span> ~/perf_test_ws
-colcon build <span class="nt">--cmake-args</span> <span class="nt">-DPERFORMANCE_TEST_CYCLONEDDS_ENABLED</span><span class="o">=</span>ON
-<span class="nb">source</span> ./install/setup.bash
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">    <span class="nb">source</span> /opt/ros/rolling/setup.bash
+    <span class="nb">cd</span> ~/perf_test_ws
+    colcon build <span class="nt">--cmake-args</span> <span class="nt">-DPERFORMANCE_TEST_CYCLONEDDS_ENABLED</span><span class="o">=</span>ON
+    <span class="nb">source</span> ./install/setup.bash
 
 </code></pre></div>
 <ol>
@@ -2019,27 +2043,20 @@ different possibilities are explained below.</p>
 <p>For running tests on a single machine, you can choose between the following options:</p>
 
 <ol>
-<li>Intraprocess means that the publisher and subscriber threads are in the same process.
-This is the default configuration.</li>
+<li>Intraprocess means that the publisher and subscriber threads are in the same process.</li>
+</ol>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">    perf_test &lt;options&gt; <span class="nt">--num-sub-threads</span> 1 <span class="nt">--num-pub-threads</span> 1
+
+</code></pre></div>
+<ol>
 <li>Interprocess means that the publisher and subscriber are in different processes. To test
 interprocess communication, two instances of the performance_test must be run, e.g.</li>
 </ol>
-<div class="highlight"><pre><code class="language-bash" data-lang="bash">    perf_test &lt;options&gt; <span class="nt">--num-sub-threads</span> 1 <span class="nt">--num-pub-threads</span> 0 &amp;
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">    <span class="c"># Start the subscriber first</span>
+    perf_test &lt;options&gt; <span class="nt">--num-sub-threads</span> 1 <span class="nt">--num-pub-threads</span> 0 &amp;
     <span class="nb">sleep </span>1  <span class="c"># give the subscriber time to finish initializing</span>
     perf_test &lt;options&gt; <span class="nt">--num-sub-threads</span> 0 <span class="nt">--num-pub-threads</span> 1
 
-</code></pre></div>
-<div class="highlight"><pre><code class="language-" data-lang="">1. :point_up: CPU and Resident Memory measurements are logged separately for the publisher and
-   subscriber processes.
-1. Latency is only logged for the subscriber process, because it is calculated after the
-   sample is received.
-1. Some plugins also support zero copy transfer. With zero copy transfer, the publisher
-   requests a loan from a pre-allocated shared memory pool, where it writes the sample. The
-   subscriber reads the sample from that same location. When running, use the `--zero-copy`
-   argument for both the publisher and subscriber processes.
-1. :memo: The transport is dependent on the middleware
-1. It is recommended to start the subscriber process first, and delay for a short amount of time,
-   so that there isn't a full queue for it to process right from the start.
 </code></pre></div>
 <p>On a distributed system, testing latency is difficult, because the clocks are probably not
 perfectly synchronized between the two devices. To work around this, the performance_test tool
@@ -2058,15 +2075,17 @@ in non-relay mode.</p>
 
 <h2 id="middleware-plugins">Middleware plugins</h2>
 
-<h3 id="native-plugins">Native plugins</h3>
-
 <p>The performance test tool can measure the performance of a variety of communication solutions
 from different vendors. In this case there is no <a href="http://docs.ros2.org/beta2/developer_overview.html#internal-api-architecture-overview">rclcpp or rmw
 layer</a>
-overhead over the publisher and subscriber routines. The following plugins are currently
-implemented:</p>
+overhead over the publisher and subscriber routines.</p>
 
-<h4 id="eclipse-cyclone-dds">Eclipse Cyclone DDS</h4>
+<p>The performance_test tool implements an executor that runs the publisher(s) and/or the subscriber(s) in
+their own thread.</p>
+
+<p>The following plugins are currently implemented:</p>
+
+<h3 id="eclipse-cyclone-dds">Eclipse Cyclone DDS</h3>
 
 <ul>
 <li><a href="https://github.com/eclipse-cyclonedds/cyclonedds/tree/0.9.0b1">Eclipse Cyclone DDS 0.9.0b1</a></li>
@@ -2097,7 +2116,7 @@ the loaned sample API, but iceoryx will still transport the samples.</li>
 | INTRA | UDP                 | UDP                |</li>
 </ul>
 
-<h4 id="eclipse-cyclone-dds-c-binding">Eclipse Cyclone DDS C++ binding</h4>
+<h3 id="eclipse-cyclone-dds-c-binding">Eclipse Cyclone DDS C++ binding</h3>
 
 <ul>
 <li><a href="https://github.com/eclipse-cyclonedds/cyclonedds-cxx/tree/0.9.0b1">Eclipse Cyclone DDS C++ bindings 0.9.0b1</a></li>
@@ -2128,7 +2147,7 @@ the loaned sample API, but iceoryx will still transport the samples.</li>
 | INTRA | UDP                 | UDP                |</li>
 </ul>
 
-<h4 id="eclipse-iceoryx">Eclipse iceoryx</h4>
+<h3 id="eclipse-iceoryx">Eclipse iceoryx</h3>
 
 <ul>
 <li><a href="https://github.com/eclipse-iceoryx/iceoryx/tree/release_1.0">iceoryx 1.0</a></li>
@@ -2154,7 +2173,7 @@ must be running.</li>
 | zero copy | zero copy           | Not supported by performance_test |</li>
 </ul>
 
-<h4 id="eprosima-fast-dds">eProsima Fast DDS</h4>
+<h3 id="eprosima-fast-dds">eProsima Fast DDS</h3>
 
 <ul>
 <li><a href="https://github.com/eProsima/Fast-DDS/tree/v2.6.0">FastDDS 2.6.0</a></li>
@@ -2171,7 +2190,7 @@ must be running.</li>
 | UDP   | UDP                 | UDP                |</li>
 </ul>
 
-<h4 id="oci-opendds">OCI OpenDDS</h4>
+<h3 id="oci-opendds">OCI OpenDDS</h3>
 
 <ul>
 <li><a href="https://github.com/objectcomputing/OpenDDS/tree/DDS-3.13.2">OpenDDS 3.13.2</a></li>
@@ -2188,7 +2207,7 @@ must be running.</li>
 | TCP   | TCP                 | TCP                |</li>
 </ul>
 
-<h4 id="rti-connext-dds">RTI Connext DDS</h4>
+<h3 id="rti-connext-dds">RTI Connext DDS</h3>
 
 <ul>
 <li><a href="https://www.rti.com/products/connext-dds-professional">RTI Connext DDS 5.3.1+</a></li>
@@ -2215,7 +2234,7 @@ environment:</li>
 | INTRA | SHMEM               | UDP                |</li>
 </ul>
 
-<h4 id="rti-connext-dds-micro">RTI Connext DDS Micro</h4>
+<h3 id="rti-connext-dds-micro">RTI Connext DDS Micro</h3>
 
 <ul>
 <li><a href="https://www.rti.com/products/connext-dds-micro">Connext DDS Micro 3.0.3</a></li>
@@ -2232,7 +2251,12 @@ environment:</li>
 | INTRA | SHMEM               | UDP                |</li>
 </ul>
 
-<h3 id="ros-2-middleware-plugins">ROS 2 Middleware plugins</h3>
+<h2 id="framework-plugins">Framework plugins</h2>
+
+<p>The performance_test tool can also measure the end-to-end latency of a framework. In this case, the
+executor of the framework is used to run the publisher(s) and/or the subscriber(s)</p>
+
+<h3 id="ros-2">ROS 2</h3>
 
 <p>The performance test tool can also measure the performance of a variety of RMW implementations,
 through the ROS2 <code>rclcpp::publisher</code> and <code>rclcpp::subscriber</code> API.</p>
@@ -2268,7 +2292,7 @@ to use a different RMW implementation with ROS 2.</li>
 <li>Default transports: depends on underlying RMW implementation</li>
 </ul>
 
-<h4 id="apex-os-polling-subscription">Apex.OS Polling Subscription</h4>
+<h3 id="apex-os">Apex.OS</h3>
 
 <ul>
 <li>Apex.OS Polling Subscription with wait-set</li>
@@ -3076,7 +3100,7 @@ ros2 run performance_test -c ROS2 -t Array1k
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2022-06-04</em>
+          <em>generated on 2022-06-08</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
