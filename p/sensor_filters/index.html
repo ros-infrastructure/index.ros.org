@@ -423,7 +423,7 @@ sensor_filters
     
     
     
-    <a href="#noetic-assets" data-toggle="tab"><span class="label label-primary">2</span> Assets</a>
+    <a href="#noetic-assets" data-toggle="tab"><span class="label label-primary">3</span> Assets</a>
   </li>
   <li class="better-tabs">
     
@@ -509,7 +509,7 @@ sensor_filters
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-07-30
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-08-15
         </span>
       </td>
     </tr>
@@ -623,9 +623,12 @@ sensor_filters
                     <div class="rendered-markdown">
 <h1 id="sensor_filters">sensor_filters</h1>
 
-<p>This package is a collection of nodes and nodelets that service a <code>filters::FilterChain</code> for message types from <code>sensor_msgs</code> package.</p>
+<p>This package is a collection of nodes and nodelets that service a <code>filters::FilterChain</code> for message types from <code>sensor_msgs</code> package.
+See <a href="https://wiki.ros.org/filters">https://wiki.ros.org/filters</a> to read more about the <code>filters</code> package.</p>
 
-<p>Each node/nodelet's task is very simple: load the filter chain, subscribe <code>~input</code> topic, and publish the filtered messages to <code>~output</code> topic.</p>
+<p>Attention: The <em>PCL filters</em> provided by package <a href="http://wiki.ros.org/pcl_ros/Tutorials/filters">pcl_ros</a> are not "compatible" with this package. They are instances of <em>PCL filters</em>, but written as ROS nodelets, not as <em>ROS filters</em> implementing the <code>filters::FilterBase&lt;&gt;</code> interface required by this package. Running pcl_ros filter nodelets does not require any additional setup except a running nodelet manager.</p>
+
+<p>The task of each node(let) in sensor_filters is very simple: load the filter chain, subscribe <code>~input</code> topic, and publish the filtered messages to <code>~output</code> topic.</p>
 
 <p>The size of message queues is configured via <code>~input_queue_size</code> and <code>~output_queue_size</code>, both defaulting to 10 messages.</p>
 
@@ -710,9 +713,11 @@ sensor_filters
 
 <h2 id="provided-filters">Provided filters</h2>
 
+<p>This package also provides a few high-level filters.</p>
+
 <h3 id="sensor_filters-changeheader-message_type">sensor_filters/ChangeHeader/$MESSAGE_TYPE</h3>
 
-<p>This filter allows changing the contents of the header of sensor messages. You can use it for example to correct the <code>frame_id</code> of a sensor, or the adjust the timestamp of its messages.</p>
+<p>This filter allows changing the contents of the header of sensor messages. You can use it for example to correct the <code>frame_id</code> of a sensor, or adjust the timestamp of its messages.</p>
 
 <h4 id="parameters">Parameters</h4>
 
@@ -735,15 +740,39 @@ sensor_filters
 <code>stamp_relative</code> (double): Add this value to <code>header.stamp</code> (double value is converted to <code>ros::Duration</code>)</li>
 </ul>
 
-<h2 id="laser_filters-compatibility">
-<code>laser_filters</code> compatibility</h2>
+<h2 id="where-to-get-other-filters">Where to get other filters</h2>
+
+<p>If you are looking for other implementations of sensor filters, you will probably be disappointed, as they are really scarce. I don't know why it is the case, because filter chains are the most efficient data processing path ROS offers, yet most people chose to write nodelets instead.</p>
+
+<p>There is, however, one noteworthy exception:</p>
+
+<h3 id="robot_body_filter"><code>robot_body_filter</code></h3>
+
+<p><a href="http://wiki.ros.org/robot_body_filter">robot_body_filter</a> is a versatile tool for removing the body parts of a robot from laser scans and point clouds exactly according to the robot's URDF model. No more box approximations of your robots! Represent them exactly as they are!</p>
+
+<h3 id="laser_filters-compatibility">
+<code>laser_filters</code> compatibility</h3>
 
 <p>The <code>LaserScan</code> filter chain node is compatible with the <code>scan_to_scan_node</code> from <code>laser_filters</code> package (it can load the same filters using the same config).
 It does not, however, use TF message filter, so each filter has to wait for the required TFs itself.</p>
 
+<h2 id="why-ros-filters">Why ROS filters?</h2>
+
+<p>The simple answer is - performance. ROS filters are the most efficient way to run a chain of processors on sensor data. Passing the message from one filter to another is as simple as doing a C++ object copy. There is even a proposal for an <a href="https://github.com/ros/filters/pull/38">in-place (zero-copy) implementation</a>.</p>
+
+<p>You can think about nodelets and their said performance. If used right and you run only non-modifying filters, you might actually get to true zero-copy filtering. But you have a dynamic allocation of at least one shared_ptr in your path, which might be costly and with unpredictable impacts on run time.</p>
+
+<p>If you use nodelets and publish/subscribe references to messages instead of shared_ptrs, passing the message from one nodelet to another in the same manager not only does a copy of the message, but it also undergoes a serialization and deserialization step, which is most probably costly.</p>
+
+<p>If you do not even use nodelets, but plain nodes, passing a message requires serializing it and sending via a local (or, even worse, remote TCP) socket to the other node. So you have copying, (de)serializing and sending via the network stack.</p>
+
+<p>In the future, I plan to add some measurements to give some solid ground to these propositions.</p>
+
 <h2 id="extensibility">Extensibility</h2>
 
 <p>Both the nodes and nodelets offer common code that can be shared so that you can build extensions of the simple filter chain handlers provided by this package.</p>
+
+<p>See the <a href="https://github.com/ctu-vras/sensor_filters/blob/master/examples">examples folder</a> for more verbose examples.</p>
 
 <h3 id="nodes">Nodes</h3>
 <div class="highlight"><pre><code class="language-C++" data-lang="C++">#include &lt;sensor_msgs/PointCloud2.h&gt;
@@ -775,8 +804,9 @@ PLUGINLIB_EXPORT_CLASS(MyNodelet, nodelet::Nodelet)
 <h2 id="example">Example</h2>
 
 <p><code>filter.yaml</code></p>
-<div class="highlight"><pre><code class="language-YAML" data-lang="YAML">output_queue_size: 1
+<div class="highlight"><pre><code class="language-YAML" data-lang="YAML">output_queue_size: 100
 scan_filter_chain:
+  # Warning: using laser_filters like this might fail if they need to wait for some TFs; intensity filter does not.
   - name: intensity
     type: laser_filters/LaserScanIntensityFilter
     params:
@@ -785,13 +815,11 @@ scan_filter_chain:
       invert: false
       filter_override_range: true
       filter_override_intensity: false
-  - name: shadows
-    type: laser_filters/ScanShadowsFilter
+  # This filter will subtract 25 ms from each scan timestamp, e.g. to account for transport delay.
+  - name: delay
+    type: sensor_filters/ChangeHeader/LaserScan
     params:
-      min_angle: 10
-      max_angle: 170
-      neighbors: 20
-      window: 0
+      stamp_relative: -0.025
 
 </code></pre></div>
 <p><code>filter.launch</code></p>
@@ -1037,7 +1065,28 @@ scan_filter_chain:
       </div>
       <div class="panel-body">
         
-          <em>No launch files found</em>
+          <ul>
+            
+              <li><a href="https://github.com/ctu-vras/sensor_filters/tree/master/./examples/filter.launch" target="_blank">examples/filter.launch</a>
+                <ul class="list-unstyled">
+                  
+                    <li><em>
+ An example launch file for running a filter on LaserScan messages that does intensity filtering and adjusts scan
+ timestamps.
+ Author: Martin Pecka
+ SPDX-License-Identifier: Unlicense
+ SPDX-FileCopyrightText: Czech Technical University in Prague
+</em></li>
+                  
+                  <li>
+                    <ul>
+                      
+                    </ul>
+                  </li>
+                </ul>
+              </li>
+            
+          </ul>
         
       </div>
     </div>
@@ -1370,7 +1419,7 @@ sensor_filters
     
     
     
-    <a href="#melodic-assets" data-toggle="tab"><span class="label label-primary">2</span> Assets</a>
+    <a href="#melodic-assets" data-toggle="tab"><span class="label label-primary">3</span> Assets</a>
   </li>
   <li class="better-tabs">
     
@@ -1456,7 +1505,7 @@ sensor_filters
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2021-07-30
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-08-15
         </span>
       </td>
     </tr>
@@ -1570,9 +1619,12 @@ sensor_filters
                     <div class="rendered-markdown">
 <h1 id="sensor_filters">sensor_filters</h1>
 
-<p>This package is a collection of nodes and nodelets that service a <code>filters::FilterChain</code> for message types from <code>sensor_msgs</code> package.</p>
+<p>This package is a collection of nodes and nodelets that service a <code>filters::FilterChain</code> for message types from <code>sensor_msgs</code> package.
+See <a href="https://wiki.ros.org/filters">https://wiki.ros.org/filters</a> to read more about the <code>filters</code> package.</p>
 
-<p>Each node/nodelet's task is very simple: load the filter chain, subscribe <code>~input</code> topic, and publish the filtered messages to <code>~output</code> topic.</p>
+<p>Attention: The <em>PCL filters</em> provided by package <a href="http://wiki.ros.org/pcl_ros/Tutorials/filters">pcl_ros</a> are not "compatible" with this package. They are instances of <em>PCL filters</em>, but written as ROS nodelets, not as <em>ROS filters</em> implementing the <code>filters::FilterBase&lt;&gt;</code> interface required by this package. Running pcl_ros filter nodelets does not require any additional setup except a running nodelet manager.</p>
+
+<p>The task of each node(let) in sensor_filters is very simple: load the filter chain, subscribe <code>~input</code> topic, and publish the filtered messages to <code>~output</code> topic.</p>
 
 <p>The size of message queues is configured via <code>~input_queue_size</code> and <code>~output_queue_size</code>, both defaulting to 10 messages.</p>
 
@@ -1657,9 +1709,11 @@ sensor_filters
 
 <h2 id="provided-filters">Provided filters</h2>
 
+<p>This package also provides a few high-level filters.</p>
+
 <h3 id="sensor_filters-changeheader-message_type">sensor_filters/ChangeHeader/$MESSAGE_TYPE</h3>
 
-<p>This filter allows changing the contents of the header of sensor messages. You can use it for example to correct the <code>frame_id</code> of a sensor, or the adjust the timestamp of its messages.</p>
+<p>This filter allows changing the contents of the header of sensor messages. You can use it for example to correct the <code>frame_id</code> of a sensor, or adjust the timestamp of its messages.</p>
 
 <h4 id="parameters">Parameters</h4>
 
@@ -1682,15 +1736,39 @@ sensor_filters
 <code>stamp_relative</code> (double): Add this value to <code>header.stamp</code> (double value is converted to <code>ros::Duration</code>)</li>
 </ul>
 
-<h2 id="laser_filters-compatibility">
-<code>laser_filters</code> compatibility</h2>
+<h2 id="where-to-get-other-filters">Where to get other filters</h2>
+
+<p>If you are looking for other implementations of sensor filters, you will probably be disappointed, as they are really scarce. I don't know why it is the case, because filter chains are the most efficient data processing path ROS offers, yet most people chose to write nodelets instead.</p>
+
+<p>There is, however, one noteworthy exception:</p>
+
+<h3 id="robot_body_filter"><code>robot_body_filter</code></h3>
+
+<p><a href="http://wiki.ros.org/robot_body_filter">robot_body_filter</a> is a versatile tool for removing the body parts of a robot from laser scans and point clouds exactly according to the robot's URDF model. No more box approximations of your robots! Represent them exactly as they are!</p>
+
+<h3 id="laser_filters-compatibility">
+<code>laser_filters</code> compatibility</h3>
 
 <p>The <code>LaserScan</code> filter chain node is compatible with the <code>scan_to_scan_node</code> from <code>laser_filters</code> package (it can load the same filters using the same config).
 It does not, however, use TF message filter, so each filter has to wait for the required TFs itself.</p>
 
+<h2 id="why-ros-filters">Why ROS filters?</h2>
+
+<p>The simple answer is - performance. ROS filters are the most efficient way to run a chain of processors on sensor data. Passing the message from one filter to another is as simple as doing a C++ object copy. There is even a proposal for an <a href="https://github.com/ros/filters/pull/38">in-place (zero-copy) implementation</a>.</p>
+
+<p>You can think about nodelets and their said performance. If used right and you run only non-modifying filters, you might actually get to true zero-copy filtering. But you have a dynamic allocation of at least one shared_ptr in your path, which might be costly and with unpredictable impacts on run time.</p>
+
+<p>If you use nodelets and publish/subscribe references to messages instead of shared_ptrs, passing the message from one nodelet to another in the same manager not only does a copy of the message, but it also undergoes a serialization and deserialization step, which is most probably costly.</p>
+
+<p>If you do not even use nodelets, but plain nodes, passing a message requires serializing it and sending via a local (or, even worse, remote TCP) socket to the other node. So you have copying, (de)serializing and sending via the network stack.</p>
+
+<p>In the future, I plan to add some measurements to give some solid ground to these propositions.</p>
+
 <h2 id="extensibility">Extensibility</h2>
 
 <p>Both the nodes and nodelets offer common code that can be shared so that you can build extensions of the simple filter chain handlers provided by this package.</p>
+
+<p>See the <a href="https://github.com/ctu-vras/sensor_filters/blob/master/examples">examples folder</a> for more verbose examples.</p>
 
 <h3 id="nodes">Nodes</h3>
 <div class="highlight"><pre><code class="language-C++" data-lang="C++">#include &lt;sensor_msgs/PointCloud2.h&gt;
@@ -1722,8 +1800,9 @@ PLUGINLIB_EXPORT_CLASS(MyNodelet, nodelet::Nodelet)
 <h2 id="example">Example</h2>
 
 <p><code>filter.yaml</code></p>
-<div class="highlight"><pre><code class="language-YAML" data-lang="YAML">output_queue_size: 1
+<div class="highlight"><pre><code class="language-YAML" data-lang="YAML">output_queue_size: 100
 scan_filter_chain:
+  # Warning: using laser_filters like this might fail if they need to wait for some TFs; intensity filter does not.
   - name: intensity
     type: laser_filters/LaserScanIntensityFilter
     params:
@@ -1732,13 +1811,11 @@ scan_filter_chain:
       invert: false
       filter_override_range: true
       filter_override_intensity: false
-  - name: shadows
-    type: laser_filters/ScanShadowsFilter
+  # This filter will subtract 25 ms from each scan timestamp, e.g. to account for transport delay.
+  - name: delay
+    type: sensor_filters/ChangeHeader/LaserScan
     params:
-      min_angle: 10
-      max_angle: 170
-      neighbors: 20
-      window: 0
+      stamp_relative: -0.025
 
 </code></pre></div>
 <p><code>filter.launch</code></p>
@@ -1984,7 +2061,28 @@ scan_filter_chain:
       </div>
       <div class="panel-body">
         
-          <em>No launch files found</em>
+          <ul>
+            
+              <li><a href="https://github.com/ctu-vras/sensor_filters/tree/master/./examples/filter.launch" target="_blank">examples/filter.launch</a>
+                <ul class="list-unstyled">
+                  
+                    <li><em>
+ An example launch file for running a filter on LaserScan messages that does intensity filtering and adjusts scan
+ timestamps.
+ Author: Martin Pecka
+ SPDX-License-Identifier: Unlicense
+ SPDX-FileCopyrightText: Czech Technical University in Prague
+</em></li>
+                  
+                  <li>
+                    <ul>
+                      
+                    </ul>
+                  </li>
+                </ul>
+              </li>
+            
+          </ul>
         
       </div>
     </div>
@@ -2297,7 +2395,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2022-05-05</em>
+          <em>generated on 2022-08-16</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
