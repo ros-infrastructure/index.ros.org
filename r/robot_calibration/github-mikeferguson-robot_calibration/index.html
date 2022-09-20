@@ -350,7 +350,7 @@ ga('send', 'pageview');
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-06-27
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-09-19
         </span>
       </td>
     </tr>
@@ -505,7 +505,7 @@ YAML file specifies the details needed for data capture:</p>
 <li>chains - The kinematic chains of the robot which should be controlled,
 and how to control them so that we can move the robot to each desired pose
 for sampling.</li>
-<li>feature_finders - The configuration for the various "feature finders" that
+<li>features - The configuration for the various "feature finders" that
 will be making our observations at each sample pose. Current finders include
 an LED detector, checkerboard finder, and plane finder. Feature finders
 are plugin-based, so you can create your own.</li>
@@ -517,23 +517,19 @@ This specifies several items:</p>
 <ul>
 <li>base_link - Frame used for internal calculations. Typically, the root of the
 URDF is used. Often <code>base_link</code>.</li>
+<li>calibration_steps - In ROS2, multistep calibration is fully supported. The
+parameter "calibration_steps" should be a list of step names. A majority of
+calibrations probably only use a single step, but the step name must still
+be in a YAML list format.</li>
+</ul>
+
+<p>For each calibration step, there are several parameters:</p>
+
+<ul>
 <li>models - Models define how to reproject points. The basic model is a
 kinematic chain. Additional models can reproject through a kinematic
 chain and then a sensor, such as a 3d camera. For IK chains, <code>frame</code> parameter
-is the tip of the IK chain.
-
-<ul>
-<li>chain3d - Represents a kinematic chain from the <code>base_link</code> to the <code>frame</code>
-parameter (which in MoveIt/KDL terms is usually referred to as the <code>tip</code>).</li>
-<li>camera3d - Represents a kinematic chain from the <code>base_link</code> to the <code>frame</code>
-parameter, and includes the pinhole camera model parameters (cx, cy, fx, fy)
-when doing projection of the points. This model only works if your sensor
-publishes CameraInfo. Further, the calibration obtained when this model is
-used and any of the pinhole parameters are free parameters is only valid if
-the physical sensor actually uses the CameraInfo for 3d projection (this
-is generally true for the Primesense/Astra sensors).</li>
-</ul>
-</li>
+is the tip of the IK chain. The "models" parameter is a list of model names.</li>
 <li>free_params - Defines the names of single-value free parameters. These
 can be the names of a joint for which the joint offset should be calculated,
 camera parameters such as focal lengths, or other parameters, such as
@@ -549,8 +545,25 @@ to be free parameters.</li>
 X, Y, Z offsets are in meters. ROLL, PITCH, YAW are in radians. This is most
 frequently used for setting the initial estimate of the checkerboard position,
 see details below.</li>
-<li>error_blocks - These define the actual errors to compare during optimization.
-There are several error blocks available at this time:
+<li>error_blocks - List of error block names, which are then defined under their
+own namespaces.</li>
+</ul>
+
+<p>For each model, the type must be specified. The type should be one of:</p>
+
+<ul>
+<li>chain3d - Represents a kinematic chain from the <code>base_link</code> to the <code>frame</code>
+parameter (which in MoveIt/KDL terms is usually referred to as the <code>tip</code>).</li>
+<li>camera3d - Represents a kinematic chain from the <code>base_link</code> to the <code>frame</code>
+parameter, and includes the pinhole camera model parameters (cx, cy, fx, fy)
+when doing projection of the points. This model only works if your sensor
+publishes CameraInfo. Further, the calibration obtained when this model is
+used and any of the pinhole parameters are free parameters is only valid if
+the physical sensor actually uses the CameraInfo for 3d projection (this
+is generally true for the Primesense/Astra sensors).</li>
+</ul>
+
+<p>For each error block, the type must be specified. The type should be one of:</p>
 
 <ul>
 <li>chain3d_to_chain3d - This error block can compute the difference in
@@ -572,8 +585,6 @@ and we would like to avoid one of the free parameters from becoming
 absurd. An outrageous error block can be used to limit a particular
 parameter.</li>
 </ul>
-</li>
-</ul>
 
 <h4 id="checkerboard-configuration">Checkerboard Configuration</h4>
 
@@ -593,17 +604,76 @@ and C:</p>
 </code></pre></div>
 <p>This will print the ROLL, PITCH, YAW values to put in for initial values. Then
 insert the values in the calibration.yaml:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">free_frames_initial_values:
-- checkerboard
-checkerboard_initial_valus:
-  x: 0.0
-  y: 0.225
-  z: 0
-  roll: 0.0
-  pitch: 1.571
-  yaw: 0.0
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">free_frames_initial_values</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="s">checkerboard</span>
+<span class="na">checkerboard_initial_valus</span><span class="pi">:</span>
+  <span class="na">x</span><span class="pi">:</span> <span class="s">0.0</span>
+  <span class="na">y</span><span class="pi">:</span> <span class="s">0.225</span>
+  <span class="na">z</span><span class="pi">:</span> <span class="s">0</span>
+  <span class="na">roll</span><span class="pi">:</span> <span class="s">0.0</span>
+  <span class="na">pitch</span><span class="pi">:</span> <span class="s">1.571</span>
+  <span class="na">yaw</span><span class="pi">:</span> <span class="s">0.0</span>
 
 </code></pre></div>
+<h4 id="migrating-from-ros1">Migrating from ROS1</h4>
+
+<p>There are a number of changes in migrating from ROS1 to ROS2. Some of these are
+due to differences in the ROS2 system, others are to finally cleanup mistakes
+made in earlier version of robot_calibration.</p>
+
+<p>The <code>chains</code>, <code>models</code>, <code>free_frames</code> and <code>features</code> parameters used to be lists of YAML
+dictionaries. That format is not easily supported in ROS2 and so they are now
+lists of string names and the actual dictionaries of information appear under
+the associated name. For instance, in ROS1, you might have:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">models</span><span class="pi">:</span>
+ <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">arm</span>
+   <span class="na">type</span><span class="pi">:</span> <span class="s">chain</span>
+   <span class="na">frame</span><span class="pi">:</span> <span class="s">wrist_roll_link</span>
+ <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">camera</span>
+   <span class="na">type</span><span class="pi">:</span> <span class="s">camera3d</span>
+   <span class="na">frame</span><span class="pi">:</span> <span class="s">head_camera_rgb_optical_frame</span>
+   <span class="na">topic</span><span class="pi">:</span> <span class="s">/head_camera/depth_registered/points</span>
+
+</code></pre></div>
+<p>In ROS2, this becomes:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">models</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="s">arm</span>
+<span class="pi">-</span> <span class="s">camera</span>
+<span class="na">arm</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">chain3d</span>
+  <span class="na">frame</span><span class="pi">:</span> <span class="s">wrist_roll_link</span>
+<span class="na">camera</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">camera3d</span>
+  <span class="na">frame</span><span class="pi">:</span> <span class="s">head_camera_rgb_optical_frame</span>
+  <span class="na">topic</span><span class="pi">:</span> <span class="s">/head_camera/depth_registered/points</span>
+
+</code></pre></div>
+<p>NOTE: the "chain" type has been renamed "chain3d" in ROS2 for consistency (and to allow
+a future chain2d).</p>
+
+<p>Multi-step calibration is now fully supported. A new parameter, <code>calibration_steps</code> must
+be declared as a list of step names. The <code>models</code> and free parameters are then specified
+for each step. As an example:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">calibration_steps</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="s">first_calibration_step</span>
+<span class="pi">-</span> <span class="s">second_calibration_step</span>
+<span class="na">first_calibration_step</span><span class="pi">:</span>
+  <span class="na">models</span><span class="pi">:</span> <span class="s">...</span>
+  <span class="na">free_params</span><span class="pi">:</span> <span class="s">...</span>
+<span class="na">second_calibration_step</span><span class="pi">:</span>
+  <span class="na">models</span><span class="pi">:</span> <span class="s">...</span>
+  <span class="na">free_params</span><span class="pi">:</span> <span class="s">...</span>
+
+</code></pre></div>
+<p>The capture poses can now be specified as YAML. The <code>convert_ros1_bag_to_yaml</code> script
+can be run in ROS1 to export your ROS1 bagfile as a YAML file that can be loaded in ROS2.</p>
+
+<h4 id="example-configuration">Example Configuration</h4>
+
+<p>The UBR-1 robot uses this package to calibrate in ROS2. Start with the <code>calibrate_launch.py</code>
+in <a href="https://github.com/mikeferguson/ubr_reloaded/tree/ros2/ubr1_calibration">ubr1_calibration</a>
+package.</p>
+
 <h3 id="exported-results">Exported Results</h3>
 
 <p>The exported results consist of an updated URDF file, and one or more updated
@@ -714,9 +784,7 @@ and <em>mag_bias_z</em>, which can be used with the <code>imu_filter_madgwick</c
 <h1 id="status">Status</h1>
 
 <ul>
-<li>Melodic Devel Job Status: <a href="http://build.ros.org/job/Mdev__robot_calibration__ubuntu_bionic_amd64/"><img src="http://build.ros.org/buildStatus/icon?job=Mdev__robot_calibration__ubuntu_bionic_amd64" alt="Build Status"></a>
-</li>
-<li>Melodic Coverage: <a href="https://codecov.io/gh/mikeferguson/robot_calibration"><img src="https://codecov.io/gh/mikeferguson/robot_calibration/branch/master/graph/badge.svg" alt="codecov"></a>
+<li>Humble Devel Job Status: <a href="https://build.ros2.org/job/Hdev__robot_calibration__ubuntu_jammy_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Hdev__robot_calibration__ubuntu_jammy_amd64" alt="Build Status"></a>
 </li>
 </ul>
 </div>
@@ -782,7 +850,7 @@ and <em>mag_bias_z</em>, which can be used with the <code>imu_filter_madgwick</c
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-06-27
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-09-19
         </span>
       </td>
     </tr>
@@ -937,7 +1005,7 @@ YAML file specifies the details needed for data capture:</p>
 <li>chains - The kinematic chains of the robot which should be controlled,
 and how to control them so that we can move the robot to each desired pose
 for sampling.</li>
-<li>feature_finders - The configuration for the various "feature finders" that
+<li>features - The configuration for the various "feature finders" that
 will be making our observations at each sample pose. Current finders include
 an LED detector, checkerboard finder, and plane finder. Feature finders
 are plugin-based, so you can create your own.</li>
@@ -949,23 +1017,19 @@ This specifies several items:</p>
 <ul>
 <li>base_link - Frame used for internal calculations. Typically, the root of the
 URDF is used. Often <code>base_link</code>.</li>
+<li>calibration_steps - In ROS2, multistep calibration is fully supported. The
+parameter "calibration_steps" should be a list of step names. A majority of
+calibrations probably only use a single step, but the step name must still
+be in a YAML list format.</li>
+</ul>
+
+<p>For each calibration step, there are several parameters:</p>
+
+<ul>
 <li>models - Models define how to reproject points. The basic model is a
 kinematic chain. Additional models can reproject through a kinematic
 chain and then a sensor, such as a 3d camera. For IK chains, <code>frame</code> parameter
-is the tip of the IK chain.
-
-<ul>
-<li>chain3d - Represents a kinematic chain from the <code>base_link</code> to the <code>frame</code>
-parameter (which in MoveIt/KDL terms is usually referred to as the <code>tip</code>).</li>
-<li>camera3d - Represents a kinematic chain from the <code>base_link</code> to the <code>frame</code>
-parameter, and includes the pinhole camera model parameters (cx, cy, fx, fy)
-when doing projection of the points. This model only works if your sensor
-publishes CameraInfo. Further, the calibration obtained when this model is
-used and any of the pinhole parameters are free parameters is only valid if
-the physical sensor actually uses the CameraInfo for 3d projection (this
-is generally true for the Primesense/Astra sensors).</li>
-</ul>
-</li>
+is the tip of the IK chain. The "models" parameter is a list of model names.</li>
 <li>free_params - Defines the names of single-value free parameters. These
 can be the names of a joint for which the joint offset should be calculated,
 camera parameters such as focal lengths, or other parameters, such as
@@ -981,8 +1045,25 @@ to be free parameters.</li>
 X, Y, Z offsets are in meters. ROLL, PITCH, YAW are in radians. This is most
 frequently used for setting the initial estimate of the checkerboard position,
 see details below.</li>
-<li>error_blocks - These define the actual errors to compare during optimization.
-There are several error blocks available at this time:
+<li>error_blocks - List of error block names, which are then defined under their
+own namespaces.</li>
+</ul>
+
+<p>For each model, the type must be specified. The type should be one of:</p>
+
+<ul>
+<li>chain3d - Represents a kinematic chain from the <code>base_link</code> to the <code>frame</code>
+parameter (which in MoveIt/KDL terms is usually referred to as the <code>tip</code>).</li>
+<li>camera3d - Represents a kinematic chain from the <code>base_link</code> to the <code>frame</code>
+parameter, and includes the pinhole camera model parameters (cx, cy, fx, fy)
+when doing projection of the points. This model only works if your sensor
+publishes CameraInfo. Further, the calibration obtained when this model is
+used and any of the pinhole parameters are free parameters is only valid if
+the physical sensor actually uses the CameraInfo for 3d projection (this
+is generally true for the Primesense/Astra sensors).</li>
+</ul>
+
+<p>For each error block, the type must be specified. The type should be one of:</p>
 
 <ul>
 <li>chain3d_to_chain3d - This error block can compute the difference in
@@ -1004,8 +1085,6 @@ and we would like to avoid one of the free parameters from becoming
 absurd. An outrageous error block can be used to limit a particular
 parameter.</li>
 </ul>
-</li>
-</ul>
 
 <h4 id="checkerboard-configuration">Checkerboard Configuration</h4>
 
@@ -1025,17 +1104,76 @@ and C:</p>
 </code></pre></div>
 <p>This will print the ROLL, PITCH, YAW values to put in for initial values. Then
 insert the values in the calibration.yaml:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">free_frames_initial_values:
-- checkerboard
-checkerboard_initial_valus:
-  x: 0.0
-  y: 0.225
-  z: 0
-  roll: 0.0
-  pitch: 1.571
-  yaw: 0.0
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">free_frames_initial_values</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="s">checkerboard</span>
+<span class="na">checkerboard_initial_valus</span><span class="pi">:</span>
+  <span class="na">x</span><span class="pi">:</span> <span class="s">0.0</span>
+  <span class="na">y</span><span class="pi">:</span> <span class="s">0.225</span>
+  <span class="na">z</span><span class="pi">:</span> <span class="s">0</span>
+  <span class="na">roll</span><span class="pi">:</span> <span class="s">0.0</span>
+  <span class="na">pitch</span><span class="pi">:</span> <span class="s">1.571</span>
+  <span class="na">yaw</span><span class="pi">:</span> <span class="s">0.0</span>
 
 </code></pre></div>
+<h4 id="migrating-from-ros1">Migrating from ROS1</h4>
+
+<p>There are a number of changes in migrating from ROS1 to ROS2. Some of these are
+due to differences in the ROS2 system, others are to finally cleanup mistakes
+made in earlier version of robot_calibration.</p>
+
+<p>The <code>chains</code>, <code>models</code>, <code>free_frames</code> and <code>features</code> parameters used to be lists of YAML
+dictionaries. That format is not easily supported in ROS2 and so they are now
+lists of string names and the actual dictionaries of information appear under
+the associated name. For instance, in ROS1, you might have:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">models</span><span class="pi">:</span>
+ <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">arm</span>
+   <span class="na">type</span><span class="pi">:</span> <span class="s">chain</span>
+   <span class="na">frame</span><span class="pi">:</span> <span class="s">wrist_roll_link</span>
+ <span class="pi">-</span> <span class="na">name</span><span class="pi">:</span> <span class="s">camera</span>
+   <span class="na">type</span><span class="pi">:</span> <span class="s">camera3d</span>
+   <span class="na">frame</span><span class="pi">:</span> <span class="s">head_camera_rgb_optical_frame</span>
+   <span class="na">topic</span><span class="pi">:</span> <span class="s">/head_camera/depth_registered/points</span>
+
+</code></pre></div>
+<p>In ROS2, this becomes:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">models</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="s">arm</span>
+<span class="pi">-</span> <span class="s">camera</span>
+<span class="na">arm</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">chain3d</span>
+  <span class="na">frame</span><span class="pi">:</span> <span class="s">wrist_roll_link</span>
+<span class="na">camera</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">camera3d</span>
+  <span class="na">frame</span><span class="pi">:</span> <span class="s">head_camera_rgb_optical_frame</span>
+  <span class="na">topic</span><span class="pi">:</span> <span class="s">/head_camera/depth_registered/points</span>
+
+</code></pre></div>
+<p>NOTE: the "chain" type has been renamed "chain3d" in ROS2 for consistency (and to allow
+a future chain2d).</p>
+
+<p>Multi-step calibration is now fully supported. A new parameter, <code>calibration_steps</code> must
+be declared as a list of step names. The <code>models</code> and free parameters are then specified
+for each step. As an example:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">calibration_steps</span><span class="pi">:</span>
+<span class="pi">-</span> <span class="s">first_calibration_step</span>
+<span class="pi">-</span> <span class="s">second_calibration_step</span>
+<span class="na">first_calibration_step</span><span class="pi">:</span>
+  <span class="na">models</span><span class="pi">:</span> <span class="s">...</span>
+  <span class="na">free_params</span><span class="pi">:</span> <span class="s">...</span>
+<span class="na">second_calibration_step</span><span class="pi">:</span>
+  <span class="na">models</span><span class="pi">:</span> <span class="s">...</span>
+  <span class="na">free_params</span><span class="pi">:</span> <span class="s">...</span>
+
+</code></pre></div>
+<p>The capture poses can now be specified as YAML. The <code>convert_ros1_bag_to_yaml</code> script
+can be run in ROS1 to export your ROS1 bagfile as a YAML file that can be loaded in ROS2.</p>
+
+<h4 id="example-configuration">Example Configuration</h4>
+
+<p>The UBR-1 robot uses this package to calibrate in ROS2. Start with the <code>calibrate_launch.py</code>
+in <a href="https://github.com/mikeferguson/ubr_reloaded/tree/ros2/ubr1_calibration">ubr1_calibration</a>
+package.</p>
+
 <h3 id="exported-results">Exported Results</h3>
 
 <p>The exported results consist of an updated URDF file, and one or more updated
@@ -1146,9 +1284,7 @@ and <em>mag_bias_z</em>, which can be used with the <code>imu_filter_madgwick</c
 <h1 id="status">Status</h1>
 
 <ul>
-<li>Melodic Devel Job Status: <a href="http://build.ros.org/job/Mdev__robot_calibration__ubuntu_bionic_amd64/"><img src="http://build.ros.org/buildStatus/icon?job=Mdev__robot_calibration__ubuntu_bionic_amd64" alt="Build Status"></a>
-</li>
-<li>Melodic Coverage: <a href="https://codecov.io/gh/mikeferguson/robot_calibration"><img src="https://codecov.io/gh/mikeferguson/robot_calibration/branch/master/graph/badge.svg" alt="codecov"></a>
+<li>Humble Devel Job Status: <a href="https://build.ros2.org/job/Hdev__robot_calibration__ubuntu_jammy_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Hdev__robot_calibration__ubuntu_jammy_amd64" alt="Build Status"></a>
 </li>
 </ul>
 </div>
@@ -2984,7 +3120,7 @@ and <em>mag_bias_z</em>, which can be used with the <code>imu_filter_madgwick</c
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2022-08-11</em>
+          <em>generated on 2022-09-20</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
