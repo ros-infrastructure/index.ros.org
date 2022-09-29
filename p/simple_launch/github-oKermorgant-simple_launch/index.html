@@ -471,7 +471,7 @@ simple_launch
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-09-23
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-09-28
         </span>
       </td>
     </tr>
@@ -581,7 +581,7 @@ simple_launch
 
 <p>This package provides a Python class to help writing ROS 2 launch files.</p>
 
-<p>The motivation behind this package is that the ROS 2 launch Python syntax may not be suited for many simple cases such as running basic nodes, spawning a <code>robot_state_publisher</code>, and grouping nodes in namespaces or components..</p>
+<p>The motivation behind this package is that the ROS 2 launch Python syntax may not be suited for many simple cases such as running basic nodes, spawning a <code>robot_state_publisher</code>, and grouping nodes in namespaces or components.</p>
 
 <p><strong>Thanks</strong>: this package is inspired by <a href="https://github.com/bponsler/ros2_launch_util">ros2_launch_util</a>.</p>
 
@@ -641,25 +641,30 @@ simple_launch
 
 <p>The <code>sl.include</code>, <code>sl.node</code> and <code>xacro_args</code> calls allow using any type (the simplest being a single dictionary)  and will convert to the one expected by the API.</p>
 
+<h3 id="simplesubstution-class">
+<code>SimpleSubstution</code> class</h3>
+
+<p>Most all methods listed below return an instance of <code>SimpleSubstitution</code> that wraps any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type.</p>
+
 <h2 id="launch-arguments">Launch arguments</h2>
 
 <p>The helper class allows declaring launch arguments and getting them in return:</p>
 
 <h3 id="declare-a-launch-argument">Declare a launch argument</h3>
 
-<p><code>sl.declare_arg(name, default_value, description = None)</code></p>
+<p><code>sl.declare_arg(name, default_value, description = None)</code>: declare and returns the argument</p>
 
 <h3 id="retrieve-a-launch-argument">Retrieve a launch argument</h3>
 
-<p><code>sl.arg(name)</code>: returns the argument <code>name</code></p>
+<p><code>sl.arg(name)</code>: returns the argument <code>name</code> as a <code>SimpleSubstitution</code></p>
 
 <h3 id="retrieve-several-arguments-as-a-dictionary">Retrieve several arguments as a dictionary</h3>
 
-<p><code>sl.arg_map(('robot', 'x', 'y'))</code>: returns <code>{'robot': &lt;robot arg value&gt;, 'x': &lt;x arg value&gt;, 'y': &lt;y arg value&gt;}</code></p>
+<p><code>sl.arg_map('robot', 'x', 'y')</code>: returns <code>{'robot': &lt;robot arg value&gt;, 'x': &lt;x arg value&gt;, 'y': &lt;y arg value&gt;}</code></p>
 
 <h2 id="node-groups">Node groups</h2>
 
-<p>Groups are created through the <code>with sl.group():</code> syntax and accepts both a namespace and/or an if/unless condition:</p>
+<p>Groups are created through the <code>with sl.group():</code> syntax and accept both a namespace and/or an if/unless condition:</p>
 
 <h3 id="by-namespace">By namespace</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(ns=sub_namespace):
@@ -674,6 +679,8 @@ simple_launch
     sl.node(package, executable)
 
 </code></pre></div>
+<p>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</p>
+
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
     sl.node(package, executable)
@@ -684,7 +691,7 @@ simple_launch
 </code></pre></div>
 <p><code>if_arg</code> / <code>unless_arg</code> is expected to be the name of a launch argument. These two lines are equivalent:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
-  with sl.group(if_condition=sl.arg('use_gui'):
+  with sl.group(if_condition=sl.arg('use_gui')):
 
 </code></pre></div>
 <p>If <code>if_arg</code> / <code>unless_arg</code> is not a string then it is considered as a <code>if_condition</code> / <code>unless_condition</code>.</p>
@@ -714,9 +721,47 @@ simple_launch
 
 <p>In all cases, if the <code>use_sim_time</code> parameter is explicitely given to a node, it will be used instead of the <code>SimpleLauncher</code> instance one.</p>
 
+<h2 id="wrapper-around-opaquefunction">Wrapper around <code>OpaqueFunction</code>
+</h2>
+
+<p>Most of the use cases can be dealt with substitutions and <code>with sl.group</code> blocs.
+In order to design more imperative launch files, the <a href="https://discourse.ros.org/t/simplifying-launch-argument-declaration-and-initialization-in-launch-files/24204"><code>OpaqueFunction</code></a> approach can be used. The main drawback is that potential errors are harder to track.</p>
+
+<p>To do this with <code>simple_launch</code>:
+  - the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.
+  - then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.
+  - all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.
+  - finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</p>
+
+<p>Compare <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_launch.py"><code>example_launch.py</code></a> and <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_opaque_launch.py"><code>example_opaque_launch.py</code></a> to see the two approaches on the same logic.</p>
+
+<p>Note that inside an <code>OpaqueFunction</code> the if/unless idom reduces to a basic if/else:</p>
+<div class="highlight"><pre><code class="language-" data-lang=""># with substitutions
+with sl.group(if_arg='some_condition'):
+  # do stuff
+with sl.group(unless_arg='some_condition'):
+  # do other stuff
+
+# with opaque function
+if sl.arg('some_condition'):
+  # do stuff
+else:
+  # do other stuff
+
+</code></pre></div>
 <h2 id="interaction-with-gazebo-ignition">Interaction with Gazebo / Ignition</h2>
 
 <p><em>Note: Ignition being renamed to Gazebo, all tools in this section use Gazebo / gz names</em></p>
+
+<p>An effort was made to be robust to Ignition versus Gazebo uses, i.e. <em>ign</em> prefix is used for <code>foxy</code> and <code>galactic</code> while <em>gz</em> prefix is used from <em>humble</em>.</p>
+
+<h3 id="launch-gazebo">Launch Gazebo</h3>
+
+<p>The Gazebo launch file corresponding to the current ROS 2 distribution is obtained with:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">sl.include(launch_file = sl.gz_launch(), launch_argument = ...)
+
+</code></pre></div>
+<p>Namely, it will redirect to either <code>ros_ign_gazebo/ign_gazebo.launch.py</code> (<code>foxy</code>, <code>galactic</code>) or <code>ros_gz_sim/gz_sim.launch.py</code> (<code>humble</code>+)</p>
 
 <h3 id="spawn-a-model">Spawn a model</h3>
 
@@ -785,24 +830,30 @@ If some bridges involve <code>sensor_msgs/Image</code> then a dedicated <code>ro
 
 <h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
 
-<p>The following syntax builds <code>&lt;robot name&gt;.xacro</code>:</p>
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
 
-<p><code>file_name = sl.name_join(sl.arg('robot'), '.xacro')</code></p>
+<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
+
+<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
 
 <h3 id="path-concatenation">Path concatenation</h3>
 
-<p>The following syntax builds <code>&lt;my_package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.name_join(sl.arg('robot'), '.xacro')
-urdf_file = sl.path_join(get_package_share_directory(package), 'urdf', file_name)
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
+urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 
 </code></pre></div>
+<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
+
+<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
+
 <h3 id="find-a-share-file">Find a share file</h3>
 
 <p><code>path = sl.find(package, file_name, file_dir = None)</code> where:</p>
 
 <ul>
 <li>
-<code>package</code> is the name of the package or None</li>
+<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
 <li>
 <code>file_name</code> is the name of the file to find</li>
 <li>
@@ -863,7 +914,7 @@ def generate_launch_description():
     sl.declare_arg('y', default_value = 0, description='y-offset of the robot')
     sl.declare_arg('use_gui', default_value = True, description='Use JSP gui')
 
-    xacro_args = sl.arg_map(('prefix', 'x', 'y'))
+    xacro_args = sl.arg_map('prefix', 'x', 'y')
     xacro_args['prefix'] = [xacro_args['prefix'], ':']
 
     with sl.group(ns=sl.arg('prefix')):
@@ -883,21 +934,24 @@ def generate_launch_description():
     sl = SimpleLauncher()
 
     # conditional args
-    sl.declare_arg('robot1', default_value=False, description='use robot 1')
+    sl.declare_arg('robot1', default_value=True, description='use robot 1')
     sl.declare_arg('robot2', default_value=True, description='use robot 2')
     sl.declare_arg('no_robot2', default_value=False, description='cancel use of robot 2')
-    sl.declare_arg('rviz', default_value=False, description='Bringup RViz2')
+    sl.declare_arg('rviz', default_value=True, description='Bringup RViz2')
 
     # numeric args
     sl.declare_arg('robot2_x', default_value=1, description='x-offset of robot 2')
     sl.declare_arg('robot2_y', default_value=1, description='y-offset of robot 2')
 
     with sl.group(if_arg='robot1'):
-        sl.include('simple_launch', 'included_launch.py', launch_arguments = [('prefix', 'robot1')])
+        sl.include('simple_launch', 'included_launch.py',
+                   launch_arguments = {'prefix': 'robot1'})
 
     with sl.group(if_arg='robot2'):
+
         with sl.group(unless_arg='no_robot2'):
-            args = {'prefix': 'robot2', 'x': sl.arg('robot2_x'), 'y': sl.arg('robot2_y')}
+
+            args = {'prefix': 'robot2', 'x':sl.arg('robot2_x'), 'y': sl.arg('robot2_y')}
             sl.include('simple_launch', 'included_launch.py', launch_arguments=args)
 
     with sl.group(if_arg='rviz'):
@@ -905,6 +959,55 @@ def generate_launch_description():
         sl.node('rviz2', 'rviz2', arguments = ['-d', rviz_config])
 
     return sl.launch_description()
+
+</code></pre></div>
+<h3 id="conditions-with-opaquefunction">Conditions with OpaqueFunction</h3>
+
+<p>The file below does the same as the previous one, but using an <code>OpaqueFunction</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher
+
+# declare simple launcher and the launch arguments in the main body
+sl = SimpleLauncher()
+
+# conditional args
+sl.declare_arg('robot1', default_value=True, description='use robot 1')
+sl.declare_arg('robot2', default_value=True, description='use robot 2')
+sl.declare_arg('no_robot2', default_value=False, description='cancel use of robot 2')
+sl.declare_arg('rviz', default_value=True, description='Bringup RViz2')
+
+# numeric args
+sl.declare_arg('robot2_x', default_value=1, description='x-offset of robot 2')
+sl.declare_arg('robot2_y', default_value=1, description='y-offset of robot 2')
+
+# string args
+sl.declare_arg('included', default_value = 'included_launch')
+
+
+# define the opaque function, context will be wrapped in the SimpleLauncher instance
+def launch_setup():
+
+    # we can use raw if as `robot1` argument is performed to a Boolean
+    if sl.arg('robot1'):
+        sl.include('simple_launch', 'included_launch.py', launch_arguments = {'prefix': 'robot1'})
+
+    # and even combine conditions
+    if sl.arg('robot2') and not sl.arg('no_robot2'):
+
+            args = {'prefix': 'robot2', 'x':sl.arg('robot2_x'), 'y': sl.arg('robot2_y')}
+            # summing up args and strings
+            sl.include('simple_launch', sl.arg('included') + '.py', launch_arguments=args)
+
+    if sl.arg('rviz'):
+        rviz_config = sl.find('simple_launch', 'turret.rviz')
+        sl.node('rviz2', 'rviz2', arguments = ['-d', rviz_config])
+
+    return sl.launch_description()
+
+
+# wrap the opaque_function in the launch description
+# /!\ no `def generate_launch_description():`
+
+generate_launch_description = sl.launch_description(opaque_function = launch_setup)
 
 </code></pre></div>
 <h3 id="composition">Composition</h3>
@@ -925,7 +1028,7 @@ def generate_launch_description():
 </code></pre></div>
 <h3 id="auto-sim-time">auto sim time</h3>
 
-<p>Here we run Ignition and force all other nodes to <code>use_sim_time:=True</code>, unless this file is included from another one with <code>use_sim_time:=False</code>.
+<p>Here we run Gazebo and force all other nodes to <code>use_sim_time:=True</code>, unless this file is included from another one with <code>use_sim_time:=False</code>.
 This is unlikely as this launch file spawns a simulator.</p>
 <div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, GazeboBridge
 
@@ -935,7 +1038,7 @@ def generate_launch_description():
     sl = SimpleLauncher(use_sim_time=True)
 
     # run Gazebo + clock bridge
-    sl.include('ros_ign_gazebo','ign_gazebo.launch.py',launch_arguments={'''some sdf world'''}})
+    sl.include(launch_file = sl.gz_launch(), launch_arguments={'''some sdf world'''}})
     sl.create_gz_clock_bridge()
 
     # run other nodes with sim time
@@ -946,7 +1049,7 @@ def generate_launch_description():
 </code></pre></div>
 <h3 id="robot-description-and-conditionnal-gazebo-bridge">Robot description and conditionnal Gazebo bridge</h3>
 
-<p>The file below only runs by default a <code>robot_state_publisher</code> with <code>use_sim_time=False</code>.
+<p>The file below only runs by default a <code>robot_state_publisher</code> with <code>use_sim_time:=False</code>.
 However, if it is included from another file with <code>use_sim_time:=True</code> then it also spawns the robot into Gazebo and run two bridges for joint states and pose.</p>
 <div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, GazeboBridge
 
@@ -965,18 +1068,18 @@ def generate_launch_description():
         with sl.group(if_condition = sl.sim_time):
             # only execute this group if use_sim_time was set to True
 
-            # spawn in Ignition at default pose if not already here
+            # spawn in Gazebo at default pose if not already here
             # uses GazeboBridge.has_model(robot) under the hood and calls ros_ign_gazebo::create
             sl.spawn_gz_model(robot)
 
             # create a bridge for joint states @ /world/&lt;world&gt;/model/&lt;robot&gt;/joint_state
             # note the relative ROS topic 'joint_states' that is actually namespaced
-            gz_js_topic = sl.name_join(GazeboBridge.model_prefix(robot), '/joint_state')
+            gz_js_topic = GazeboBridge.model_prefix(robot)/'joint_state'
             js_bridge = GazeboBridge(gz_js_topic, 'joint_states', 'sensor_msgs/JointState', GazeboBridge.gz2ros)
 
             # pose publisher bridge @ /model/&lt;robot&gt;
-            pose_bridge = GazeboBridge(sl.name_join('/model/', robot, '/pose'),
-                                            'pose_gt', 'geometry_msgs/Pose', GazeboBridge.gz2ros)
+            pose_bridge = GazeboBridge('/model'/robot/'/pose',
+                                       'pose_gt', 'geometry_msgs/Pose', GazeboBridge.gz2ros)
 
             # create bridge node with these two topics with default name gz_bridge
             sl.create_gz_bridge([js_bridge, pose_bridge])
@@ -1704,7 +1807,7 @@ simple_launch
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-09-23
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-09-28
         </span>
       </td>
     </tr>
@@ -1814,7 +1917,7 @@ simple_launch
 
 <p>This package provides a Python class to help writing ROS 2 launch files.</p>
 
-<p>The motivation behind this package is that the ROS 2 launch Python syntax may not be suited for many simple cases such as running basic nodes, spawning a <code>robot_state_publisher</code>, and grouping nodes in namespaces or components..</p>
+<p>The motivation behind this package is that the ROS 2 launch Python syntax may not be suited for many simple cases such as running basic nodes, spawning a <code>robot_state_publisher</code>, and grouping nodes in namespaces or components.</p>
 
 <p><strong>Thanks</strong>: this package is inspired by <a href="https://github.com/bponsler/ros2_launch_util">ros2_launch_util</a>.</p>
 
@@ -1874,25 +1977,30 @@ simple_launch
 
 <p>The <code>sl.include</code>, <code>sl.node</code> and <code>xacro_args</code> calls allow using any type (the simplest being a single dictionary)  and will convert to the one expected by the API.</p>
 
+<h3 id="simplesubstution-class">
+<code>SimpleSubstution</code> class</h3>
+
+<p>Most all methods listed below return an instance of <code>SimpleSubstitution</code> that wraps any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type.</p>
+
 <h2 id="launch-arguments">Launch arguments</h2>
 
 <p>The helper class allows declaring launch arguments and getting them in return:</p>
 
 <h3 id="declare-a-launch-argument">Declare a launch argument</h3>
 
-<p><code>sl.declare_arg(name, default_value, description = None)</code></p>
+<p><code>sl.declare_arg(name, default_value, description = None)</code>: declare and returns the argument</p>
 
 <h3 id="retrieve-a-launch-argument">Retrieve a launch argument</h3>
 
-<p><code>sl.arg(name)</code>: returns the argument <code>name</code></p>
+<p><code>sl.arg(name)</code>: returns the argument <code>name</code> as a <code>SimpleSubstitution</code></p>
 
 <h3 id="retrieve-several-arguments-as-a-dictionary">Retrieve several arguments as a dictionary</h3>
 
-<p><code>sl.arg_map(('robot', 'x', 'y'))</code>: returns <code>{'robot': &lt;robot arg value&gt;, 'x': &lt;x arg value&gt;, 'y': &lt;y arg value&gt;}</code></p>
+<p><code>sl.arg_map('robot', 'x', 'y')</code>: returns <code>{'robot': &lt;robot arg value&gt;, 'x': &lt;x arg value&gt;, 'y': &lt;y arg value&gt;}</code></p>
 
 <h2 id="node-groups">Node groups</h2>
 
-<p>Groups are created through the <code>with sl.group():</code> syntax and accepts both a namespace and/or an if/unless condition:</p>
+<p>Groups are created through the <code>with sl.group():</code> syntax and accept both a namespace and/or an if/unless condition:</p>
 
 <h3 id="by-namespace">By namespace</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(ns=sub_namespace):
@@ -1907,6 +2015,8 @@ simple_launch
     sl.node(package, executable)
 
 </code></pre></div>
+<p>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</p>
+
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
     sl.node(package, executable)
@@ -1917,7 +2027,7 @@ simple_launch
 </code></pre></div>
 <p><code>if_arg</code> / <code>unless_arg</code> is expected to be the name of a launch argument. These two lines are equivalent:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
-  with sl.group(if_condition=sl.arg('use_gui'):
+  with sl.group(if_condition=sl.arg('use_gui')):
 
 </code></pre></div>
 <p>If <code>if_arg</code> / <code>unless_arg</code> is not a string then it is considered as a <code>if_condition</code> / <code>unless_condition</code>.</p>
@@ -1947,9 +2057,47 @@ simple_launch
 
 <p>In all cases, if the <code>use_sim_time</code> parameter is explicitely given to a node, it will be used instead of the <code>SimpleLauncher</code> instance one.</p>
 
+<h2 id="wrapper-around-opaquefunction">Wrapper around <code>OpaqueFunction</code>
+</h2>
+
+<p>Most of the use cases can be dealt with substitutions and <code>with sl.group</code> blocs.
+In order to design more imperative launch files, the <a href="https://discourse.ros.org/t/simplifying-launch-argument-declaration-and-initialization-in-launch-files/24204"><code>OpaqueFunction</code></a> approach can be used. The main drawback is that potential errors are harder to track.</p>
+
+<p>To do this with <code>simple_launch</code>:
+  - the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.
+  - then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.
+  - all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.
+  - finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</p>
+
+<p>Compare <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_launch.py"><code>example_launch.py</code></a> and <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_opaque_launch.py"><code>example_opaque_launch.py</code></a> to see the two approaches on the same logic.</p>
+
+<p>Note that inside an <code>OpaqueFunction</code> the if/unless idom reduces to a basic if/else:</p>
+<div class="highlight"><pre><code class="language-" data-lang=""># with substitutions
+with sl.group(if_arg='some_condition'):
+  # do stuff
+with sl.group(unless_arg='some_condition'):
+  # do other stuff
+
+# with opaque function
+if sl.arg('some_condition'):
+  # do stuff
+else:
+  # do other stuff
+
+</code></pre></div>
 <h2 id="interaction-with-gazebo-ignition">Interaction with Gazebo / Ignition</h2>
 
 <p><em>Note: Ignition being renamed to Gazebo, all tools in this section use Gazebo / gz names</em></p>
+
+<p>An effort was made to be robust to Ignition versus Gazebo uses, i.e. <em>ign</em> prefix is used for <code>foxy</code> and <code>galactic</code> while <em>gz</em> prefix is used from <em>humble</em>.</p>
+
+<h3 id="launch-gazebo">Launch Gazebo</h3>
+
+<p>The Gazebo launch file corresponding to the current ROS 2 distribution is obtained with:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">sl.include(launch_file = sl.gz_launch(), launch_argument = ...)
+
+</code></pre></div>
+<p>Namely, it will redirect to either <code>ros_ign_gazebo/ign_gazebo.launch.py</code> (<code>foxy</code>, <code>galactic</code>) or <code>ros_gz_sim/gz_sim.launch.py</code> (<code>humble</code>+)</p>
 
 <h3 id="spawn-a-model">Spawn a model</h3>
 
@@ -2018,24 +2166,30 @@ If some bridges involve <code>sensor_msgs/Image</code> then a dedicated <code>ro
 
 <h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
 
-<p>The following syntax builds <code>&lt;robot name&gt;.xacro</code>:</p>
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
 
-<p><code>file_name = sl.name_join(sl.arg('robot'), '.xacro')</code></p>
+<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
+
+<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
 
 <h3 id="path-concatenation">Path concatenation</h3>
 
-<p>The following syntax builds <code>&lt;my_package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.name_join(sl.arg('robot'), '.xacro')
-urdf_file = sl.path_join(get_package_share_directory(package), 'urdf', file_name)
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
+urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 
 </code></pre></div>
+<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
+
+<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
+
 <h3 id="find-a-share-file">Find a share file</h3>
 
 <p><code>path = sl.find(package, file_name, file_dir = None)</code> where:</p>
 
 <ul>
 <li>
-<code>package</code> is the name of the package or None</li>
+<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
 <li>
 <code>file_name</code> is the name of the file to find</li>
 <li>
@@ -2096,7 +2250,7 @@ def generate_launch_description():
     sl.declare_arg('y', default_value = 0, description='y-offset of the robot')
     sl.declare_arg('use_gui', default_value = True, description='Use JSP gui')
 
-    xacro_args = sl.arg_map(('prefix', 'x', 'y'))
+    xacro_args = sl.arg_map('prefix', 'x', 'y')
     xacro_args['prefix'] = [xacro_args['prefix'], ':']
 
     with sl.group(ns=sl.arg('prefix')):
@@ -2116,21 +2270,24 @@ def generate_launch_description():
     sl = SimpleLauncher()
 
     # conditional args
-    sl.declare_arg('robot1', default_value=False, description='use robot 1')
+    sl.declare_arg('robot1', default_value=True, description='use robot 1')
     sl.declare_arg('robot2', default_value=True, description='use robot 2')
     sl.declare_arg('no_robot2', default_value=False, description='cancel use of robot 2')
-    sl.declare_arg('rviz', default_value=False, description='Bringup RViz2')
+    sl.declare_arg('rviz', default_value=True, description='Bringup RViz2')
 
     # numeric args
     sl.declare_arg('robot2_x', default_value=1, description='x-offset of robot 2')
     sl.declare_arg('robot2_y', default_value=1, description='y-offset of robot 2')
 
     with sl.group(if_arg='robot1'):
-        sl.include('simple_launch', 'included_launch.py', launch_arguments = [('prefix', 'robot1')])
+        sl.include('simple_launch', 'included_launch.py',
+                   launch_arguments = {'prefix': 'robot1'})
 
     with sl.group(if_arg='robot2'):
+
         with sl.group(unless_arg='no_robot2'):
-            args = {'prefix': 'robot2', 'x': sl.arg('robot2_x'), 'y': sl.arg('robot2_y')}
+
+            args = {'prefix': 'robot2', 'x':sl.arg('robot2_x'), 'y': sl.arg('robot2_y')}
             sl.include('simple_launch', 'included_launch.py', launch_arguments=args)
 
     with sl.group(if_arg='rviz'):
@@ -2138,6 +2295,55 @@ def generate_launch_description():
         sl.node('rviz2', 'rviz2', arguments = ['-d', rviz_config])
 
     return sl.launch_description()
+
+</code></pre></div>
+<h3 id="conditions-with-opaquefunction">Conditions with OpaqueFunction</h3>
+
+<p>The file below does the same as the previous one, but using an <code>OpaqueFunction</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher
+
+# declare simple launcher and the launch arguments in the main body
+sl = SimpleLauncher()
+
+# conditional args
+sl.declare_arg('robot1', default_value=True, description='use robot 1')
+sl.declare_arg('robot2', default_value=True, description='use robot 2')
+sl.declare_arg('no_robot2', default_value=False, description='cancel use of robot 2')
+sl.declare_arg('rviz', default_value=True, description='Bringup RViz2')
+
+# numeric args
+sl.declare_arg('robot2_x', default_value=1, description='x-offset of robot 2')
+sl.declare_arg('robot2_y', default_value=1, description='y-offset of robot 2')
+
+# string args
+sl.declare_arg('included', default_value = 'included_launch')
+
+
+# define the opaque function, context will be wrapped in the SimpleLauncher instance
+def launch_setup():
+
+    # we can use raw if as `robot1` argument is performed to a Boolean
+    if sl.arg('robot1'):
+        sl.include('simple_launch', 'included_launch.py', launch_arguments = {'prefix': 'robot1'})
+
+    # and even combine conditions
+    if sl.arg('robot2') and not sl.arg('no_robot2'):
+
+            args = {'prefix': 'robot2', 'x':sl.arg('robot2_x'), 'y': sl.arg('robot2_y')}
+            # summing up args and strings
+            sl.include('simple_launch', sl.arg('included') + '.py', launch_arguments=args)
+
+    if sl.arg('rviz'):
+        rviz_config = sl.find('simple_launch', 'turret.rviz')
+        sl.node('rviz2', 'rviz2', arguments = ['-d', rviz_config])
+
+    return sl.launch_description()
+
+
+# wrap the opaque_function in the launch description
+# /!\ no `def generate_launch_description():`
+
+generate_launch_description = sl.launch_description(opaque_function = launch_setup)
 
 </code></pre></div>
 <h3 id="composition">Composition</h3>
@@ -2158,7 +2364,7 @@ def generate_launch_description():
 </code></pre></div>
 <h3 id="auto-sim-time">auto sim time</h3>
 
-<p>Here we run Ignition and force all other nodes to <code>use_sim_time:=True</code>, unless this file is included from another one with <code>use_sim_time:=False</code>.
+<p>Here we run Gazebo and force all other nodes to <code>use_sim_time:=True</code>, unless this file is included from another one with <code>use_sim_time:=False</code>.
 This is unlikely as this launch file spawns a simulator.</p>
 <div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, GazeboBridge
 
@@ -2168,7 +2374,7 @@ def generate_launch_description():
     sl = SimpleLauncher(use_sim_time=True)
 
     # run Gazebo + clock bridge
-    sl.include('ros_ign_gazebo','ign_gazebo.launch.py',launch_arguments={'''some sdf world'''}})
+    sl.include(launch_file = sl.gz_launch(), launch_arguments={'''some sdf world'''}})
     sl.create_gz_clock_bridge()
 
     # run other nodes with sim time
@@ -2179,7 +2385,7 @@ def generate_launch_description():
 </code></pre></div>
 <h3 id="robot-description-and-conditionnal-gazebo-bridge">Robot description and conditionnal Gazebo bridge</h3>
 
-<p>The file below only runs by default a <code>robot_state_publisher</code> with <code>use_sim_time=False</code>.
+<p>The file below only runs by default a <code>robot_state_publisher</code> with <code>use_sim_time:=False</code>.
 However, if it is included from another file with <code>use_sim_time:=True</code> then it also spawns the robot into Gazebo and run two bridges for joint states and pose.</p>
 <div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, GazeboBridge
 
@@ -2198,18 +2404,18 @@ def generate_launch_description():
         with sl.group(if_condition = sl.sim_time):
             # only execute this group if use_sim_time was set to True
 
-            # spawn in Ignition at default pose if not already here
+            # spawn in Gazebo at default pose if not already here
             # uses GazeboBridge.has_model(robot) under the hood and calls ros_ign_gazebo::create
             sl.spawn_gz_model(robot)
 
             # create a bridge for joint states @ /world/&lt;world&gt;/model/&lt;robot&gt;/joint_state
             # note the relative ROS topic 'joint_states' that is actually namespaced
-            gz_js_topic = sl.name_join(GazeboBridge.model_prefix(robot), '/joint_state')
+            gz_js_topic = GazeboBridge.model_prefix(robot)/'joint_state'
             js_bridge = GazeboBridge(gz_js_topic, 'joint_states', 'sensor_msgs/JointState', GazeboBridge.gz2ros)
 
             # pose publisher bridge @ /model/&lt;robot&gt;
-            pose_bridge = GazeboBridge(sl.name_join('/model/', robot, '/pose'),
-                                            'pose_gt', 'geometry_msgs/Pose', GazeboBridge.gz2ros)
+            pose_bridge = GazeboBridge('/model'/robot/'/pose',
+                                       'pose_gt', 'geometry_msgs/Pose', GazeboBridge.gz2ros)
 
             # create bridge node with these two topics with default name gz_bridge
             sl.create_gz_bridge([js_bridge, pose_bridge])
@@ -2937,7 +3143,7 @@ simple_launch
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-09-23
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-09-28
         </span>
       </td>
     </tr>
@@ -3047,7 +3253,7 @@ simple_launch
 
 <p>This package provides a Python class to help writing ROS 2 launch files.</p>
 
-<p>The motivation behind this package is that the ROS 2 launch Python syntax may not be suited for many simple cases such as running basic nodes, spawning a <code>robot_state_publisher</code>, and grouping nodes in namespaces or components..</p>
+<p>The motivation behind this package is that the ROS 2 launch Python syntax may not be suited for many simple cases such as running basic nodes, spawning a <code>robot_state_publisher</code>, and grouping nodes in namespaces or components.</p>
 
 <p><strong>Thanks</strong>: this package is inspired by <a href="https://github.com/bponsler/ros2_launch_util">ros2_launch_util</a>.</p>
 
@@ -3107,25 +3313,30 @@ simple_launch
 
 <p>The <code>sl.include</code>, <code>sl.node</code> and <code>xacro_args</code> calls allow using any type (the simplest being a single dictionary)  and will convert to the one expected by the API.</p>
 
+<h3 id="simplesubstution-class">
+<code>SimpleSubstution</code> class</h3>
+
+<p>Most all methods listed below return an instance of <code>SimpleSubstitution</code> that wraps any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type.</p>
+
 <h2 id="launch-arguments">Launch arguments</h2>
 
 <p>The helper class allows declaring launch arguments and getting them in return:</p>
 
 <h3 id="declare-a-launch-argument">Declare a launch argument</h3>
 
-<p><code>sl.declare_arg(name, default_value, description = None)</code></p>
+<p><code>sl.declare_arg(name, default_value, description = None)</code>: declare and returns the argument</p>
 
 <h3 id="retrieve-a-launch-argument">Retrieve a launch argument</h3>
 
-<p><code>sl.arg(name)</code>: returns the argument <code>name</code></p>
+<p><code>sl.arg(name)</code>: returns the argument <code>name</code> as a <code>SimpleSubstitution</code></p>
 
 <h3 id="retrieve-several-arguments-as-a-dictionary">Retrieve several arguments as a dictionary</h3>
 
-<p><code>sl.arg_map(('robot', 'x', 'y'))</code>: returns <code>{'robot': &lt;robot arg value&gt;, 'x': &lt;x arg value&gt;, 'y': &lt;y arg value&gt;}</code></p>
+<p><code>sl.arg_map('robot', 'x', 'y')</code>: returns <code>{'robot': &lt;robot arg value&gt;, 'x': &lt;x arg value&gt;, 'y': &lt;y arg value&gt;}</code></p>
 
 <h2 id="node-groups">Node groups</h2>
 
-<p>Groups are created through the <code>with sl.group():</code> syntax and accepts both a namespace and/or an if/unless condition:</p>
+<p>Groups are created through the <code>with sl.group():</code> syntax and accept both a namespace and/or an if/unless condition:</p>
 
 <h3 id="by-namespace">By namespace</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(ns=sub_namespace):
@@ -3140,6 +3351,8 @@ simple_launch
     sl.node(package, executable)
 
 </code></pre></div>
+<p>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</p>
+
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
     sl.node(package, executable)
@@ -3150,7 +3363,7 @@ simple_launch
 </code></pre></div>
 <p><code>if_arg</code> / <code>unless_arg</code> is expected to be the name of a launch argument. These two lines are equivalent:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
-  with sl.group(if_condition=sl.arg('use_gui'):
+  with sl.group(if_condition=sl.arg('use_gui')):
 
 </code></pre></div>
 <p>If <code>if_arg</code> / <code>unless_arg</code> is not a string then it is considered as a <code>if_condition</code> / <code>unless_condition</code>.</p>
@@ -3180,9 +3393,47 @@ simple_launch
 
 <p>In all cases, if the <code>use_sim_time</code> parameter is explicitely given to a node, it will be used instead of the <code>SimpleLauncher</code> instance one.</p>
 
+<h2 id="wrapper-around-opaquefunction">Wrapper around <code>OpaqueFunction</code>
+</h2>
+
+<p>Most of the use cases can be dealt with substitutions and <code>with sl.group</code> blocs.
+In order to design more imperative launch files, the <a href="https://discourse.ros.org/t/simplifying-launch-argument-declaration-and-initialization-in-launch-files/24204"><code>OpaqueFunction</code></a> approach can be used. The main drawback is that potential errors are harder to track.</p>
+
+<p>To do this with <code>simple_launch</code>:
+  - the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.
+  - then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.
+  - all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.
+  - finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</p>
+
+<p>Compare <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_launch.py"><code>example_launch.py</code></a> and <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_opaque_launch.py"><code>example_opaque_launch.py</code></a> to see the two approaches on the same logic.</p>
+
+<p>Note that inside an <code>OpaqueFunction</code> the if/unless idom reduces to a basic if/else:</p>
+<div class="highlight"><pre><code class="language-" data-lang=""># with substitutions
+with sl.group(if_arg='some_condition'):
+  # do stuff
+with sl.group(unless_arg='some_condition'):
+  # do other stuff
+
+# with opaque function
+if sl.arg('some_condition'):
+  # do stuff
+else:
+  # do other stuff
+
+</code></pre></div>
 <h2 id="interaction-with-gazebo-ignition">Interaction with Gazebo / Ignition</h2>
 
 <p><em>Note: Ignition being renamed to Gazebo, all tools in this section use Gazebo / gz names</em></p>
+
+<p>An effort was made to be robust to Ignition versus Gazebo uses, i.e. <em>ign</em> prefix is used for <code>foxy</code> and <code>galactic</code> while <em>gz</em> prefix is used from <em>humble</em>.</p>
+
+<h3 id="launch-gazebo">Launch Gazebo</h3>
+
+<p>The Gazebo launch file corresponding to the current ROS 2 distribution is obtained with:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">sl.include(launch_file = sl.gz_launch(), launch_argument = ...)
+
+</code></pre></div>
+<p>Namely, it will redirect to either <code>ros_ign_gazebo/ign_gazebo.launch.py</code> (<code>foxy</code>, <code>galactic</code>) or <code>ros_gz_sim/gz_sim.launch.py</code> (<code>humble</code>+)</p>
 
 <h3 id="spawn-a-model">Spawn a model</h3>
 
@@ -3251,24 +3502,30 @@ If some bridges involve <code>sensor_msgs/Image</code> then a dedicated <code>ro
 
 <h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
 
-<p>The following syntax builds <code>&lt;robot name&gt;.xacro</code>:</p>
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
 
-<p><code>file_name = sl.name_join(sl.arg('robot'), '.xacro')</code></p>
+<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
+
+<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
 
 <h3 id="path-concatenation">Path concatenation</h3>
 
-<p>The following syntax builds <code>&lt;my_package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.name_join(sl.arg('robot'), '.xacro')
-urdf_file = sl.path_join(get_package_share_directory(package), 'urdf', file_name)
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
+urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 
 </code></pre></div>
+<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
+
+<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
+
 <h3 id="find-a-share-file">Find a share file</h3>
 
 <p><code>path = sl.find(package, file_name, file_dir = None)</code> where:</p>
 
 <ul>
 <li>
-<code>package</code> is the name of the package or None</li>
+<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
 <li>
 <code>file_name</code> is the name of the file to find</li>
 <li>
@@ -3329,7 +3586,7 @@ def generate_launch_description():
     sl.declare_arg('y', default_value = 0, description='y-offset of the robot')
     sl.declare_arg('use_gui', default_value = True, description='Use JSP gui')
 
-    xacro_args = sl.arg_map(('prefix', 'x', 'y'))
+    xacro_args = sl.arg_map('prefix', 'x', 'y')
     xacro_args['prefix'] = [xacro_args['prefix'], ':']
 
     with sl.group(ns=sl.arg('prefix')):
@@ -3349,21 +3606,24 @@ def generate_launch_description():
     sl = SimpleLauncher()
 
     # conditional args
-    sl.declare_arg('robot1', default_value=False, description='use robot 1')
+    sl.declare_arg('robot1', default_value=True, description='use robot 1')
     sl.declare_arg('robot2', default_value=True, description='use robot 2')
     sl.declare_arg('no_robot2', default_value=False, description='cancel use of robot 2')
-    sl.declare_arg('rviz', default_value=False, description='Bringup RViz2')
+    sl.declare_arg('rviz', default_value=True, description='Bringup RViz2')
 
     # numeric args
     sl.declare_arg('robot2_x', default_value=1, description='x-offset of robot 2')
     sl.declare_arg('robot2_y', default_value=1, description='y-offset of robot 2')
 
     with sl.group(if_arg='robot1'):
-        sl.include('simple_launch', 'included_launch.py', launch_arguments = [('prefix', 'robot1')])
+        sl.include('simple_launch', 'included_launch.py',
+                   launch_arguments = {'prefix': 'robot1'})
 
     with sl.group(if_arg='robot2'):
+
         with sl.group(unless_arg='no_robot2'):
-            args = {'prefix': 'robot2', 'x': sl.arg('robot2_x'), 'y': sl.arg('robot2_y')}
+
+            args = {'prefix': 'robot2', 'x':sl.arg('robot2_x'), 'y': sl.arg('robot2_y')}
             sl.include('simple_launch', 'included_launch.py', launch_arguments=args)
 
     with sl.group(if_arg='rviz'):
@@ -3371,6 +3631,55 @@ def generate_launch_description():
         sl.node('rviz2', 'rviz2', arguments = ['-d', rviz_config])
 
     return sl.launch_description()
+
+</code></pre></div>
+<h3 id="conditions-with-opaquefunction">Conditions with OpaqueFunction</h3>
+
+<p>The file below does the same as the previous one, but using an <code>OpaqueFunction</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher
+
+# declare simple launcher and the launch arguments in the main body
+sl = SimpleLauncher()
+
+# conditional args
+sl.declare_arg('robot1', default_value=True, description='use robot 1')
+sl.declare_arg('robot2', default_value=True, description='use robot 2')
+sl.declare_arg('no_robot2', default_value=False, description='cancel use of robot 2')
+sl.declare_arg('rviz', default_value=True, description='Bringup RViz2')
+
+# numeric args
+sl.declare_arg('robot2_x', default_value=1, description='x-offset of robot 2')
+sl.declare_arg('robot2_y', default_value=1, description='y-offset of robot 2')
+
+# string args
+sl.declare_arg('included', default_value = 'included_launch')
+
+
+# define the opaque function, context will be wrapped in the SimpleLauncher instance
+def launch_setup():
+
+    # we can use raw if as `robot1` argument is performed to a Boolean
+    if sl.arg('robot1'):
+        sl.include('simple_launch', 'included_launch.py', launch_arguments = {'prefix': 'robot1'})
+
+    # and even combine conditions
+    if sl.arg('robot2') and not sl.arg('no_robot2'):
+
+            args = {'prefix': 'robot2', 'x':sl.arg('robot2_x'), 'y': sl.arg('robot2_y')}
+            # summing up args and strings
+            sl.include('simple_launch', sl.arg('included') + '.py', launch_arguments=args)
+
+    if sl.arg('rviz'):
+        rviz_config = sl.find('simple_launch', 'turret.rviz')
+        sl.node('rviz2', 'rviz2', arguments = ['-d', rviz_config])
+
+    return sl.launch_description()
+
+
+# wrap the opaque_function in the launch description
+# /!\ no `def generate_launch_description():`
+
+generate_launch_description = sl.launch_description(opaque_function = launch_setup)
 
 </code></pre></div>
 <h3 id="composition">Composition</h3>
@@ -3391,7 +3700,7 @@ def generate_launch_description():
 </code></pre></div>
 <h3 id="auto-sim-time">auto sim time</h3>
 
-<p>Here we run Ignition and force all other nodes to <code>use_sim_time:=True</code>, unless this file is included from another one with <code>use_sim_time:=False</code>.
+<p>Here we run Gazebo and force all other nodes to <code>use_sim_time:=True</code>, unless this file is included from another one with <code>use_sim_time:=False</code>.
 This is unlikely as this launch file spawns a simulator.</p>
 <div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, GazeboBridge
 
@@ -3401,7 +3710,7 @@ def generate_launch_description():
     sl = SimpleLauncher(use_sim_time=True)
 
     # run Gazebo + clock bridge
-    sl.include('ros_ign_gazebo','ign_gazebo.launch.py',launch_arguments={'''some sdf world'''}})
+    sl.include(launch_file = sl.gz_launch(), launch_arguments={'''some sdf world'''}})
     sl.create_gz_clock_bridge()
 
     # run other nodes with sim time
@@ -3412,7 +3721,7 @@ def generate_launch_description():
 </code></pre></div>
 <h3 id="robot-description-and-conditionnal-gazebo-bridge">Robot description and conditionnal Gazebo bridge</h3>
 
-<p>The file below only runs by default a <code>robot_state_publisher</code> with <code>use_sim_time=False</code>.
+<p>The file below only runs by default a <code>robot_state_publisher</code> with <code>use_sim_time:=False</code>.
 However, if it is included from another file with <code>use_sim_time:=True</code> then it also spawns the robot into Gazebo and run two bridges for joint states and pose.</p>
 <div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, GazeboBridge
 
@@ -3431,18 +3740,18 @@ def generate_launch_description():
         with sl.group(if_condition = sl.sim_time):
             # only execute this group if use_sim_time was set to True
 
-            # spawn in Ignition at default pose if not already here
+            # spawn in Gazebo at default pose if not already here
             # uses GazeboBridge.has_model(robot) under the hood and calls ros_ign_gazebo::create
             sl.spawn_gz_model(robot)
 
             # create a bridge for joint states @ /world/&lt;world&gt;/model/&lt;robot&gt;/joint_state
             # note the relative ROS topic 'joint_states' that is actually namespaced
-            gz_js_topic = sl.name_join(GazeboBridge.model_prefix(robot), '/joint_state')
+            gz_js_topic = GazeboBridge.model_prefix(robot)/'joint_state'
             js_bridge = GazeboBridge(gz_js_topic, 'joint_states', 'sensor_msgs/JointState', GazeboBridge.gz2ros)
 
             # pose publisher bridge @ /model/&lt;robot&gt;
-            pose_bridge = GazeboBridge(sl.name_join('/model/', robot, '/pose'),
-                                            'pose_gt', 'geometry_msgs/Pose', GazeboBridge.gz2ros)
+            pose_bridge = GazeboBridge('/model'/robot/'/pose',
+                                       'pose_gt', 'geometry_msgs/Pose', GazeboBridge.gz2ros)
 
             # create bridge node with these two topics with default name gz_bridge
             sl.create_gz_bridge([js_bridge, pose_bridge])
@@ -4170,7 +4479,7 @@ simple_launch
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-09-23
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-09-28
         </span>
       </td>
     </tr>
@@ -4280,7 +4589,7 @@ simple_launch
 
 <p>This package provides a Python class to help writing ROS 2 launch files.</p>
 
-<p>The motivation behind this package is that the ROS 2 launch Python syntax may not be suited for many simple cases such as running basic nodes, spawning a <code>robot_state_publisher</code>, and grouping nodes in namespaces or components..</p>
+<p>The motivation behind this package is that the ROS 2 launch Python syntax may not be suited for many simple cases such as running basic nodes, spawning a <code>robot_state_publisher</code>, and grouping nodes in namespaces or components.</p>
 
 <p><strong>Thanks</strong>: this package is inspired by <a href="https://github.com/bponsler/ros2_launch_util">ros2_launch_util</a>.</p>
 
@@ -4340,25 +4649,30 @@ simple_launch
 
 <p>The <code>sl.include</code>, <code>sl.node</code> and <code>xacro_args</code> calls allow using any type (the simplest being a single dictionary)  and will convert to the one expected by the API.</p>
 
+<h3 id="simplesubstution-class">
+<code>SimpleSubstution</code> class</h3>
+
+<p>Most all methods listed below return an instance of <code>SimpleSubstitution</code> that wraps any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type.</p>
+
 <h2 id="launch-arguments">Launch arguments</h2>
 
 <p>The helper class allows declaring launch arguments and getting them in return:</p>
 
 <h3 id="declare-a-launch-argument">Declare a launch argument</h3>
 
-<p><code>sl.declare_arg(name, default_value, description = None)</code></p>
+<p><code>sl.declare_arg(name, default_value, description = None)</code>: declare and returns the argument</p>
 
 <h3 id="retrieve-a-launch-argument">Retrieve a launch argument</h3>
 
-<p><code>sl.arg(name)</code>: returns the argument <code>name</code></p>
+<p><code>sl.arg(name)</code>: returns the argument <code>name</code> as a <code>SimpleSubstitution</code></p>
 
 <h3 id="retrieve-several-arguments-as-a-dictionary">Retrieve several arguments as a dictionary</h3>
 
-<p><code>sl.arg_map(('robot', 'x', 'y'))</code>: returns <code>{'robot': &lt;robot arg value&gt;, 'x': &lt;x arg value&gt;, 'y': &lt;y arg value&gt;}</code></p>
+<p><code>sl.arg_map('robot', 'x', 'y')</code>: returns <code>{'robot': &lt;robot arg value&gt;, 'x': &lt;x arg value&gt;, 'y': &lt;y arg value&gt;}</code></p>
 
 <h2 id="node-groups">Node groups</h2>
 
-<p>Groups are created through the <code>with sl.group():</code> syntax and accepts both a namespace and/or an if/unless condition:</p>
+<p>Groups are created through the <code>with sl.group():</code> syntax and accept both a namespace and/or an if/unless condition:</p>
 
 <h3 id="by-namespace">By namespace</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(ns=sub_namespace):
@@ -4373,6 +4687,8 @@ simple_launch
     sl.node(package, executable)
 
 </code></pre></div>
+<p>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</p>
+
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
     sl.node(package, executable)
@@ -4383,7 +4699,7 @@ simple_launch
 </code></pre></div>
 <p><code>if_arg</code> / <code>unless_arg</code> is expected to be the name of a launch argument. These two lines are equivalent:</p>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
-  with sl.group(if_condition=sl.arg('use_gui'):
+  with sl.group(if_condition=sl.arg('use_gui')):
 
 </code></pre></div>
 <p>If <code>if_arg</code> / <code>unless_arg</code> is not a string then it is considered as a <code>if_condition</code> / <code>unless_condition</code>.</p>
@@ -4413,9 +4729,47 @@ simple_launch
 
 <p>In all cases, if the <code>use_sim_time</code> parameter is explicitely given to a node, it will be used instead of the <code>SimpleLauncher</code> instance one.</p>
 
+<h2 id="wrapper-around-opaquefunction">Wrapper around <code>OpaqueFunction</code>
+</h2>
+
+<p>Most of the use cases can be dealt with substitutions and <code>with sl.group</code> blocs.
+In order to design more imperative launch files, the <a href="https://discourse.ros.org/t/simplifying-launch-argument-declaration-and-initialization-in-launch-files/24204"><code>OpaqueFunction</code></a> approach can be used. The main drawback is that potential errors are harder to track.</p>
+
+<p>To do this with <code>simple_launch</code>:
+  - the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.
+  - then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.
+  - all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.
+  - finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</p>
+
+<p>Compare <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_launch.py"><code>example_launch.py</code></a> and <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_opaque_launch.py"><code>example_opaque_launch.py</code></a> to see the two approaches on the same logic.</p>
+
+<p>Note that inside an <code>OpaqueFunction</code> the if/unless idom reduces to a basic if/else:</p>
+<div class="highlight"><pre><code class="language-" data-lang=""># with substitutions
+with sl.group(if_arg='some_condition'):
+  # do stuff
+with sl.group(unless_arg='some_condition'):
+  # do other stuff
+
+# with opaque function
+if sl.arg('some_condition'):
+  # do stuff
+else:
+  # do other stuff
+
+</code></pre></div>
 <h2 id="interaction-with-gazebo-ignition">Interaction with Gazebo / Ignition</h2>
 
 <p><em>Note: Ignition being renamed to Gazebo, all tools in this section use Gazebo / gz names</em></p>
+
+<p>An effort was made to be robust to Ignition versus Gazebo uses, i.e. <em>ign</em> prefix is used for <code>foxy</code> and <code>galactic</code> while <em>gz</em> prefix is used from <em>humble</em>.</p>
+
+<h3 id="launch-gazebo">Launch Gazebo</h3>
+
+<p>The Gazebo launch file corresponding to the current ROS 2 distribution is obtained with:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">sl.include(launch_file = sl.gz_launch(), launch_argument = ...)
+
+</code></pre></div>
+<p>Namely, it will redirect to either <code>ros_ign_gazebo/ign_gazebo.launch.py</code> (<code>foxy</code>, <code>galactic</code>) or <code>ros_gz_sim/gz_sim.launch.py</code> (<code>humble</code>+)</p>
 
 <h3 id="spawn-a-model">Spawn a model</h3>
 
@@ -4484,24 +4838,30 @@ If some bridges involve <code>sensor_msgs/Image</code> then a dedicated <code>ro
 
 <h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
 
-<p>The following syntax builds <code>&lt;robot name&gt;.xacro</code>:</p>
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
 
-<p><code>file_name = sl.name_join(sl.arg('robot'), '.xacro')</code></p>
+<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
+
+<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
 
 <h3 id="path-concatenation">Path concatenation</h3>
 
-<p>The following syntax builds <code>&lt;my_package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.name_join(sl.arg('robot'), '.xacro')
-urdf_file = sl.path_join(get_package_share_directory(package), 'urdf', file_name)
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
+urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 
 </code></pre></div>
+<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
+
+<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
+
 <h3 id="find-a-share-file">Find a share file</h3>
 
 <p><code>path = sl.find(package, file_name, file_dir = None)</code> where:</p>
 
 <ul>
 <li>
-<code>package</code> is the name of the package or None</li>
+<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
 <li>
 <code>file_name</code> is the name of the file to find</li>
 <li>
@@ -4562,7 +4922,7 @@ def generate_launch_description():
     sl.declare_arg('y', default_value = 0, description='y-offset of the robot')
     sl.declare_arg('use_gui', default_value = True, description='Use JSP gui')
 
-    xacro_args = sl.arg_map(('prefix', 'x', 'y'))
+    xacro_args = sl.arg_map('prefix', 'x', 'y')
     xacro_args['prefix'] = [xacro_args['prefix'], ':']
 
     with sl.group(ns=sl.arg('prefix')):
@@ -4582,21 +4942,24 @@ def generate_launch_description():
     sl = SimpleLauncher()
 
     # conditional args
-    sl.declare_arg('robot1', default_value=False, description='use robot 1')
+    sl.declare_arg('robot1', default_value=True, description='use robot 1')
     sl.declare_arg('robot2', default_value=True, description='use robot 2')
     sl.declare_arg('no_robot2', default_value=False, description='cancel use of robot 2')
-    sl.declare_arg('rviz', default_value=False, description='Bringup RViz2')
+    sl.declare_arg('rviz', default_value=True, description='Bringup RViz2')
 
     # numeric args
     sl.declare_arg('robot2_x', default_value=1, description='x-offset of robot 2')
     sl.declare_arg('robot2_y', default_value=1, description='y-offset of robot 2')
 
     with sl.group(if_arg='robot1'):
-        sl.include('simple_launch', 'included_launch.py', launch_arguments = [('prefix', 'robot1')])
+        sl.include('simple_launch', 'included_launch.py',
+                   launch_arguments = {'prefix': 'robot1'})
 
     with sl.group(if_arg='robot2'):
+
         with sl.group(unless_arg='no_robot2'):
-            args = {'prefix': 'robot2', 'x': sl.arg('robot2_x'), 'y': sl.arg('robot2_y')}
+
+            args = {'prefix': 'robot2', 'x':sl.arg('robot2_x'), 'y': sl.arg('robot2_y')}
             sl.include('simple_launch', 'included_launch.py', launch_arguments=args)
 
     with sl.group(if_arg='rviz'):
@@ -4604,6 +4967,55 @@ def generate_launch_description():
         sl.node('rviz2', 'rviz2', arguments = ['-d', rviz_config])
 
     return sl.launch_description()
+
+</code></pre></div>
+<h3 id="conditions-with-opaquefunction">Conditions with OpaqueFunction</h3>
+
+<p>The file below does the same as the previous one, but using an <code>OpaqueFunction</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher
+
+# declare simple launcher and the launch arguments in the main body
+sl = SimpleLauncher()
+
+# conditional args
+sl.declare_arg('robot1', default_value=True, description='use robot 1')
+sl.declare_arg('robot2', default_value=True, description='use robot 2')
+sl.declare_arg('no_robot2', default_value=False, description='cancel use of robot 2')
+sl.declare_arg('rviz', default_value=True, description='Bringup RViz2')
+
+# numeric args
+sl.declare_arg('robot2_x', default_value=1, description='x-offset of robot 2')
+sl.declare_arg('robot2_y', default_value=1, description='y-offset of robot 2')
+
+# string args
+sl.declare_arg('included', default_value = 'included_launch')
+
+
+# define the opaque function, context will be wrapped in the SimpleLauncher instance
+def launch_setup():
+
+    # we can use raw if as `robot1` argument is performed to a Boolean
+    if sl.arg('robot1'):
+        sl.include('simple_launch', 'included_launch.py', launch_arguments = {'prefix': 'robot1'})
+
+    # and even combine conditions
+    if sl.arg('robot2') and not sl.arg('no_robot2'):
+
+            args = {'prefix': 'robot2', 'x':sl.arg('robot2_x'), 'y': sl.arg('robot2_y')}
+            # summing up args and strings
+            sl.include('simple_launch', sl.arg('included') + '.py', launch_arguments=args)
+
+    if sl.arg('rviz'):
+        rviz_config = sl.find('simple_launch', 'turret.rviz')
+        sl.node('rviz2', 'rviz2', arguments = ['-d', rviz_config])
+
+    return sl.launch_description()
+
+
+# wrap the opaque_function in the launch description
+# /!\ no `def generate_launch_description():`
+
+generate_launch_description = sl.launch_description(opaque_function = launch_setup)
 
 </code></pre></div>
 <h3 id="composition">Composition</h3>
@@ -4624,7 +5036,7 @@ def generate_launch_description():
 </code></pre></div>
 <h3 id="auto-sim-time">auto sim time</h3>
 
-<p>Here we run Ignition and force all other nodes to <code>use_sim_time:=True</code>, unless this file is included from another one with <code>use_sim_time:=False</code>.
+<p>Here we run Gazebo and force all other nodes to <code>use_sim_time:=True</code>, unless this file is included from another one with <code>use_sim_time:=False</code>.
 This is unlikely as this launch file spawns a simulator.</p>
 <div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, GazeboBridge
 
@@ -4634,7 +5046,7 @@ def generate_launch_description():
     sl = SimpleLauncher(use_sim_time=True)
 
     # run Gazebo + clock bridge
-    sl.include('ros_ign_gazebo','ign_gazebo.launch.py',launch_arguments={'''some sdf world'''}})
+    sl.include(launch_file = sl.gz_launch(), launch_arguments={'''some sdf world'''}})
     sl.create_gz_clock_bridge()
 
     # run other nodes with sim time
@@ -4645,7 +5057,7 @@ def generate_launch_description():
 </code></pre></div>
 <h3 id="robot-description-and-conditionnal-gazebo-bridge">Robot description and conditionnal Gazebo bridge</h3>
 
-<p>The file below only runs by default a <code>robot_state_publisher</code> with <code>use_sim_time=False</code>.
+<p>The file below only runs by default a <code>robot_state_publisher</code> with <code>use_sim_time:=False</code>.
 However, if it is included from another file with <code>use_sim_time:=True</code> then it also spawns the robot into Gazebo and run two bridges for joint states and pose.</p>
 <div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher, GazeboBridge
 
@@ -4664,18 +5076,18 @@ def generate_launch_description():
         with sl.group(if_condition = sl.sim_time):
             # only execute this group if use_sim_time was set to True
 
-            # spawn in Ignition at default pose if not already here
+            # spawn in Gazebo at default pose if not already here
             # uses GazeboBridge.has_model(robot) under the hood and calls ros_ign_gazebo::create
             sl.spawn_gz_model(robot)
 
             # create a bridge for joint states @ /world/&lt;world&gt;/model/&lt;robot&gt;/joint_state
             # note the relative ROS topic 'joint_states' that is actually namespaced
-            gz_js_topic = sl.name_join(GazeboBridge.model_prefix(robot), '/joint_state')
+            gz_js_topic = GazeboBridge.model_prefix(robot)/'joint_state'
             js_bridge = GazeboBridge(gz_js_topic, 'joint_states', 'sensor_msgs/JointState', GazeboBridge.gz2ros)
 
             # pose publisher bridge @ /model/&lt;robot&gt;
-            pose_bridge = GazeboBridge(sl.name_join('/model/', robot, '/pose'),
-                                            'pose_gt', 'geometry_msgs/Pose', GazeboBridge.gz2ros)
+            pose_bridge = GazeboBridge('/model'/robot/'/pose',
+                                       'pose_gt', 'geometry_msgs/Pose', GazeboBridge.gz2ros)
 
             # create bridge node with these two topics with default name gz_bridge
             sl.create_gz_bridge([js_bridge, pose_bridge])
@@ -5322,7 +5734,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2022-09-24</em>
+          <em>generated on 2022-09-29</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
