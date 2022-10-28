@@ -350,7 +350,7 @@ ga('send', 'pageview');
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-10-25
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-10-28
         </span>
       </td>
     </tr>
@@ -491,9 +491,24 @@ ga('send', 'pageview');
 </thead>
 <tbody>
 <tr>
-<td>noCRC</td>
+<td>noChunkCRC</td>
 <td>bool</td>
-<td>Disable CRC calculations for Chunks, Attachments, and the Data and Summary sections.</td>
+<td>Disable CRC calculation for Chunks. Ignored if <code>noChunking=true</code>.</td>
+</tr>
+<tr>
+<td>noAttachmentCRC</td>
+<td>bool</td>
+<td>Disable CRC calculation for Attachments.</td>
+</tr>
+<tr>
+<td>enableDataCRC</td>
+<td>bool</td>
+<td>Enables CRC calculation for the entire Data section. Useful when <code>noChunking=True</code>.</td>
+</tr>
+<tr>
+<td>noSummaryCRC</td>
+<td>bool</td>
+<td>Disable CRC calculation for the Summary section.</td>
 </tr>
 <tr>
 <td>noChunking</td>
@@ -565,7 +580,7 @@ ga('send', 'pageview');
 
 <p>Example:</p>
 <div class="highlight"><pre><code class="language-" data-lang=""># mcap_writer_options.yml
-noCRC: false
+noChunkCRC: false
 noChunking: false
 noMessageIndex: false
 noSummary: false
@@ -576,6 +591,59 @@ forceCompression: false
 
 </code></pre></div>
 <div class="highlight"><pre><code class="language-" data-lang="">$ ros2 bag record -s mcap -o my_bag --all --storage-config-file mcap_writer_options.yml
+
+</code></pre></div>
+<h3 id="storage-preset-profiles">Storage Preset Profiles</h3>
+
+<p>You can also use one of the preset profiles described below, for example:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">$ ros2 bag record -s mcap -o my_bag --all --storage-preset-profile fastwrite
+
+</code></pre></div>
+<h4 id="fastwrite"><code>fastwrite</code></h4>
+
+<p>Configures the MCAP writer for the highest possible write throughput and lowest resource utilization. This preset does not calculate CRCs for integrity checking, and does not write a message index. This preset profile is useful for resource-constrained robots.</p>
+
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">noChunking</span><span class="pi">:</span> <span class="no">true</span>
+<span class="na">noSummaryCRC</span><span class="pi">:</span> <span class="no">true</span>
+
+</code></pre></div>
+<p>Using MCAPs written with <code>fastwrite</code> as a long-term storage format is not recommended. Some features will not work when reading MCAP files without a message index, such as reading messages from a subset of topics or seeking. When recording MCAPs on your robot with <code>fastwrite</code>, it is a good idea to post-process these files afterwards, to restore the message index and also save storage space:</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="c"># Using the MCAP CLI https://github.com/foxglove/mcap/tree/main/go/cli/mcap</span>
+<span class="nv">$ </span>mcap compress fast.mcap <span class="nt">-o</span> compressed.mcap
+<span class="c"># Using `ros2 bag convert`</span>
+<span class="nv">$ </span><span class="nb">cat</span> <span class="o">&lt;&lt;</span> <span class="no">EOF</span><span class="sh"> &gt; convert.yaml
+output_bags:
+  - uri: compressed
+    storage_id: mcap
+    storage_preset_profile: zstd_small
+</span><span class="no">EOF
+</span><span class="nv">$ </span>ros2 bag convert <span class="nt">-i</span> fast.mcap <span class="nt">-o</span> convert.yaml
+
+</code></pre></div>
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">noChunking</span><span class="pi">:</span> <span class="no">true</span>
+<span class="na">noSummaryCRC</span><span class="pi">:</span> <span class="no">true</span>
+
+</code></pre></div>
+<h4 id="zstd_fast"><code>zstd_fast</code></h4>
+
+<p>Configures the MCAP writer to use chunk compression with <a href="http://facebook.github.io/zstd/">zstd</a>. Chunk compression yields file sizes comparable to bags compressed with file-level compression, but allows tools to efficiently read messages without decompressing the entire bag. This preset uses the lowest compression ratio and disables CRC calculation, to achieve high throughput while conserving disk space.</p>
+
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">compression</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Zstd"</span>
+<span class="na">compressionLevel</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Fastest"</span>
+<span class="na">noChunkCRC</span><span class="pi">:</span> <span class="no">true</span>
+
+</code></pre></div>
+<h4 id="zstd_small"><code>zstd_small</code></h4>
+
+<p>Configures the MCAP writer to write 4MB chunks, compressed with zstd using its highest compression ratio. This produces very small bags, but can be resource-intensive to write. This preset also calculates chunk CRCs, which allow a reader to determine if a chunk is corrupted. This preset is useful when using <code>ros2 bag convert</code> as a post-processing step.</p>
+
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">compression</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Zstd"</span>
+<span class="na">compressionLevel</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Slowest"</span>
+<span class="na">chunkSize</span><span class="pi">:</span> <span class="s">4194304</span> <span class="c1"># 4 * 1024 * 1024</span>
 
 </code></pre></div>
 <h2 id="development">Development</h2>
@@ -643,7 +711,7 @@ forceCompression: false
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-10-25
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-10-28
         </span>
       </td>
     </tr>
@@ -784,9 +852,24 @@ forceCompression: false
 </thead>
 <tbody>
 <tr>
-<td>noCRC</td>
+<td>noChunkCRC</td>
 <td>bool</td>
-<td>Disable CRC calculations for Chunks, Attachments, and the Data and Summary sections.</td>
+<td>Disable CRC calculation for Chunks. Ignored if <code>noChunking=true</code>.</td>
+</tr>
+<tr>
+<td>noAttachmentCRC</td>
+<td>bool</td>
+<td>Disable CRC calculation for Attachments.</td>
+</tr>
+<tr>
+<td>enableDataCRC</td>
+<td>bool</td>
+<td>Enables CRC calculation for the entire Data section. Useful when <code>noChunking=True</code>.</td>
+</tr>
+<tr>
+<td>noSummaryCRC</td>
+<td>bool</td>
+<td>Disable CRC calculation for the Summary section.</td>
 </tr>
 <tr>
 <td>noChunking</td>
@@ -858,7 +941,7 @@ forceCompression: false
 
 <p>Example:</p>
 <div class="highlight"><pre><code class="language-" data-lang=""># mcap_writer_options.yml
-noCRC: false
+noChunkCRC: false
 noChunking: false
 noMessageIndex: false
 noSummary: false
@@ -869,6 +952,59 @@ forceCompression: false
 
 </code></pre></div>
 <div class="highlight"><pre><code class="language-" data-lang="">$ ros2 bag record -s mcap -o my_bag --all --storage-config-file mcap_writer_options.yml
+
+</code></pre></div>
+<h3 id="storage-preset-profiles">Storage Preset Profiles</h3>
+
+<p>You can also use one of the preset profiles described below, for example:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">$ ros2 bag record -s mcap -o my_bag --all --storage-preset-profile fastwrite
+
+</code></pre></div>
+<h4 id="fastwrite"><code>fastwrite</code></h4>
+
+<p>Configures the MCAP writer for the highest possible write throughput and lowest resource utilization. This preset does not calculate CRCs for integrity checking, and does not write a message index. This preset profile is useful for resource-constrained robots.</p>
+
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">noChunking</span><span class="pi">:</span> <span class="no">true</span>
+<span class="na">noSummaryCRC</span><span class="pi">:</span> <span class="no">true</span>
+
+</code></pre></div>
+<p>Using MCAPs written with <code>fastwrite</code> as a long-term storage format is not recommended. Some features will not work when reading MCAP files without a message index, such as reading messages from a subset of topics or seeking. When recording MCAPs on your robot with <code>fastwrite</code>, it is a good idea to post-process these files afterwards, to restore the message index and also save storage space:</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="c"># Using the MCAP CLI https://github.com/foxglove/mcap/tree/main/go/cli/mcap</span>
+<span class="nv">$ </span>mcap compress fast.mcap <span class="nt">-o</span> compressed.mcap
+<span class="c"># Using `ros2 bag convert`</span>
+<span class="nv">$ </span><span class="nb">cat</span> <span class="o">&lt;&lt;</span> <span class="no">EOF</span><span class="sh"> &gt; convert.yaml
+output_bags:
+  - uri: compressed
+    storage_id: mcap
+    storage_preset_profile: zstd_small
+</span><span class="no">EOF
+</span><span class="nv">$ </span>ros2 bag convert <span class="nt">-i</span> fast.mcap <span class="nt">-o</span> convert.yaml
+
+</code></pre></div>
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">noChunking</span><span class="pi">:</span> <span class="no">true</span>
+<span class="na">noSummaryCRC</span><span class="pi">:</span> <span class="no">true</span>
+
+</code></pre></div>
+<h4 id="zstd_fast"><code>zstd_fast</code></h4>
+
+<p>Configures the MCAP writer to use chunk compression with <a href="http://facebook.github.io/zstd/">zstd</a>. Chunk compression yields file sizes comparable to bags compressed with file-level compression, but allows tools to efficiently read messages without decompressing the entire bag. This preset uses the lowest compression ratio and disables CRC calculation, to achieve high throughput while conserving disk space.</p>
+
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">compression</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Zstd"</span>
+<span class="na">compressionLevel</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Fastest"</span>
+<span class="na">noChunkCRC</span><span class="pi">:</span> <span class="no">true</span>
+
+</code></pre></div>
+<h4 id="zstd_small"><code>zstd_small</code></h4>
+
+<p>Configures the MCAP writer to write 4MB chunks, compressed with zstd using its highest compression ratio. This produces very small bags, but can be resource-intensive to write. This preset also calculates chunk CRCs, which allow a reader to determine if a chunk is corrupted. This preset is useful when using <code>ros2 bag convert</code> as a post-processing step.</p>
+
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">compression</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Zstd"</span>
+<span class="na">compressionLevel</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Slowest"</span>
+<span class="na">chunkSize</span><span class="pi">:</span> <span class="s">4194304</span> <span class="c1"># 4 * 1024 * 1024</span>
 
 </code></pre></div>
 <h2 id="development">Development</h2>
@@ -936,7 +1072,7 @@ forceCompression: false
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-10-25
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-10-28
         </span>
       </td>
     </tr>
@@ -1077,9 +1213,24 @@ forceCompression: false
 </thead>
 <tbody>
 <tr>
-<td>noCRC</td>
+<td>noChunkCRC</td>
 <td>bool</td>
-<td>Disable CRC calculations for Chunks, Attachments, and the Data and Summary sections.</td>
+<td>Disable CRC calculation for Chunks. Ignored if <code>noChunking=true</code>.</td>
+</tr>
+<tr>
+<td>noAttachmentCRC</td>
+<td>bool</td>
+<td>Disable CRC calculation for Attachments.</td>
+</tr>
+<tr>
+<td>enableDataCRC</td>
+<td>bool</td>
+<td>Enables CRC calculation for the entire Data section. Useful when <code>noChunking=True</code>.</td>
+</tr>
+<tr>
+<td>noSummaryCRC</td>
+<td>bool</td>
+<td>Disable CRC calculation for the Summary section.</td>
 </tr>
 <tr>
 <td>noChunking</td>
@@ -1151,7 +1302,7 @@ forceCompression: false
 
 <p>Example:</p>
 <div class="highlight"><pre><code class="language-" data-lang=""># mcap_writer_options.yml
-noCRC: false
+noChunkCRC: false
 noChunking: false
 noMessageIndex: false
 noSummary: false
@@ -1162,6 +1313,59 @@ forceCompression: false
 
 </code></pre></div>
 <div class="highlight"><pre><code class="language-" data-lang="">$ ros2 bag record -s mcap -o my_bag --all --storage-config-file mcap_writer_options.yml
+
+</code></pre></div>
+<h3 id="storage-preset-profiles">Storage Preset Profiles</h3>
+
+<p>You can also use one of the preset profiles described below, for example:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">$ ros2 bag record -s mcap -o my_bag --all --storage-preset-profile fastwrite
+
+</code></pre></div>
+<h4 id="fastwrite"><code>fastwrite</code></h4>
+
+<p>Configures the MCAP writer for the highest possible write throughput and lowest resource utilization. This preset does not calculate CRCs for integrity checking, and does not write a message index. This preset profile is useful for resource-constrained robots.</p>
+
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">noChunking</span><span class="pi">:</span> <span class="no">true</span>
+<span class="na">noSummaryCRC</span><span class="pi">:</span> <span class="no">true</span>
+
+</code></pre></div>
+<p>Using MCAPs written with <code>fastwrite</code> as a long-term storage format is not recommended. Some features will not work when reading MCAP files without a message index, such as reading messages from a subset of topics or seeking. When recording MCAPs on your robot with <code>fastwrite</code>, it is a good idea to post-process these files afterwards, to restore the message index and also save storage space:</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="c"># Using the MCAP CLI https://github.com/foxglove/mcap/tree/main/go/cli/mcap</span>
+<span class="nv">$ </span>mcap compress fast.mcap <span class="nt">-o</span> compressed.mcap
+<span class="c"># Using `ros2 bag convert`</span>
+<span class="nv">$ </span><span class="nb">cat</span> <span class="o">&lt;&lt;</span> <span class="no">EOF</span><span class="sh"> &gt; convert.yaml
+output_bags:
+  - uri: compressed
+    storage_id: mcap
+    storage_preset_profile: zstd_small
+</span><span class="no">EOF
+</span><span class="nv">$ </span>ros2 bag convert <span class="nt">-i</span> fast.mcap <span class="nt">-o</span> convert.yaml
+
+</code></pre></div>
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">noChunking</span><span class="pi">:</span> <span class="no">true</span>
+<span class="na">noSummaryCRC</span><span class="pi">:</span> <span class="no">true</span>
+
+</code></pre></div>
+<h4 id="zstd_fast"><code>zstd_fast</code></h4>
+
+<p>Configures the MCAP writer to use chunk compression with <a href="http://facebook.github.io/zstd/">zstd</a>. Chunk compression yields file sizes comparable to bags compressed with file-level compression, but allows tools to efficiently read messages without decompressing the entire bag. This preset uses the lowest compression ratio and disables CRC calculation, to achieve high throughput while conserving disk space.</p>
+
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">compression</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Zstd"</span>
+<span class="na">compressionLevel</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Fastest"</span>
+<span class="na">noChunkCRC</span><span class="pi">:</span> <span class="no">true</span>
+
+</code></pre></div>
+<h4 id="zstd_small"><code>zstd_small</code></h4>
+
+<p>Configures the MCAP writer to write 4MB chunks, compressed with zstd using its highest compression ratio. This produces very small bags, but can be resource-intensive to write. This preset also calculates chunk CRCs, which allow a reader to determine if a chunk is corrupted. This preset is useful when using <code>ros2 bag convert</code> as a post-processing step.</p>
+
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">compression</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Zstd"</span>
+<span class="na">compressionLevel</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Slowest"</span>
+<span class="na">chunkSize</span><span class="pi">:</span> <span class="s">4194304</span> <span class="c1"># 4 * 1024 * 1024</span>
 
 </code></pre></div>
 <h2 id="development">Development</h2>
@@ -1229,7 +1433,7 @@ forceCompression: false
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-10-25
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-10-28
         </span>
       </td>
     </tr>
@@ -1370,9 +1574,24 @@ forceCompression: false
 </thead>
 <tbody>
 <tr>
-<td>noCRC</td>
+<td>noChunkCRC</td>
 <td>bool</td>
-<td>Disable CRC calculations for Chunks, Attachments, and the Data and Summary sections.</td>
+<td>Disable CRC calculation for Chunks. Ignored if <code>noChunking=true</code>.</td>
+</tr>
+<tr>
+<td>noAttachmentCRC</td>
+<td>bool</td>
+<td>Disable CRC calculation for Attachments.</td>
+</tr>
+<tr>
+<td>enableDataCRC</td>
+<td>bool</td>
+<td>Enables CRC calculation for the entire Data section. Useful when <code>noChunking=True</code>.</td>
+</tr>
+<tr>
+<td>noSummaryCRC</td>
+<td>bool</td>
+<td>Disable CRC calculation for the Summary section.</td>
 </tr>
 <tr>
 <td>noChunking</td>
@@ -1444,7 +1663,7 @@ forceCompression: false
 
 <p>Example:</p>
 <div class="highlight"><pre><code class="language-" data-lang=""># mcap_writer_options.yml
-noCRC: false
+noChunkCRC: false
 noChunking: false
 noMessageIndex: false
 noSummary: false
@@ -1455,6 +1674,59 @@ forceCompression: false
 
 </code></pre></div>
 <div class="highlight"><pre><code class="language-" data-lang="">$ ros2 bag record -s mcap -o my_bag --all --storage-config-file mcap_writer_options.yml
+
+</code></pre></div>
+<h3 id="storage-preset-profiles">Storage Preset Profiles</h3>
+
+<p>You can also use one of the preset profiles described below, for example:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">$ ros2 bag record -s mcap -o my_bag --all --storage-preset-profile fastwrite
+
+</code></pre></div>
+<h4 id="fastwrite"><code>fastwrite</code></h4>
+
+<p>Configures the MCAP writer for the highest possible write throughput and lowest resource utilization. This preset does not calculate CRCs for integrity checking, and does not write a message index. This preset profile is useful for resource-constrained robots.</p>
+
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">noChunking</span><span class="pi">:</span> <span class="no">true</span>
+<span class="na">noSummaryCRC</span><span class="pi">:</span> <span class="no">true</span>
+
+</code></pre></div>
+<p>Using MCAPs written with <code>fastwrite</code> as a long-term storage format is not recommended. Some features will not work when reading MCAP files without a message index, such as reading messages from a subset of topics or seeking. When recording MCAPs on your robot with <code>fastwrite</code>, it is a good idea to post-process these files afterwards, to restore the message index and also save storage space:</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="c"># Using the MCAP CLI https://github.com/foxglove/mcap/tree/main/go/cli/mcap</span>
+<span class="nv">$ </span>mcap compress fast.mcap <span class="nt">-o</span> compressed.mcap
+<span class="c"># Using `ros2 bag convert`</span>
+<span class="nv">$ </span><span class="nb">cat</span> <span class="o">&lt;&lt;</span> <span class="no">EOF</span><span class="sh"> &gt; convert.yaml
+output_bags:
+  - uri: compressed
+    storage_id: mcap
+    storage_preset_profile: zstd_small
+</span><span class="no">EOF
+</span><span class="nv">$ </span>ros2 bag convert <span class="nt">-i</span> fast.mcap <span class="nt">-o</span> convert.yaml
+
+</code></pre></div>
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">noChunking</span><span class="pi">:</span> <span class="no">true</span>
+<span class="na">noSummaryCRC</span><span class="pi">:</span> <span class="no">true</span>
+
+</code></pre></div>
+<h4 id="zstd_fast"><code>zstd_fast</code></h4>
+
+<p>Configures the MCAP writer to use chunk compression with <a href="http://facebook.github.io/zstd/">zstd</a>. Chunk compression yields file sizes comparable to bags compressed with file-level compression, but allows tools to efficiently read messages without decompressing the entire bag. This preset uses the lowest compression ratio and disables CRC calculation, to achieve high throughput while conserving disk space.</p>
+
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">compression</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Zstd"</span>
+<span class="na">compressionLevel</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Fastest"</span>
+<span class="na">noChunkCRC</span><span class="pi">:</span> <span class="no">true</span>
+
+</code></pre></div>
+<h4 id="zstd_small"><code>zstd_small</code></h4>
+
+<p>Configures the MCAP writer to write 4MB chunks, compressed with zstd using its highest compression ratio. This produces very small bags, but can be resource-intensive to write. This preset also calculates chunk CRCs, which allow a reader to determine if a chunk is corrupted. This preset is useful when using <code>ros2 bag convert</code> as a post-processing step.</p>
+
+<p>Equivalent to this storage configuration:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">compression</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Zstd"</span>
+<span class="na">compressionLevel</span><span class="pi">:</span> <span class="s2">"</span><span class="s">Slowest"</span>
+<span class="na">chunkSize</span><span class="pi">:</span> <span class="s">4194304</span> <span class="c1"># 4 * 1024 * 1024</span>
 
 </code></pre></div>
 <h2 id="development">Development</h2>
@@ -1622,7 +1894,7 @@ forceCompression: false
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2022-10-26</em>
+          <em>generated on 2022-10-28</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
