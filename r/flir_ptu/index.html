@@ -382,7 +382,7 @@ ga('send', 'pageview');
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-11-08
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2022-11-10
         </span>
       </td>
     </tr>
@@ -488,12 +488,88 @@ ga('send', 'pageview');
 <p>Basic serial ROS driver for FLIR PTUs. Currently tested with:</p>
 
 <ul>
-<li><a href="http://www.flir.com/mcs/view/?id=53707">FLIR D46</a></li>
+<li>
+<a href="http://www.flir.com/mcs/view/?id=53707">FLIR D46</a> using tty</li>
+<li>
+<a href="https://www.flir.com/products/ptu-e46/">FLIR E46</a> using either tty or tcp</li>
 <li>
 <a href="http://www.flir.com/mcs/view/?id=53670">FLIR D48E</a> using either tty or tcp</li>
 </ul>
 
-<h1 id="license">License</h1>
+<h2 id="usage">Usage</h2>
+
+<p>This repository contains the description and driver ROS packages for using the Flir D46 and E46 pan-tilt units.
+Refer to Flir's documentation for physically connecting the unit to your robot.</p>
+
+<p>The driver supports both TTY and TCP connections between the robot's PC and the PTU.</p>
+
+<p>Add the <code>ptu_d46</code> macro to your URDF, making sure to add a joint between the mounting location and <code>${name}_base_link</code>:</p>
+<div class="highlight"><pre><code class="language-xml" data-lang="xml"><span class="nt">&lt;xacro:include</span> <span class="na">filename=</span><span class="s">"$(find flir_ptu_description)/urdf/d46.urdf.xacro"</span> <span class="nt">/&gt;</span>
+<span class="nt">&lt;xacro:ptu_d46</span> <span class="na">name=</span><span class="s">"ptu"</span> <span class="nt">/&gt;</span>
+<span class="nt">&lt;joint</span> <span class="na">name=</span><span class="s">"ptu_base_joint"</span> <span class="na">type=</span><span class="s">"fixed"</span><span class="nt">&gt;</span>
+  <span class="nt">&lt;parent</span> <span class="na">link=</span><span class="s">"base_link"</span> <span class="nt">/&gt;</span>
+  <span class="nt">&lt;child</span> <span class="na">link=</span><span class="s">"ptu_base_link"</span> <span class="nt">/&gt;</span>
+  <span class="nt">&lt;origin</span> <span class="na">xyz=</span><span class="s">"0.24 0.0 -0.13"</span> <span class="na">rpy=</span><span class="s">"0 0 0"</span> <span class="nt">/&gt;</span>
+<span class="nt">&lt;/joint&gt;</span>
+
+</code></pre></div>
+<p>To start the driver in TTY mode, run</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">roslaunch flir_ptu_driver connection_type:<span class="o">=</span><span class="nb">tty </span>port:<span class="o">=</span>/dev/ttyS0
+
+</code></pre></div>
+<p>To start the driver in TCP mode, run</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">roslaunch flir_ptu_driver connection_type:<span class="o">=</span>tcp ip_addr:<span class="o">=</span>192.168.131.70 tcp_port:<span class="o">=</span>4000
+
+</code></pre></div>
+<h2 id="topics">Topics</h2>
+
+<p>Publications:
+- <code>state</code> (normally remapped to <code>/joint_states</code>): <code>sensor_msgs/JointState</code> -- the current state of the pan and tilt
+  actuators.</p>
+
+<p>Subscriptions:
+- <code>cmd</code>: <code>sensor_msgs/JointState</code> -- command the PTU to move to the desired angle with the requested speed
+- <code>reset</code>: <code>std_msgs/Bool</code> -- publish <code>true</code> to reset the PTU, publish <code>false</code> to stop the reset</p>
+
+<p>When publishing to the <code>cmd</code> topic, the <code>name</code>, <code>position</code>, and <code>velocity</code> arrays must be of length 2, with the
+pan actuator first and the tilt actuator second.  The <code>effort</code> field is ignored.</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">rostopic pub /ptu/cmd sensor_msgs/JointState <span class="s2">"header:
+  seq: 0
+  stamp: {secs: 0, nsecs: 0}
+  frame_id: ''
+name: ['ptu_pan', 'ptu_tilt']
+position: [</span><span class="k">$(</span>deg2rad 135<span class="k">)</span><span class="s2">, </span><span class="k">$(</span>deg2rad <span class="nt">-20</span><span class="k">)</span><span class="s2">]
+velocity: [0]
+effort: [0]"</span> <span class="nt">-1</span>
+
+</code></pre></div>
+<p>Positive pan angles will rotate the unit to the left and negative angles will rotate it to the right.</p>
+
+<p>Positive tilt angles will rotate the unit upward and negative angles will rotate it downward.</p>
+
+<h2 id="simulation">Simulation</h2>
+
+<p>The <code>flir_ptu_driver</code> package also contains a script and launch file designed to allow the PTU to be simulated using
+Gazebo.  The simulation is not a perfect 1:1 replication of the behaviour of the physical PTU, but it does allow the
+simulated PTU to be controlled using the same ROS topics as the real product.</p>
+
+<p>To start the simulation driver, run</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash">roslaunch flir_ptu_driver ptu_simulation.launch name:<span class="o">=</span>ptu
+
+</code></pre></div>
+<p>Make sure the <code>name</code> argument matches the <code>name</code> attribute of the <code>&lt;xacro:ptu_d46&gt;</code> tag in the robot's URDF.</p>
+
+<p>Under the hood, the simulation driver uses two <code>velocity_controllers/JointPositionController</code> controllers, one each
+to control the pan and tilt actuators.  The PID gains for these controllers can be found in
+<code>flir_ptu_driver/launch/ptu_simulation.launch</code>.</p>
+
+<p>In simulation mode, the <code>velocity</code> field of the <code>cmd</code> topic is ignored; the speed of the joints' rotation is
+governed wholly by the PID controllers implemented bu the <code>JointPositionController</code>s.</p>
+
+<p>In simulation mode, the driver does not publish to <code>state</code>; instead the <code>JointPositionController</code>s publish directly
+to <code>/joint_states</code> via the <code>/gazebo</code> ROS node.</p>
+
+<h2 id="license">License</h2>
 
 <p>This repo originated at <a href="https://wu-robotics.googlecode.com/svn/branches/stable/wu_ptu">Washington University</a>,
 where the code was licensed as GPLv2. The initial copy was made at svn revision r2226.</p>
@@ -1254,7 +1330,7 @@ where the code was licensed as GPLv2. The initial copy was made at svn revision 
             <span class="username">ros-infrastructure</span>
           </a>
           |
-          <em>generated on 2022-11-09</em>
+          <em>generated on 2022-11-11</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
