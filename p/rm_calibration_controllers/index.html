@@ -579,7 +579,7 @@ tof_radar_controller
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-06-20
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-07-11
         </span>
       </td>
     </tr>
@@ -691,7 +691,7 @@ tof_radar_controller
 
 <h2 id="overview">Overview</h2>
 
-<p>Since the zero point of some motors will change after power off, rm_calibration_controller will move at a certain speed after it is started until motors reach the mechanical limit, and motors position will be reset to zero.</p>
+<p>Since the zero point of some motors will change after power off, rm_calibration_controllers will move after it is started until motors reach the position we wanted,and motors position will be reset to zero,which can come true by two ways.One is that mechanical_calibration_controller stops moving after it reaches the mechanical limit.Another one is that gpio_calibration_controller moves at a fast speed until gpio changes to be different from initial gpio.Then it will retreat at a small angle and restore initial gpio.Finally it moves at a slow speed until the state of gpio changes to be different from initial gpio again.</p>
 
 <p><strong>Keywords:</strong> calibration, ROS, position.</p>
 
@@ -712,6 +712,8 @@ Maintainer: DynamicX</strong></p>
 <code>EffortJointInterface</code> Used to send effort command to target joint to make it reach the calibration speed.</li>
 <li>
 <code>ActuatorExtraInterface</code> Used to obtain the information of the target actuators offset, current position, the state of the whether it is stopped and the state of whether it is calibrated.</li>
+<li>
+<code>GpioStateInterface</code> Used to obtain the state of gpio.</li>
 </ul>
 
 <h2 id="installation">Installation</h2>
@@ -730,11 +732,12 @@ Maintainer: DynamicX</strong></p>
 <li>roscpp</li>
 <li>rm_common</li>
 <li>effort_controllers</li>
+<li>controller_interface</li>
 </ul>
 
 <h2 id="ros-api">ROS API</h2>
 
-<h4 id="service">Service</h4>
+<h3 id="service">Service</h3>
 
 <ul>
 <li>
@@ -743,7 +746,9 @@ Maintainer: DynamicX</strong></p>
 
 <p>When requesting to this server, it will return response about whether target joint has been calibrated.</p>
 
-<h4 id="parameters">Parameters</h4>
+<h3 id="parameters">Parameters</h3>
+
+<h4 id="calibration_base">calibration_base</h4>
 
 <ul>
 <li>
@@ -752,19 +757,68 @@ Maintainer: DynamicX</strong></p>
 
 <p>The joint velocity of calibrating.</p>
 
+<h4 id="mechanical_calibration_controller">mechanical_calibration_controller</h4>
+
 <ul>
 <li>
-<strong><code>threshold</code></strong> (double)</li>
+<strong><code>velocity_threshold_</code></strong> (double)</li>
 </ul>
 
 <p>This is velocity <code>threshold</code>. When the real time velocity of target joint lower than threshold, and last for a while,
   it can switch CALIBRATED from MOVING.</p>
 
-<h4 id="complete-description">Complete description</h4>
-<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">cover_controller</span><span class="pi">:</span>
-  <span class="na">type</span><span class="pi">:</span> <span class="s">effort_controllers/JointPositionController</span>
-  <span class="na">joint</span><span class="pi">:</span> <span class="s2">"</span><span class="s">cover_joint"</span>
-  <span class="na">pid</span><span class="pi">:</span> <span class="pi">{</span> <span class="nv">p</span><span class="pi">:</span> <span class="nv">15.0</span><span class="pi">,</span> <span class="nv">i</span><span class="pi">:</span> <span class="nv">0.0</span><span class="pi">,</span> <span class="nv">d</span><span class="pi">:</span> <span class="nv">1.2</span><span class="pi">,</span> <span class="nv">i_clamp_max</span><span class="pi">:</span> <span class="nv">0.0</span><span class="pi">,</span> <span class="nv">i_clamp_min</span><span class="pi">:</span> <span class="nv">0.0</span><span class="pi">,</span> <span class="nv">antiwindup</span><span class="pi">:</span> <span class="nv">true</span><span class="pi">,</span> <span class="nv">publish_state</span><span class="pi">:</span> <span class="nv">true</span> <span class="pi">}</span>
+<h4 id="gpio_calibration_controller">gpio_calibration_controller</h4>
+
+<ul>
+<li>
+<strong><code>backward_angle</code></strong> (double)</li>
+</ul>
+
+<p>The angle of retreat when gpio changes to be different form initial gpio for the first time.</p>
+
+<ul>
+<li>
+<strong><code>slow_forward_velocity</code></strong> (double)</li>
+</ul>
+
+<p>The velocity of second forward movement for reaching a more accurate calibration-position.</p>
+
+<ul>
+<li>
+<strong><code>pos_threshold</code></strong> (double)</li>
+</ul>
+
+<p>The threshold for the difference between the command position and the current position.</p>
+
+<h3 id="complete-description">Complete description</h3>
+
+<h4 id="mechanical_calibration_controller">mechanical_calibration_controller</h4>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">trigger_calibration_controller</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">rm_calibration_controllers/MechanicalCalibrationController</span>
+  <span class="na">actuator</span><span class="pi">:</span> <span class="pi">[</span> <span class="nv">trigger_joint_motor</span> <span class="pi">]</span>
+  <span class="na">velocity</span><span class="pi">:</span>
+    <span class="na">search_velocity</span><span class="pi">:</span> <span class="s">4.0</span>
+    <span class="na">vel_threshold</span><span class="pi">:</span> <span class="s">0.001</span>
+    <span class="na">joint</span><span class="pi">:</span> <span class="s">trigger_joint</span>
+    <span class="na">pid</span><span class="pi">:</span> <span class="pi">{</span> <span class="nv">p</span><span class="pi">:</span> <span class="nv">0.8</span><span class="pi">,</span> <span class="nv">i</span><span class="pi">:</span> <span class="nv">0</span><span class="pi">,</span> <span class="nv">d</span><span class="pi">:</span> <span class="nv">0.0</span><span class="pi">,</span> <span class="nv">i_clamp_max</span><span class="pi">:</span> <span class="nv">0.0</span><span class="pi">,</span> <span class="nv">i_clamp_min</span><span class="pi">:</span> <span class="nv">0.0</span><span class="pi">,</span> <span class="nv">antiwindup</span><span class="pi">:</span> <span class="nv">true</span> <span class="pi">}</span>
+
+</code></pre></div>
+<h4 id="gpio_calibration_controller">gpio_calibration_controller</h4>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">yaw_calibration_controller</span><span class="pi">:</span>
+  <span class="na">type</span><span class="pi">:</span> <span class="s">rm_calibration_controllers/GpioCalibrationController</span>
+  <span class="na">actuator</span><span class="pi">:</span> <span class="pi">[</span> <span class="nv">yaw_joint_motor</span> <span class="pi">]</span>
+  <span class="na">gpio</span><span class="pi">:</span> <span class="s2">"</span><span class="s">yaw"</span>
+  <span class="na">initial_gpio_state</span><span class="pi">:</span> <span class="no">false</span>
+  <span class="na">velocity</span><span class="pi">:</span>
+    <span class="na">search_velocity</span><span class="pi">:</span> <span class="s">-4.0</span>
+    <span class="na">slow_forward_velocity</span><span class="pi">:</span> <span class="s">-2.0</span>
+    <span class="na">joint</span><span class="pi">:</span> <span class="s">yaw_joint</span>
+    <span class="na">pid</span><span class="pi">:</span> <span class="pi">{</span> <span class="nv">p</span><span class="pi">:</span> <span class="nv">0.19</span><span class="pi">,</span> <span class="nv">i</span><span class="pi">:</span> <span class="nv">0</span><span class="pi">,</span> <span class="nv">d</span><span class="pi">:</span> <span class="nv">0.0</span><span class="pi">,</span> <span class="nv">i_clamp_max</span><span class="pi">:</span> <span class="nv">0.0</span><span class="pi">,</span> <span class="nv">i_clamp_min</span><span class="pi">:</span> <span class="nv">0.0</span><span class="pi">,</span> <span class="nv">antiwindup</span><span class="pi">:</span> <span class="nv">true</span> <span class="pi">}</span>
+  <span class="na">position</span><span class="pi">:</span>
+    <span class="na">pos_threshold</span><span class="pi">:</span> <span class="s">0.01</span>
+    <span class="na">backward_angle</span><span class="pi">:</span> <span class="s">-0.15</span>
+    <span class="na">joint</span><span class="pi">:</span> <span class="s">yaw_joint</span>
+    <span class="na">pid</span><span class="pi">:</span> <span class="pi">{</span> <span class="nv">p</span><span class="pi">:</span> <span class="nv">7.0</span><span class="pi">,</span> <span class="nv">i</span><span class="pi">:</span> <span class="nv">0</span><span class="pi">,</span> <span class="nv">d</span><span class="pi">:</span> <span class="nv">0.0</span><span class="pi">,</span> <span class="nv">i_clamp_max</span><span class="pi">:</span> <span class="nv">0.0</span><span class="pi">,</span> <span class="nv">i_clamp_min</span><span class="pi">:</span> <span class="nv">0.0</span><span class="pi">,</span> <span class="nv">antiwindup</span><span class="pi">:</span> <span class="nv">true</span> <span class="pi">}</span>
 
 </code></pre></div>
 <h2 id="bugs-feature-requests">Bugs &amp; Feature Requests</h2>
@@ -1527,7 +1581,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure/rosindex</span>
           </a>
           |
-          <em>generated on 2023-06-27</em>
+          <em>generated on 2023-07-11</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
