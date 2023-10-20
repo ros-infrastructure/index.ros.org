@@ -356,7 +356,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-07-29
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-10-20
         </span>
       </td>
     </tr>
@@ -453,19 +453,167 @@
 
 <p>This can be used for unit testing of ROS 2 related functionality or for integration tests to test the functionality of nodes in C++.</p>
 
-<h2 id="building">Building</h2>
+<h2 id="installation">Installation</h2>
 
-<p>To build the package, clone it into the <code>src</code> directory of your workspace root directory (<code>ws</code>). Then from <code>ws</code> use <code>colcon build</code>, like any other ROS 2 package.</p>
+<p>To install Debian packages of <code>catch_ros2</code> simply run the following command (assuming your environment is properly <a href="https://docs.ros.org/en/rolling/Installation/Ubuntu-Install-Debians.html">set up for installing Debian packages</a>):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">apt install ros-${ROS_DISTRO}-catch-ros2
+
+</code></pre></div>
+<p>Debian packages are currently available for Humble, Iron, and Rolling ROS 2 distributions.</p>
+
+<p>To build the package from source, clone it into the <code>src</code> directory of your workspace root directory (<code>ws</code>). Then from <code>ws</code> use <code>colcon build</code>, like any other ROS 2 package.</p>
 
 <h2 id="usage">Usage</h2>
 
-<p>See the <a href="https://github.com/ngmor/catch_ros2/tree/humble/catch_ros2/examples/">examples</a> section for guides on usage.</p>
+<p>See the <a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/">examples</a> section for guides on usage. This README provides an overview, but more details can be found in the links to example source code.</p>
 
+<p>There are two basic ways to use this framework:
+1. <a href="https://github.com/ngmor/catch_ros2/tree/humble/#integration-testing">Integration testing</a>
+2. <a href="https://github.com/ngmor/catch_ros2/tree/humble/#unit-testing">Unit testing</a></p>
+
+<p>You can also <a href="https://github.com/ngmor/catch_ros2/tree/humble/#selecting-a-main-function">customize further</a> if you need further control.</p>
+
+<h3 id="integration-testing">Integration Testing</h3>
+
+<p>Integration testing is an important way to ensure different elements of your system work together as desired. In ROS, we generally want to test that our nodes behave correctly, which may difficult with typical unit testing.</p>
+
+<p>ROS 2 already contains a <a href="https://github.com/ros2/launch/tree/rolling/launch_testing">framework for writing integration tests in Python</a> which may be more than sufficient for most users. GTest can also be used to test C++ code within an integration test. However, to my knowledge, I have not seen an easy way to create integration tests in C++ with Catch2 - a simple to use but powerful C++ testing framework. The primary motivation of this package is to provide a framework for just that.</p>
+
+<h4 id="components">Components</h4>
+
+<p>For a launch integration test in this framework you need 4 components:
+1. <a href="https://github.com/ngmor/catch_ros2/tree/humble/#nodes-under-test">Node(s) under test</a>
+2. <a href="https://github.com/ngmor/catch_ros2/tree/humble/#testing-node">Testing node</a>
+3. <a href="https://github.com/ngmor/catch_ros2/tree/humble/#launch-file">Launch file</a>
+4. <a href="https://github.com/ngmor/catch_ros2/tree/humble/#integration-cmake-setup">CMake setup</a></p>
+
+<h5 id="node-s-under-test">Node(s) under test</h5>
+
+<p>These are the nodes in your package whose functionality you'd like to test. Nothing special has to be done with these nodes to test them with this framework. This example has <a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/integration_test/integration_aux_node.cpp"><code>integration_aux_node</code></a> as the node under test.</p>
+
+<h5 id="testing-node">Testing node</h5>
+
+<p>This node is specifically written with Catch2 test cases and assertions to test the functionality of other nodes. The example has <a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/integration_test/integration_test_node.cpp"><code>integration_test_node</code></a> as the testing node.</p>
+
+<p>If it is linked with <code>catch_ros2::catch_ros2_with_node_main</code> (see <a href="https://github.com/ngmor/catch_ros2/tree/humble/#integration-cmake-setup">CMake setup</a>) it does not require a <code>main</code> function and can be run just like any other ROS 2 node (<code>ros2 run ${package_name} ${executable_name}</code>). Tests can be executed manually by just running the node like this (along with other necessary nodes).</p>
+
+<p>If more precise functionality beyond the <a href="https://github.com/ngmor/catch_ros2/tree/humble/src/node_main.cpp">default node main</a> of this package is desired, see <a href="https://github.com/ngmor/catch_ros2/tree/humble/#selecting-a-main-function">selecting a main function</a>.</p>
+
+<h5 id="launch-file">Launch file</h5>
+
+<p>To automate the integration test, a <a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/integration_test/example_integration_test.launch.py">Python launch file</a> can be used to launch all the necessary nodes for the test, including the test node. An integration test can also be run manually by simply launching this launch file.</p>
+
+<p>This launch file is the same as any other ROS 2 Python launch file, but the <code>launch_catch_ros2</code> Python module provides a few useful classes:
+- <code>Catch2LaunchDescription</code> - a wrapper around the typical <a href="https://github.com/ros2/launch/blob/rolling/launch/launch/launch_description.py"><code>launch.LaunchDescription</code></a> that includes a "result_file" argument where the results of the test will be output.
+- <code>Catch2IntegrationTestNode</code> - a wrapper around the typical <a href="https://github.com/ros2/launch_ros/blob/rolling/launch_ros/launch_ros/actions/node.py"><code>launch_ros.actions.Node</code></a> that passes the "result_file" argument to Catch2 (via the default <code>catch_ros2</code> node main function) and shuts down all nodes on exit. This should be used to launch the <a href="https://github.com/ngmor/catch_ros2/tree/humble/#testing-node">testing node</a>. Only one should be used per integration test.</p>
+
+<p><a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/integration_test/example_integration_test.launch.xml">XML</a> and <a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/integration_test/example_integration_test.launch.yaml">YAML</a> launch files can also be used - see the provided links for examples of the above same launch file implemented in those formats.</p>
+
+<h5 id="integration-cmake-setup">Integration CMake setup</h5>
+
+<p>Most of the <a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/integration_test/CMakeLists.txt">CMake required for this integration test</a> is pretty standard for a ROS 2 package (though the ROS 2 boilerplate CMake is not shown in this example). Nodes are built/installed and the launch file is installed to the package's share directory.</p>
+
+<p>A few items are of note:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(integration_test_node
+  catch_ros2::catch_ros2_with_node_main
+)
+
+</code></pre></div>
+<p>This links the integration test node with the version of <code>catch_ros2</code> that includes the <a href="https://github.com/ngmor/catch_ros2/tree/humble/src/node_main.cpp">default main for running test nodes</a>. Only one version of the <code>catch_ros2</code> library need be linked to a target, depending on the need for a default main. See <a href="https://github.com/ngmor/catch_ros2/tree/humble/#selecting-a-main-function">selecting a main function</a>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">catch_ros2_add_integration_test(ExampleIntegration_Test
+  LAUNCH_FILE example_integration_test.launch.py
+)
+
+</code></pre></div>
+<p>This custom CMake function is only necessary if the test should be run automatically whenever <code>colcon test</code> is run. See <a href="https://github.com/ngmor/catch_ros2/tree/humble/cmake/catch_ros2_add_integration_test.cmake">here</a> for documentation on the function.</p>
+
+<h3 id="unit-testing">Unit Testing</h3>
+
+<p>Unit testing is a good way to ensure specific elements of your package work well on their own. It's important to ensure functionality is preserved in an ever-evolving codebase.</p>
+
+<p>This package can also be used for unit testing with Catch2. Using Catch2 for unit testing of ROS 2 components is much more straightforward, and you may not need <code>catch_ros2</code>. However this package provides a few utilities and a newer version of Catch2 than Ubuntu does.</p>
+
+<h4 id="components">Components</h4>
+
+<p>Only 2 components are needed to create a unit test with this framework:
+1. <a href="https://github.com/ngmor/catch_ros2/tree/humble/#test-source-file">Test source file</a>
+2. <a href="https://github.com/ngmor/catch_ros2/tree/humble/#unit-cmake-setup">CMake setup</a></p>
+
+<h5 id="test-source-file">Test source file</h5>
+
+<p>The <a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/unit_test/example_unit_test.cpp">source file for unit tests</a> can be written like any other <a href="https://github.com/catchorg/Catch2">Catch2</a> unit test.</p>
+
+<h5 id="unit-cmake-setup">Unit CMake setup</h5>
+
+<p>The <a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/unit_test/CMakeLists.txt">CMake setup for unit testing</a> is pretty standard for adding a Catch2 test. The only thing of note is linking the source file with <code>catch_ros2::catch_ros2_with_main</code>, which gives access to <code>catch_ros2</code> utilities and uses Catch2's default main function. See <a href="https://github.com/ngmor/catch_ros2/tree/humble/#selecting-a-main-function">selecting a main function</a>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(example_unit_test
+  catch_ros2::catch_ros2_with_main
+)
+
+</code></pre></div>
+<h4 id="utilities">Utilities</h4>
+
+<p><code>catch_ros2</code> provides some utility functions for unit testing in ROS 2.</p>
+
+<ul>
+<li>
+<a href="https://github.com/ngmor/catch_ros2/tree/humble/include/catch_ros2/arguments.hpp">Arguments</a> - utilities for handling command line arguments.
+
+<ul>
+<li>
+<code>SimulateArgs</code> - allows you to pass in a string or vector of strings representing command line arguments to create simulated <code>argc</code> and <code>argv</code> values to pass into functions or <code>rclcpp::init()</code>.</li>
+<li>See <a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/unit_test/example_unit_test.cpp">here</a> and <a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/custom_main/example_test_with_custom_main.cpp">here</a> for examples.</li>
+<li>
+<code>SplitROSArgs</code> - removes ROS arguments from an input <code>argc</code> and <code>argv</code>, so these arguments won't cause problems for other functions (like Catch2 sessions).</li>
+<li>See <a href="https://github.com/ngmor/catch_ros2/tree/humble/src/node_main.cpp">here</a> for an example.</li>
+<li>
+<code>tokenize</code> - splits a command line string into a vector of strings, ignoring whitespace in quotation marks.</li>
+<li>See <a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/custom_main/example_test_with_custom_main.cpp">here</a> for an example.</li>
+</ul>
+</li>
+</ul>
+
+<h3 id="selecting-a-main-function">Selecting a main function</h3>
+
+<p>There are three options for a main function when using <code>catch_ros2</code>. Which option is selected depends on which library you link your target to - you should only link to one.</p>
+
+<h4 id="1-default-node-main">1. Default Node Main</h4>
+
+<p>This test node main function (defined <a href="https://github.com/ngmor/catch_ros2/tree/humble/src/node_main.cpp">here</a>) is good for writing ROS 2 test nodes that use Catch2 (ex: for integration tests). It initializes the ROS context with the input arguments, removes the ROS arguments from the input list, runs the Catch session, then shuts down ROS.</p>
+
+<p>You can use this main by linking to <code>catch_ros2::catch_ros2_with_node_main</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(${target_name}
+  catch_ros2::catch_ros2_with_node_main
+)
+
+</code></pre></div>
+<h4 id="2-default-catch2-main">2. Default Catch2 Main</h4>
+
+<p>This main function is Catch2's <a href="https://github.com/ngmor/catch_ros2/tree/humble/src/default_main.cpp">default main function</a>, which is good for typical unit testing scenarios.</p>
+
+<p>You can use this main by linking to <code>catch_ros2::catch_ros2_with_main</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(${target_name}
+  catch_ros2::catch_ros2_with_main
+)
+
+</code></pre></div>
+<h4 id="3-defining-a-custom-main">3. Defining a custom main</h4>
+
+<p>If neither of the above two options satisfy your needs, you can define your own custom main function. See <a href="https://github.com/catchorg/Catch2/blob/devel/docs/own-main.md">Catch2's guidelines on this</a>. See <a href="https://github.com/ngmor/catch_ros2/tree/humble/examples/custom_main/example_test_with_custom_main.cpp">here</a> for an example.</p>
+
+<p>If you want your test to behave like a node, you can use <a href="https://github.com/ngmor/catch_ros2/tree/humble/src/node_main.cpp">the <code>catch_ros2</code> node main</a> as a starting point.</p>
+
+<p>To define your own main but still use this library, link to <code>catch_ros2::catch_ros2</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(${target_name}
+  catch_ros2::catch_ros2
+)
+
+</code></pre></div>
 <h2 id="catch2-version">Catch2 Version</h2>
 
-<p>Currently this repository uses the <a href="https://github.com/catchorg/Catch2/blob/devel/docs/migrate-v2-to-v3.md#how-to-migrate-projects-from-v2-to-v3">amalgamated version of Catch2</a> as a simple way of vendoring v3.3.2 of Catch2. Ubuntu currently only provides Catch2 v2, which ROS 2 depends on, so we've made the decision to vendor v3 to be able to use the newest features. In the future, this approach may be abandoned for vendoring Catch2 v3 in its multiple header form.</p>
+<p>Currently this repository uses the <a href="https://github.com/catchorg/Catch2/blob/devel/docs/migrate-v2-to-v3.md#how-to-migrate-projects-from-v2-to-v3">amalgamated version of Catch2</a> as a simple way of vendoring v3.4.0 of Catch2. Ubuntu currently only provides Catch2 v2, which ROS 2 depends on, so we've made the decision to vendor v3 to be able to use the newest features. In the future, this approach may be abandoned for vendoring Catch2 v3 in its multiple header form.</p>
 
-<p>In order to update the repository for a future release of Catch2 v3, simply copy the amalgamated <a href="https://github.com/catchorg/Catch2/blob/devel/extras/catch_amalgamated.hpp">header</a> and <a href="https://github.com/catchorg/Catch2/blob/devel/extras/catch_amalgamated.cpp">source</a> files from the Catch2 repository and replace those <a href="https://github.com/ngmor/catch_ros2/tree/humble/catch_ros2/include/catch_amalgamated.hpp">header</a> and <a href="https://github.com/ngmor/catch_ros2/tree/humble/catch_ros2/src/catch_amalgamated.cpp">source</a> files in this repository. The <a href="https://github.com/ngmor/catch_ros2/tree/humble/catch_ros2/src/default_main.cpp">default main</a> may also need to be updated.</p>
+<p>In order to update the repository for a future release of Catch2 v3, simply copy the amalgamated <a href="https://github.com/catchorg/Catch2/blob/devel/extras/catch_amalgamated.hpp">header</a> and <a href="https://github.com/catchorg/Catch2/blob/devel/extras/catch_amalgamated.cpp">source</a> files from the Catch2 repository and replace those <a href="https://github.com/ngmor/catch_ros2/tree/humble/include/catch_amalgamated.hpp">header</a> and <a href="https://github.com/ngmor/catch_ros2/tree/humble/src/catch_amalgamated.cpp">source</a> files in this repository. The <a href="https://github.com/ngmor/catch_ros2/tree/humble/src/default_main.cpp">default main</a> may also need to be updated.</p>
 
 <h2 id="license">License</h2>
 
@@ -479,7 +627,42 @@
           <div class="panel-heading"><h3 class="panel-title">CONTRIBUTING</h3></div>
           <div class="panel-body">
             
-              <em>No CONTRIBUTING.md found.</em>
+              <div class="rendered-markdown">
+<p>Any contribution that you make to this repository will
+be under the Apache 2 License, as dictated by that
+<a href="http://www.apache.org/licenses/LICENSE-2.0.html">license</a>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">5. Submission of Contributions. Unless You explicitly state otherwise,
+   any Contribution intentionally submitted for inclusion in the Work
+   by You to the Licensor shall be under the terms and conditions of
+   this License, without any additional terms or conditions.
+   Notwithstanding the above, nothing herein shall supersede or modify
+   the terms of any separate license agreement you may have executed
+   with Licensor regarding such Contributions.
+</code></pre></div>
+</div>
+              <hr id="humble-contribute-lists">
+              <ul class="nav nav-tabs nav-justified" id="humble-contribute-lists-tabs">
+                <li class="better-tabs active">
+                  <a href="#humble-contribute-lists-help-wanted" data-toggle="tab"><span class="contribute-lists-help-wanted-count label label-primary">0</span> Help Wanted</a>
+                </li>
+                <li class="better-tabs">
+                  <a href="#humble-contribute-lists-good-first-issue" data-toggle="tab"><span class="contribute-lists-good-first-issue-count label label-primary">0</span> Good First Issue</a>
+                </li>
+                <li class="better-tabs">
+                  <a href="#humble-contribute-lists-pull-requests" data-toggle="tab"><span class="contribute-lists-pull-requests-count label label-primary">0</span> Pull Requests to Review</a>
+                </li>
+              </ul>
+              <div class="tab-content contribute-lists">
+                <div class="tab-pane active" id="humble-contribute-lists-help-wanted">
+                  <div class="contribute-lists-help-wanted"></div>
+                </div>
+                <div class="tab-pane" id="humble-contribute-lists-good-first-issue">
+                  <div class="contribute-lists-good-first-issue"></div>
+                </div>
+                <div class="tab-pane" id="humble-contribute-lists-pull-requests">
+                  <div class="contribute-lists-pull-requests"></div>
+                </div>
+              </div>
             
           </div>
         </div>
@@ -517,7 +700,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-07-29
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-10-20
         </span>
       </td>
     </tr>
@@ -614,19 +797,167 @@
 
 <p>This can be used for unit testing of ROS 2 related functionality or for integration tests to test the functionality of nodes in C++.</p>
 
-<h2 id="building">Building</h2>
+<h2 id="installation">Installation</h2>
 
-<p>To build the package, clone it into the <code>src</code> directory of your workspace root directory (<code>ws</code>). Then from <code>ws</code> use <code>colcon build</code>, like any other ROS 2 package.</p>
+<p>To install Debian packages of <code>catch_ros2</code> simply run the following command (assuming your environment is properly <a href="https://docs.ros.org/en/rolling/Installation/Ubuntu-Install-Debians.html">set up for installing Debian packages</a>):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">apt install ros-${ROS_DISTRO}-catch-ros2
+
+</code></pre></div>
+<p>Debian packages are currently available for Humble, Iron, and Rolling ROS 2 distributions.</p>
+
+<p>To build the package from source, clone it into the <code>src</code> directory of your workspace root directory (<code>ws</code>). Then from <code>ws</code> use <code>colcon build</code>, like any other ROS 2 package.</p>
 
 <h2 id="usage">Usage</h2>
 
-<p>See the <a href="https://github.com/ngmor/catch_ros2/tree/iron/catch_ros2/examples/">examples</a> section for guides on usage.</p>
+<p>See the <a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/">examples</a> section for guides on usage. This README provides an overview, but more details can be found in the links to example source code.</p>
 
+<p>There are two basic ways to use this framework:
+1. <a href="https://github.com/ngmor/catch_ros2/tree/iron/#integration-testing">Integration testing</a>
+2. <a href="https://github.com/ngmor/catch_ros2/tree/iron/#unit-testing">Unit testing</a></p>
+
+<p>You can also <a href="https://github.com/ngmor/catch_ros2/tree/iron/#selecting-a-main-function">customize further</a> if you need further control.</p>
+
+<h3 id="integration-testing">Integration Testing</h3>
+
+<p>Integration testing is an important way to ensure different elements of your system work together as desired. In ROS, we generally want to test that our nodes behave correctly, which may difficult with typical unit testing.</p>
+
+<p>ROS 2 already contains a <a href="https://github.com/ros2/launch/tree/rolling/launch_testing">framework for writing integration tests in Python</a> which may be more than sufficient for most users. GTest can also be used to test C++ code within an integration test. However, to my knowledge, I have not seen an easy way to create integration tests in C++ with Catch2 - a simple to use but powerful C++ testing framework. The primary motivation of this package is to provide a framework for just that.</p>
+
+<h4 id="components">Components</h4>
+
+<p>For a launch integration test in this framework you need 4 components:
+1. <a href="https://github.com/ngmor/catch_ros2/tree/iron/#nodes-under-test">Node(s) under test</a>
+2. <a href="https://github.com/ngmor/catch_ros2/tree/iron/#testing-node">Testing node</a>
+3. <a href="https://github.com/ngmor/catch_ros2/tree/iron/#launch-file">Launch file</a>
+4. <a href="https://github.com/ngmor/catch_ros2/tree/iron/#integration-cmake-setup">CMake setup</a></p>
+
+<h5 id="node-s-under-test">Node(s) under test</h5>
+
+<p>These are the nodes in your package whose functionality you'd like to test. Nothing special has to be done with these nodes to test them with this framework. This example has <a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/integration_test/integration_aux_node.cpp"><code>integration_aux_node</code></a> as the node under test.</p>
+
+<h5 id="testing-node">Testing node</h5>
+
+<p>This node is specifically written with Catch2 test cases and assertions to test the functionality of other nodes. The example has <a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/integration_test/integration_test_node.cpp"><code>integration_test_node</code></a> as the testing node.</p>
+
+<p>If it is linked with <code>catch_ros2::catch_ros2_with_node_main</code> (see <a href="https://github.com/ngmor/catch_ros2/tree/iron/#integration-cmake-setup">CMake setup</a>) it does not require a <code>main</code> function and can be run just like any other ROS 2 node (<code>ros2 run ${package_name} ${executable_name}</code>). Tests can be executed manually by just running the node like this (along with other necessary nodes).</p>
+
+<p>If more precise functionality beyond the <a href="https://github.com/ngmor/catch_ros2/tree/iron/src/node_main.cpp">default node main</a> of this package is desired, see <a href="https://github.com/ngmor/catch_ros2/tree/iron/#selecting-a-main-function">selecting a main function</a>.</p>
+
+<h5 id="launch-file">Launch file</h5>
+
+<p>To automate the integration test, a <a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/integration_test/example_integration_test.launch.py">Python launch file</a> can be used to launch all the necessary nodes for the test, including the test node. An integration test can also be run manually by simply launching this launch file.</p>
+
+<p>This launch file is the same as any other ROS 2 Python launch file, but the <code>launch_catch_ros2</code> Python module provides a few useful classes:
+- <code>Catch2LaunchDescription</code> - a wrapper around the typical <a href="https://github.com/ros2/launch/blob/rolling/launch/launch/launch_description.py"><code>launch.LaunchDescription</code></a> that includes a "result_file" argument where the results of the test will be output.
+- <code>Catch2IntegrationTestNode</code> - a wrapper around the typical <a href="https://github.com/ros2/launch_ros/blob/rolling/launch_ros/launch_ros/actions/node.py"><code>launch_ros.actions.Node</code></a> that passes the "result_file" argument to Catch2 (via the default <code>catch_ros2</code> node main function) and shuts down all nodes on exit. This should be used to launch the <a href="https://github.com/ngmor/catch_ros2/tree/iron/#testing-node">testing node</a>. Only one should be used per integration test.</p>
+
+<p><a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/integration_test/example_integration_test.launch.xml">XML</a> and <a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/integration_test/example_integration_test.launch.yaml">YAML</a> launch files can also be used - see the provided links for examples of the above same launch file implemented in those formats.</p>
+
+<h5 id="integration-cmake-setup">Integration CMake setup</h5>
+
+<p>Most of the <a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/integration_test/CMakeLists.txt">CMake required for this integration test</a> is pretty standard for a ROS 2 package (though the ROS 2 boilerplate CMake is not shown in this example). Nodes are built/installed and the launch file is installed to the package's share directory.</p>
+
+<p>A few items are of note:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(integration_test_node
+  catch_ros2::catch_ros2_with_node_main
+)
+
+</code></pre></div>
+<p>This links the integration test node with the version of <code>catch_ros2</code> that includes the <a href="https://github.com/ngmor/catch_ros2/tree/iron/src/node_main.cpp">default main for running test nodes</a>. Only one version of the <code>catch_ros2</code> library need be linked to a target, depending on the need for a default main. See <a href="https://github.com/ngmor/catch_ros2/tree/iron/#selecting-a-main-function">selecting a main function</a>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">catch_ros2_add_integration_test(ExampleIntegration_Test
+  LAUNCH_FILE example_integration_test.launch.py
+)
+
+</code></pre></div>
+<p>This custom CMake function is only necessary if the test should be run automatically whenever <code>colcon test</code> is run. See <a href="https://github.com/ngmor/catch_ros2/tree/iron/cmake/catch_ros2_add_integration_test.cmake">here</a> for documentation on the function.</p>
+
+<h3 id="unit-testing">Unit Testing</h3>
+
+<p>Unit testing is a good way to ensure specific elements of your package work well on their own. It's important to ensure functionality is preserved in an ever-evolving codebase.</p>
+
+<p>This package can also be used for unit testing with Catch2. Using Catch2 for unit testing of ROS 2 components is much more straightforward, and you may not need <code>catch_ros2</code>. However this package provides a few utilities and a newer version of Catch2 than Ubuntu does.</p>
+
+<h4 id="components">Components</h4>
+
+<p>Only 2 components are needed to create a unit test with this framework:
+1. <a href="https://github.com/ngmor/catch_ros2/tree/iron/#test-source-file">Test source file</a>
+2. <a href="https://github.com/ngmor/catch_ros2/tree/iron/#unit-cmake-setup">CMake setup</a></p>
+
+<h5 id="test-source-file">Test source file</h5>
+
+<p>The <a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/unit_test/example_unit_test.cpp">source file for unit tests</a> can be written like any other <a href="https://github.com/catchorg/Catch2">Catch2</a> unit test.</p>
+
+<h5 id="unit-cmake-setup">Unit CMake setup</h5>
+
+<p>The <a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/unit_test/CMakeLists.txt">CMake setup for unit testing</a> is pretty standard for adding a Catch2 test. The only thing of note is linking the source file with <code>catch_ros2::catch_ros2_with_main</code>, which gives access to <code>catch_ros2</code> utilities and uses Catch2's default main function. See <a href="https://github.com/ngmor/catch_ros2/tree/iron/#selecting-a-main-function">selecting a main function</a>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(example_unit_test
+  catch_ros2::catch_ros2_with_main
+)
+
+</code></pre></div>
+<h4 id="utilities">Utilities</h4>
+
+<p><code>catch_ros2</code> provides some utility functions for unit testing in ROS 2.</p>
+
+<ul>
+<li>
+<a href="https://github.com/ngmor/catch_ros2/tree/iron/include/catch_ros2/arguments.hpp">Arguments</a> - utilities for handling command line arguments.
+
+<ul>
+<li>
+<code>SimulateArgs</code> - allows you to pass in a string or vector of strings representing command line arguments to create simulated <code>argc</code> and <code>argv</code> values to pass into functions or <code>rclcpp::init()</code>.</li>
+<li>See <a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/unit_test/example_unit_test.cpp">here</a> and <a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/custom_main/example_test_with_custom_main.cpp">here</a> for examples.</li>
+<li>
+<code>SplitROSArgs</code> - removes ROS arguments from an input <code>argc</code> and <code>argv</code>, so these arguments won't cause problems for other functions (like Catch2 sessions).</li>
+<li>See <a href="https://github.com/ngmor/catch_ros2/tree/iron/src/node_main.cpp">here</a> for an example.</li>
+<li>
+<code>tokenize</code> - splits a command line string into a vector of strings, ignoring whitespace in quotation marks.</li>
+<li>See <a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/custom_main/example_test_with_custom_main.cpp">here</a> for an example.</li>
+</ul>
+</li>
+</ul>
+
+<h3 id="selecting-a-main-function">Selecting a main function</h3>
+
+<p>There are three options for a main function when using <code>catch_ros2</code>. Which option is selected depends on which library you link your target to - you should only link to one.</p>
+
+<h4 id="1-default-node-main">1. Default Node Main</h4>
+
+<p>This test node main function (defined <a href="https://github.com/ngmor/catch_ros2/tree/iron/src/node_main.cpp">here</a>) is good for writing ROS 2 test nodes that use Catch2 (ex: for integration tests). It initializes the ROS context with the input arguments, removes the ROS arguments from the input list, runs the Catch session, then shuts down ROS.</p>
+
+<p>You can use this main by linking to <code>catch_ros2::catch_ros2_with_node_main</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(${target_name}
+  catch_ros2::catch_ros2_with_node_main
+)
+
+</code></pre></div>
+<h4 id="2-default-catch2-main">2. Default Catch2 Main</h4>
+
+<p>This main function is Catch2's <a href="https://github.com/ngmor/catch_ros2/tree/iron/src/default_main.cpp">default main function</a>, which is good for typical unit testing scenarios.</p>
+
+<p>You can use this main by linking to <code>catch_ros2::catch_ros2_with_main</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(${target_name}
+  catch_ros2::catch_ros2_with_main
+)
+
+</code></pre></div>
+<h4 id="3-defining-a-custom-main">3. Defining a custom main</h4>
+
+<p>If neither of the above two options satisfy your needs, you can define your own custom main function. See <a href="https://github.com/catchorg/Catch2/blob/devel/docs/own-main.md">Catch2's guidelines on this</a>. See <a href="https://github.com/ngmor/catch_ros2/tree/iron/examples/custom_main/example_test_with_custom_main.cpp">here</a> for an example.</p>
+
+<p>If you want your test to behave like a node, you can use <a href="https://github.com/ngmor/catch_ros2/tree/iron/src/node_main.cpp">the <code>catch_ros2</code> node main</a> as a starting point.</p>
+
+<p>To define your own main but still use this library, link to <code>catch_ros2::catch_ros2</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(${target_name}
+  catch_ros2::catch_ros2
+)
+
+</code></pre></div>
 <h2 id="catch2-version">Catch2 Version</h2>
 
-<p>Currently this repository uses the <a href="https://github.com/catchorg/Catch2/blob/devel/docs/migrate-v2-to-v3.md#how-to-migrate-projects-from-v2-to-v3">amalgamated version of Catch2</a> as a simple way of vendoring v3.3.2 of Catch2. Ubuntu currently only provides Catch2 v2, which ROS 2 depends on, so we've made the decision to vendor v3 to be able to use the newest features. In the future, this approach may be abandoned for vendoring Catch2 v3 in its multiple header form.</p>
+<p>Currently this repository uses the <a href="https://github.com/catchorg/Catch2/blob/devel/docs/migrate-v2-to-v3.md#how-to-migrate-projects-from-v2-to-v3">amalgamated version of Catch2</a> as a simple way of vendoring v3.4.0 of Catch2. Ubuntu currently only provides Catch2 v2, which ROS 2 depends on, so we've made the decision to vendor v3 to be able to use the newest features. In the future, this approach may be abandoned for vendoring Catch2 v3 in its multiple header form.</p>
 
-<p>In order to update the repository for a future release of Catch2 v3, simply copy the amalgamated <a href="https://github.com/catchorg/Catch2/blob/devel/extras/catch_amalgamated.hpp">header</a> and <a href="https://github.com/catchorg/Catch2/blob/devel/extras/catch_amalgamated.cpp">source</a> files from the Catch2 repository and replace those <a href="https://github.com/ngmor/catch_ros2/tree/iron/catch_ros2/include/catch_amalgamated.hpp">header</a> and <a href="https://github.com/ngmor/catch_ros2/tree/iron/catch_ros2/src/catch_amalgamated.cpp">source</a> files in this repository. The <a href="https://github.com/ngmor/catch_ros2/tree/iron/catch_ros2/src/default_main.cpp">default main</a> may also need to be updated.</p>
+<p>In order to update the repository for a future release of Catch2 v3, simply copy the amalgamated <a href="https://github.com/catchorg/Catch2/blob/devel/extras/catch_amalgamated.hpp">header</a> and <a href="https://github.com/catchorg/Catch2/blob/devel/extras/catch_amalgamated.cpp">source</a> files from the Catch2 repository and replace those <a href="https://github.com/ngmor/catch_ros2/tree/iron/include/catch_amalgamated.hpp">header</a> and <a href="https://github.com/ngmor/catch_ros2/tree/iron/src/catch_amalgamated.cpp">source</a> files in this repository. The <a href="https://github.com/ngmor/catch_ros2/tree/iron/src/default_main.cpp">default main</a> may also need to be updated.</p>
 
 <h2 id="license">License</h2>
 
@@ -640,7 +971,42 @@
           <div class="panel-heading"><h3 class="panel-title">CONTRIBUTING</h3></div>
           <div class="panel-body">
             
-              <em>No CONTRIBUTING.md found.</em>
+              <div class="rendered-markdown">
+<p>Any contribution that you make to this repository will
+be under the Apache 2 License, as dictated by that
+<a href="http://www.apache.org/licenses/LICENSE-2.0.html">license</a>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">5. Submission of Contributions. Unless You explicitly state otherwise,
+   any Contribution intentionally submitted for inclusion in the Work
+   by You to the Licensor shall be under the terms and conditions of
+   this License, without any additional terms or conditions.
+   Notwithstanding the above, nothing herein shall supersede or modify
+   the terms of any separate license agreement you may have executed
+   with Licensor regarding such Contributions.
+</code></pre></div>
+</div>
+              <hr id="iron-contribute-lists">
+              <ul class="nav nav-tabs nav-justified" id="iron-contribute-lists-tabs">
+                <li class="better-tabs active">
+                  <a href="#iron-contribute-lists-help-wanted" data-toggle="tab"><span class="contribute-lists-help-wanted-count label label-primary">0</span> Help Wanted</a>
+                </li>
+                <li class="better-tabs">
+                  <a href="#iron-contribute-lists-good-first-issue" data-toggle="tab"><span class="contribute-lists-good-first-issue-count label label-primary">0</span> Good First Issue</a>
+                </li>
+                <li class="better-tabs">
+                  <a href="#iron-contribute-lists-pull-requests" data-toggle="tab"><span class="contribute-lists-pull-requests-count label label-primary">0</span> Pull Requests to Review</a>
+                </li>
+              </ul>
+              <div class="tab-content contribute-lists">
+                <div class="tab-pane active" id="iron-contribute-lists-help-wanted">
+                  <div class="contribute-lists-help-wanted"></div>
+                </div>
+                <div class="tab-pane" id="iron-contribute-lists-good-first-issue">
+                  <div class="contribute-lists-good-first-issue"></div>
+                </div>
+                <div class="tab-pane" id="iron-contribute-lists-pull-requests">
+                  <div class="contribute-lists-pull-requests"></div>
+                </div>
+              </div>
             
           </div>
         </div>
@@ -678,7 +1044,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-07-29
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-10-20
         </span>
       </td>
     </tr>
@@ -775,19 +1141,167 @@
 
 <p>This can be used for unit testing of ROS 2 related functionality or for integration tests to test the functionality of nodes in C++.</p>
 
-<h2 id="building">Building</h2>
+<h2 id="installation">Installation</h2>
 
-<p>To build the package, clone it into the <code>src</code> directory of your workspace root directory (<code>ws</code>). Then from <code>ws</code> use <code>colcon build</code>, like any other ROS 2 package.</p>
+<p>To install Debian packages of <code>catch_ros2</code> simply run the following command (assuming your environment is properly <a href="https://docs.ros.org/en/rolling/Installation/Ubuntu-Install-Debians.html">set up for installing Debian packages</a>):</p>
+<div class="highlight"><pre><code class="language-" data-lang="">apt install ros-${ROS_DISTRO}-catch-ros2
+
+</code></pre></div>
+<p>Debian packages are currently available for Humble, Iron, and Rolling ROS 2 distributions.</p>
+
+<p>To build the package from source, clone it into the <code>src</code> directory of your workspace root directory (<code>ws</code>). Then from <code>ws</code> use <code>colcon build</code>, like any other ROS 2 package.</p>
 
 <h2 id="usage">Usage</h2>
 
-<p>See the <a href="https://github.com/ngmor/catch_ros2/tree/rolling/catch_ros2/examples/">examples</a> section for guides on usage.</p>
+<p>See the <a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/">examples</a> section for guides on usage. This README provides an overview, but more details can be found in the links to example source code.</p>
 
+<p>There are two basic ways to use this framework:
+1. <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#integration-testing">Integration testing</a>
+2. <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#unit-testing">Unit testing</a></p>
+
+<p>You can also <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#selecting-a-main-function">customize further</a> if you need further control.</p>
+
+<h3 id="integration-testing">Integration Testing</h3>
+
+<p>Integration testing is an important way to ensure different elements of your system work together as desired. In ROS, we generally want to test that our nodes behave correctly, which may difficult with typical unit testing.</p>
+
+<p>ROS 2 already contains a <a href="https://github.com/ros2/launch/tree/rolling/launch_testing">framework for writing integration tests in Python</a> which may be more than sufficient for most users. GTest can also be used to test C++ code within an integration test. However, to my knowledge, I have not seen an easy way to create integration tests in C++ with Catch2 - a simple to use but powerful C++ testing framework. The primary motivation of this package is to provide a framework for just that.</p>
+
+<h4 id="components">Components</h4>
+
+<p>For a launch integration test in this framework you need 4 components:
+1. <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#nodes-under-test">Node(s) under test</a>
+2. <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#testing-node">Testing node</a>
+3. <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#launch-file">Launch file</a>
+4. <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#integration-cmake-setup">CMake setup</a></p>
+
+<h5 id="node-s-under-test">Node(s) under test</h5>
+
+<p>These are the nodes in your package whose functionality you'd like to test. Nothing special has to be done with these nodes to test them with this framework. This example has <a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/integration_test/integration_aux_node.cpp"><code>integration_aux_node</code></a> as the node under test.</p>
+
+<h5 id="testing-node">Testing node</h5>
+
+<p>This node is specifically written with Catch2 test cases and assertions to test the functionality of other nodes. The example has <a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/integration_test/integration_test_node.cpp"><code>integration_test_node</code></a> as the testing node.</p>
+
+<p>If it is linked with <code>catch_ros2::catch_ros2_with_node_main</code> (see <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#integration-cmake-setup">CMake setup</a>) it does not require a <code>main</code> function and can be run just like any other ROS 2 node (<code>ros2 run ${package_name} ${executable_name}</code>). Tests can be executed manually by just running the node like this (along with other necessary nodes).</p>
+
+<p>If more precise functionality beyond the <a href="https://github.com/ngmor/catch_ros2/tree/rolling/src/node_main.cpp">default node main</a> of this package is desired, see <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#selecting-a-main-function">selecting a main function</a>.</p>
+
+<h5 id="launch-file">Launch file</h5>
+
+<p>To automate the integration test, a <a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/integration_test/example_integration_test.launch.py">Python launch file</a> can be used to launch all the necessary nodes for the test, including the test node. An integration test can also be run manually by simply launching this launch file.</p>
+
+<p>This launch file is the same as any other ROS 2 Python launch file, but the <code>launch_catch_ros2</code> Python module provides a few useful classes:
+- <code>Catch2LaunchDescription</code> - a wrapper around the typical <a href="https://github.com/ros2/launch/blob/rolling/launch/launch/launch_description.py"><code>launch.LaunchDescription</code></a> that includes a "result_file" argument where the results of the test will be output.
+- <code>Catch2IntegrationTestNode</code> - a wrapper around the typical <a href="https://github.com/ros2/launch_ros/blob/rolling/launch_ros/launch_ros/actions/node.py"><code>launch_ros.actions.Node</code></a> that passes the "result_file" argument to Catch2 (via the default <code>catch_ros2</code> node main function) and shuts down all nodes on exit. This should be used to launch the <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#testing-node">testing node</a>. Only one should be used per integration test.</p>
+
+<p><a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/integration_test/example_integration_test.launch.xml">XML</a> and <a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/integration_test/example_integration_test.launch.yaml">YAML</a> launch files can also be used - see the provided links for examples of the above same launch file implemented in those formats.</p>
+
+<h5 id="integration-cmake-setup">Integration CMake setup</h5>
+
+<p>Most of the <a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/integration_test/CMakeLists.txt">CMake required for this integration test</a> is pretty standard for a ROS 2 package (though the ROS 2 boilerplate CMake is not shown in this example). Nodes are built/installed and the launch file is installed to the package's share directory.</p>
+
+<p>A few items are of note:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(integration_test_node
+  catch_ros2::catch_ros2_with_node_main
+)
+
+</code></pre></div>
+<p>This links the integration test node with the version of <code>catch_ros2</code> that includes the <a href="https://github.com/ngmor/catch_ros2/tree/rolling/src/node_main.cpp">default main for running test nodes</a>. Only one version of the <code>catch_ros2</code> library need be linked to a target, depending on the need for a default main. See <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#selecting-a-main-function">selecting a main function</a>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">catch_ros2_add_integration_test(ExampleIntegration_Test
+  LAUNCH_FILE example_integration_test.launch.py
+)
+
+</code></pre></div>
+<p>This custom CMake function is only necessary if the test should be run automatically whenever <code>colcon test</code> is run. See <a href="https://github.com/ngmor/catch_ros2/tree/rolling/cmake/catch_ros2_add_integration_test.cmake">here</a> for documentation on the function.</p>
+
+<h3 id="unit-testing">Unit Testing</h3>
+
+<p>Unit testing is a good way to ensure specific elements of your package work well on their own. It's important to ensure functionality is preserved in an ever-evolving codebase.</p>
+
+<p>This package can also be used for unit testing with Catch2. Using Catch2 for unit testing of ROS 2 components is much more straightforward, and you may not need <code>catch_ros2</code>. However this package provides a few utilities and a newer version of Catch2 than Ubuntu does.</p>
+
+<h4 id="components">Components</h4>
+
+<p>Only 2 components are needed to create a unit test with this framework:
+1. <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#test-source-file">Test source file</a>
+2. <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#unit-cmake-setup">CMake setup</a></p>
+
+<h5 id="test-source-file">Test source file</h5>
+
+<p>The <a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/unit_test/example_unit_test.cpp">source file for unit tests</a> can be written like any other <a href="https://github.com/catchorg/Catch2">Catch2</a> unit test.</p>
+
+<h5 id="unit-cmake-setup">Unit CMake setup</h5>
+
+<p>The <a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/unit_test/CMakeLists.txt">CMake setup for unit testing</a> is pretty standard for adding a Catch2 test. The only thing of note is linking the source file with <code>catch_ros2::catch_ros2_with_main</code>, which gives access to <code>catch_ros2</code> utilities and uses Catch2's default main function. See <a href="https://github.com/ngmor/catch_ros2/tree/rolling/#selecting-a-main-function">selecting a main function</a>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(example_unit_test
+  catch_ros2::catch_ros2_with_main
+)
+
+</code></pre></div>
+<h4 id="utilities">Utilities</h4>
+
+<p><code>catch_ros2</code> provides some utility functions for unit testing in ROS 2.</p>
+
+<ul>
+<li>
+<a href="https://github.com/ngmor/catch_ros2/tree/rolling/include/catch_ros2/arguments.hpp">Arguments</a> - utilities for handling command line arguments.
+
+<ul>
+<li>
+<code>SimulateArgs</code> - allows you to pass in a string or vector of strings representing command line arguments to create simulated <code>argc</code> and <code>argv</code> values to pass into functions or <code>rclcpp::init()</code>.</li>
+<li>See <a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/unit_test/example_unit_test.cpp">here</a> and <a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/custom_main/example_test_with_custom_main.cpp">here</a> for examples.</li>
+<li>
+<code>SplitROSArgs</code> - removes ROS arguments from an input <code>argc</code> and <code>argv</code>, so these arguments won't cause problems for other functions (like Catch2 sessions).</li>
+<li>See <a href="https://github.com/ngmor/catch_ros2/tree/rolling/src/node_main.cpp">here</a> for an example.</li>
+<li>
+<code>tokenize</code> - splits a command line string into a vector of strings, ignoring whitespace in quotation marks.</li>
+<li>See <a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/custom_main/example_test_with_custom_main.cpp">here</a> for an example.</li>
+</ul>
+</li>
+</ul>
+
+<h3 id="selecting-a-main-function">Selecting a main function</h3>
+
+<p>There are three options for a main function when using <code>catch_ros2</code>. Which option is selected depends on which library you link your target to - you should only link to one.</p>
+
+<h4 id="1-default-node-main">1. Default Node Main</h4>
+
+<p>This test node main function (defined <a href="https://github.com/ngmor/catch_ros2/tree/rolling/src/node_main.cpp">here</a>) is good for writing ROS 2 test nodes that use Catch2 (ex: for integration tests). It initializes the ROS context with the input arguments, removes the ROS arguments from the input list, runs the Catch session, then shuts down ROS.</p>
+
+<p>You can use this main by linking to <code>catch_ros2::catch_ros2_with_node_main</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(${target_name}
+  catch_ros2::catch_ros2_with_node_main
+)
+
+</code></pre></div>
+<h4 id="2-default-catch2-main">2. Default Catch2 Main</h4>
+
+<p>This main function is Catch2's <a href="https://github.com/ngmor/catch_ros2/tree/rolling/src/default_main.cpp">default main function</a>, which is good for typical unit testing scenarios.</p>
+
+<p>You can use this main by linking to <code>catch_ros2::catch_ros2_with_main</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(${target_name}
+  catch_ros2::catch_ros2_with_main
+)
+
+</code></pre></div>
+<h4 id="3-defining-a-custom-main">3. Defining a custom main</h4>
+
+<p>If neither of the above two options satisfy your needs, you can define your own custom main function. See <a href="https://github.com/catchorg/Catch2/blob/devel/docs/own-main.md">Catch2's guidelines on this</a>. See <a href="https://github.com/ngmor/catch_ros2/tree/rolling/examples/custom_main/example_test_with_custom_main.cpp">here</a> for an example.</p>
+
+<p>If you want your test to behave like a node, you can use <a href="https://github.com/ngmor/catch_ros2/tree/rolling/src/node_main.cpp">the <code>catch_ros2</code> node main</a> as a starting point.</p>
+
+<p>To define your own main but still use this library, link to <code>catch_ros2::catch_ros2</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">target_link_libraries(${target_name}
+  catch_ros2::catch_ros2
+)
+
+</code></pre></div>
 <h2 id="catch2-version">Catch2 Version</h2>
 
-<p>Currently this repository uses the <a href="https://github.com/catchorg/Catch2/blob/devel/docs/migrate-v2-to-v3.md#how-to-migrate-projects-from-v2-to-v3">amalgamated version of Catch2</a> as a simple way of vendoring v3.3.2 of Catch2. Ubuntu currently only provides Catch2 v2, which ROS 2 depends on, so we've made the decision to vendor v3 to be able to use the newest features. In the future, this approach may be abandoned for vendoring Catch2 v3 in its multiple header form.</p>
+<p>Currently this repository uses the <a href="https://github.com/catchorg/Catch2/blob/devel/docs/migrate-v2-to-v3.md#how-to-migrate-projects-from-v2-to-v3">amalgamated version of Catch2</a> as a simple way of vendoring v3.4.0 of Catch2. Ubuntu currently only provides Catch2 v2, which ROS 2 depends on, so we've made the decision to vendor v3 to be able to use the newest features. In the future, this approach may be abandoned for vendoring Catch2 v3 in its multiple header form.</p>
 
-<p>In order to update the repository for a future release of Catch2 v3, simply copy the amalgamated <a href="https://github.com/catchorg/Catch2/blob/devel/extras/catch_amalgamated.hpp">header</a> and <a href="https://github.com/catchorg/Catch2/blob/devel/extras/catch_amalgamated.cpp">source</a> files from the Catch2 repository and replace those <a href="https://github.com/ngmor/catch_ros2/tree/rolling/catch_ros2/include/catch_amalgamated.hpp">header</a> and <a href="https://github.com/ngmor/catch_ros2/tree/rolling/catch_ros2/src/catch_amalgamated.cpp">source</a> files in this repository. The <a href="https://github.com/ngmor/catch_ros2/tree/rolling/catch_ros2/src/default_main.cpp">default main</a> may also need to be updated.</p>
+<p>In order to update the repository for a future release of Catch2 v3, simply copy the amalgamated <a href="https://github.com/catchorg/Catch2/blob/devel/extras/catch_amalgamated.hpp">header</a> and <a href="https://github.com/catchorg/Catch2/blob/devel/extras/catch_amalgamated.cpp">source</a> files from the Catch2 repository and replace those <a href="https://github.com/ngmor/catch_ros2/tree/rolling/include/catch_amalgamated.hpp">header</a> and <a href="https://github.com/ngmor/catch_ros2/tree/rolling/src/catch_amalgamated.cpp">source</a> files in this repository. The <a href="https://github.com/ngmor/catch_ros2/tree/rolling/src/default_main.cpp">default main</a> may also need to be updated.</p>
 
 <h2 id="license">License</h2>
 
@@ -801,7 +1315,42 @@
           <div class="panel-heading"><h3 class="panel-title">CONTRIBUTING</h3></div>
           <div class="panel-body">
             
-              <em>No CONTRIBUTING.md found.</em>
+              <div class="rendered-markdown">
+<p>Any contribution that you make to this repository will
+be under the Apache 2 License, as dictated by that
+<a href="http://www.apache.org/licenses/LICENSE-2.0.html">license</a>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">5. Submission of Contributions. Unless You explicitly state otherwise,
+   any Contribution intentionally submitted for inclusion in the Work
+   by You to the Licensor shall be under the terms and conditions of
+   this License, without any additional terms or conditions.
+   Notwithstanding the above, nothing herein shall supersede or modify
+   the terms of any separate license agreement you may have executed
+   with Licensor regarding such Contributions.
+</code></pre></div>
+</div>
+              <hr id="rolling-contribute-lists">
+              <ul class="nav nav-tabs nav-justified" id="rolling-contribute-lists-tabs">
+                <li class="better-tabs active">
+                  <a href="#rolling-contribute-lists-help-wanted" data-toggle="tab"><span class="contribute-lists-help-wanted-count label label-primary">0</span> Help Wanted</a>
+                </li>
+                <li class="better-tabs">
+                  <a href="#rolling-contribute-lists-good-first-issue" data-toggle="tab"><span class="contribute-lists-good-first-issue-count label label-primary">0</span> Good First Issue</a>
+                </li>
+                <li class="better-tabs">
+                  <a href="#rolling-contribute-lists-pull-requests" data-toggle="tab"><span class="contribute-lists-pull-requests-count label label-primary">0</span> Pull Requests to Review</a>
+                </li>
+              </ul>
+              <div class="tab-content contribute-lists">
+                <div class="tab-pane active" id="rolling-contribute-lists-help-wanted">
+                  <div class="contribute-lists-help-wanted"></div>
+                </div>
+                <div class="tab-pane" id="rolling-contribute-lists-good-first-issue">
+                  <div class="contribute-lists-good-first-issue"></div>
+                </div>
+                <div class="tab-pane" id="rolling-contribute-lists-pull-requests">
+                  <div class="contribute-lists-pull-requests"></div>
+                </div>
+              </div>
             
           </div>
         </div>
@@ -955,7 +1504,7 @@
             <span class="username">ros-infrastructure/rosindex</span>
           </a>
           |
-          <em>generated on 2023-08-16</em>
+          <em>generated on 2023-10-20</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
