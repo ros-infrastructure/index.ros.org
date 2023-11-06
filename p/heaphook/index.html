@@ -474,7 +474,7 @@ heaphook
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-08-16
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-06
         </span>
       </td>
     </tr>
@@ -598,7 +598,7 @@ This path is added to <code>LD_LIBRARY_PATH</code> by the setup script.</p>
 <h2 id="how-to-use">How to use</h2>
 
 <p>For now, We provide two kinds of the heaphook libraries.
-- <code>libpreload_heaptrack.so</code>: Records all the heap allocation/deallocation function calls and generate a log file for visualizing the history of heap consumption.
+- <code>libpreloaded_heaptrack.so</code>: Records all the heap allocation/deallocation function calls and generate a log file for visualizing the history of heap consumption.
 - <code>libpreloaded_tlsf.so</code>: Replaces all the heap allocation/deallocation with TLSF (Tow-Level Segregated Fit) memory allocator.</p>
 
 <p>A typical use case is to utilize <code>libpreloaded_heaptrack</code> to grasp the transition and maximum value of heap consumtion of the target process
@@ -672,6 +672,163 @@ From the launch file, you can replace all heap allocations of the process corres
 <span class="p">)</span>
 
 </code></pre></div>
+<h2 id="how-to-add-a-new-memory-allocator">How to add a new memory allocator</h2>
+
+<p>If you want to implement an allocator to replace the GLIBC memory allcator, you can easily do so by using this heaphook library.</p>
+
+<p>The steps you will take are as follows.</p>
+
+<h3 id="1-create-source-file">1. Create source file</h3>
+
+<p>What you have to implement are
+* Include <code>heaphook/heaphook.hpp</code> header file.
+* Implement your own allocator class that inherits the abstract base class <code>GlobalAllocator</code> defined in <code>heaphook/heaphook.hpp</code>.
+  * This base class has 5 virtual functions: <code>do_alloc</code>, <code>do_dealloc</code>, <code>do_alloc_zeroed</code>, <code>do_realloc</code> and <code>do_get_block_size</code>.
+  * <code>do_alloc_zeroed</code> and <code>do_realloc</code> has default implementation, so you don't have to implement them.
+  * For more information on the GlobalAllocagor API, see here.
+* Implement static member function named <code>get_instance</code> in <code>GlobalAllocator</code>.
+  * The implementation of this static member function is almost a fixed form. It defines its own allocator as a static local variable and returns a reference to its instance.
+  * See the following example for a concrete implementation.</p>
+
+<p>The minimum implementation required is as follows.</p>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="cp">#include "heaphook/heaphook.hpp"
+</span><span class="k">using</span> <span class="k">namespace</span> <span class="n">heaphook</span><span class="p">;</span>
+
+<span class="k">class</span> <span class="nc">MyAllocator</span> <span class="o">:</span> <span class="k">public</span> <span class="n">GlobalAllocator</span> <span class="p">{</span>
+  <span class="kt">void</span><span class="o">*</span> <span class="n">do_alloc</span><span class="p">(</span><span class="kt">size_t</span> <span class="n">size</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">align</span><span class="p">)</span> <span class="k">override</span> <span class="p">{</span>
+    <span class="p">...</span>
+  <span class="p">}</span>
+
+  <span class="kt">void</span> <span class="n">do_dealloc</span><span class="p">(</span><span class="kt">void</span><span class="o">*</span> <span class="n">ptr</span><span class="p">)</span> <span class="k">override</span> <span class="p">{</span>
+    <span class="p">...</span>
+  <span class="p">}</span>
+
+  <span class="kt">size_t</span> <span class="n">do_get_block_size</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span> <span class="n">ptr</span><span class="p">)</span> <span class="k">override</span> <span class="p">{</span>
+    <span class="p">...</span>
+  <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="n">GlobalAllocator</span> <span class="o">&amp;</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">get_instance</span><span class="p">()</span> <span class="p">{</span>
+  <span class="k">static</span> <span class="n">MyAllocator</span> <span class="n">allocator</span><span class="p">;</span>
+  <span class="k">return</span> <span class="n">allocator</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre></div>
+<p>Save the above implementation in src/my_allocator.cpp.</p>
+
+<h3 id="2-edit-cmakelists-txt">2. Edit CMakeLists.txt</h3>
+
+<p>To build the implemented allocator, you must edit CMakeLists.txt.
+You can use build_library cmake function to add build target.</p>
+
+<p>build_library takes a library name as its first argument and a set of required source files as the second and subsequent arguments.</p>
+
+<p>For example, </p>
+<div class="highlight"><pre><code class="language-cmake" data-lang="cmake"><span class="nf">build_library</span><span class="p">(</span>my_allocator
+  src/my_allocator.cpp<span class="p">)</span>
+
+</code></pre></div>
+<h3 id="3-build">3. Build</h3>
+
+<p>Go to the top directory and execute the following command.</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nv">$ </span>colcon build
+
+</code></pre></div>
+<p>If the build is successful, a file named <code>lib&lt;libname&gt;.so</code> should be created.
+You can use it as follows.</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nv">$ </span><span class="nb">source install</span>/setup.bash
+<span class="nv">$ LD_PRELOAD</span><span class="o">=</span>libmy_allocator.so executable
+
+</code></pre></div>
+<h2 id="heaphook-api">heaphook API</h2>
+
+<p>This section describes the <code>GlobalAllocator</code> class, which is required when creating an allocator.</p>
+
+<p>The <code>GlobalAllocator</code> class has 5 virtual member functions.</p>
+
+<h3 id="do_alloc">do_alloc</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="o">*</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_alloc</span><span class="p">(</span><span class="kt">size_t</span> <span class="n">size</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">align</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function allocates a memory area that is larger than <code>size</code> byte and aligned with <code>align</code> and returns its address. When implementing this function, the following conditions can be assumed. (heaphook will filter out those that do not meet these conditions.)
+* <code>size</code> &gt; 0
+* <code>align</code> is either
+  * 1, which means there are no alignment constraints.
+  * a power of 2 and multiple of <code>sizeof(void *)</code>, such as 8, 16, 32, ..., 4096, ...</p>
+
+<p>If memory allocation fails due to various factors, <code>nullptr</code> should be returned.</p>
+
+<p>This function hooks the GLIBC allocation functions <code>malloc</code>, <code>posix_memalign</code>, <code>memalign</code>, <code>aligned_alloc</code>, <code>valloc</code> and <code>pvalloc</code>.</p>
+
+<h3 id="do_dealloc">do_dealloc</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_dealloc</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">ptr</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function deallocates a memory area pointed to by ptr, which must have been allocated by other allocation functions <code>do_alloc</code>, <code>do_alloc_zeroed</code> or <code>do_realloc</code>. The following conditions can be assumed,
+* <code>ptr</code> is the value previously returned from these allocation functions. (If not, the program may be killed.)
+* <code>ptr</code> != <code>nullptr</code></p>
+
+<p>This function hooks the <code>free</code> function in GLIBC.</p>
+
+<h3 id="do_alloc_zeroed">do_alloc_zeroed</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="o">*</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_alloc_zeroed</span><span class="p">(</span><span class="kt">size_t</span> <span class="n">size</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function allocates a memory area that is larger than <code>size</code> byte. The memory is set to zero. The following conditions can be assumed,
+* <code>size</code> &gt; 0</p>
+
+<p>If memory allocation fails due to various factors, <code>nullptr</code> should be returned.</p>
+
+<p>This function hooks the <code>calloc</code> function in GLIBC.</p>
+
+<p>A default implementation is provided that calls <code>do_alloc</code> and initializes the allocated memory area with zeros using <code>memset</code>.</p>
+
+<h3 id="do_realloc">do_realloc</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="o">*</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_realloc</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">ptr</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">new_size</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function changes the size of the memory block pointed to by <code>ptr</code> to <code>new_size</code> bytes and return a pointer to the new memory area. The contents of the memory area must remain unchanged. When expanging the memory, the added memory does not need to be initialized. The following conditions can be assumed,
+* <code>ptr</code> is the value previously returned from these allocation functions. (If not, the program may be killed.)
+* <code>ptr</code> != <code>nullptr</code>
+* <code>new_size</code> &gt; 0</p>
+
+<p>If memory allocation fails due to various factors, <code>nullptr</code> should be returned.</p>
+
+<p>This function hooks the <code>realloc</code> function in GLIBC.</p>
+
+<p>A default implementation is provided that performs <code>do_alloc(new_size, 1)</code>, copies contents, and then deallocates the original pointer using <code>dealloc(ptr)</code>.</p>
+
+<h3 id="do_get_block_size">do_get_block_size</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="o">*</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_get_block_size</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">ptr</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function returns the size of the memory block pointed to by <code>ptr</code>. The following conditions can be assumed,
+* <code>ptr</code> is the value previously returned from these allocation functions. (If not, the program may be killed.)
+* <code>ptr</code> != <code>nullptr</code></p>
+
+<p>This function is called internally when calling the GLIBC's <code>malloc_usable_size</code>.</p>
+
+<h2 id="trace-function">Trace function</h2>
+
+<p>heaphook has a trace function for debugging the allocator and analyzing its performance.</p>
+
+<p>In the CMakeList.txt file, after declaring a new allocator building rule with <code>build_library</code>, you can specify <code>target_compile_options(&lt;libname&gt; PRIVATE "-DTRACE")</code> to build library that traces the allocator's behavior.</p>
+<div class="highlight"><pre><code class="language-cmake" data-lang="cmake"><span class="nf">build_library</span><span class="p">(</span>my_allocator ...<span class="p">)</span>
+<span class="nb">target_compile_options</span><span class="p">(</span>my_allocator PRIVATE <span class="s2">"-DTRACE"</span><span class="p">)</span>
+
+</code></pre></div>
+<p>If configured in this way, the library will generate a log file named <code>heaplog.&lt;pid&gt;.log</code> in the current directory. You can visualize heap consumption transitions and performance of each GlobalAllocator member functions in png format based on the generated log file.</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nv">$ </span>misc/heaptrace_analyzer.py heaplog.&lt;pid&gt;.log 
+
+</code></pre></div>
+<h2 id="test-allocator">Test allocator</h2>
+
+<p>To test the new memory allocator, add the following statement in CMakeLists.txt. <code>test_library(&lt;target name&gt; &lt;sources&gt;..)</code> is a cmake function which builds a test program based on Google Test.</p>
+<div class="highlight"><pre><code class="language-cmake" data-lang="cmake"><span class="nf">test_library</span><span class="p">(</span>test_my_allocator
+  src/original_allocator.cpp<span class="p">)</span>
+
+</code></pre></div>
+<p>After describing the above, colcon build will create a test program in build/heaphook/test_my_allocator. The source of this test program is in the file test/test_allocator.cpp, so please refer to it if necessary.</p>
 </div>
               </div>
             </div>
@@ -1321,7 +1478,7 @@ heaphook
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-08-16
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-06
         </span>
       </td>
     </tr>
@@ -1445,7 +1602,7 @@ This path is added to <code>LD_LIBRARY_PATH</code> by the setup script.</p>
 <h2 id="how-to-use">How to use</h2>
 
 <p>For now, We provide two kinds of the heaphook libraries.
-- <code>libpreload_heaptrack.so</code>: Records all the heap allocation/deallocation function calls and generate a log file for visualizing the history of heap consumption.
+- <code>libpreloaded_heaptrack.so</code>: Records all the heap allocation/deallocation function calls and generate a log file for visualizing the history of heap consumption.
 - <code>libpreloaded_tlsf.so</code>: Replaces all the heap allocation/deallocation with TLSF (Tow-Level Segregated Fit) memory allocator.</p>
 
 <p>A typical use case is to utilize <code>libpreloaded_heaptrack</code> to grasp the transition and maximum value of heap consumtion of the target process
@@ -1519,6 +1676,163 @@ From the launch file, you can replace all heap allocations of the process corres
 <span class="p">)</span>
 
 </code></pre></div>
+<h2 id="how-to-add-a-new-memory-allocator">How to add a new memory allocator</h2>
+
+<p>If you want to implement an allocator to replace the GLIBC memory allcator, you can easily do so by using this heaphook library.</p>
+
+<p>The steps you will take are as follows.</p>
+
+<h3 id="1-create-source-file">1. Create source file</h3>
+
+<p>What you have to implement are
+* Include <code>heaphook/heaphook.hpp</code> header file.
+* Implement your own allocator class that inherits the abstract base class <code>GlobalAllocator</code> defined in <code>heaphook/heaphook.hpp</code>.
+  * This base class has 5 virtual functions: <code>do_alloc</code>, <code>do_dealloc</code>, <code>do_alloc_zeroed</code>, <code>do_realloc</code> and <code>do_get_block_size</code>.
+  * <code>do_alloc_zeroed</code> and <code>do_realloc</code> has default implementation, so you don't have to implement them.
+  * For more information on the GlobalAllocagor API, see here.
+* Implement static member function named <code>get_instance</code> in <code>GlobalAllocator</code>.
+  * The implementation of this static member function is almost a fixed form. It defines its own allocator as a static local variable and returns a reference to its instance.
+  * See the following example for a concrete implementation.</p>
+
+<p>The minimum implementation required is as follows.</p>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="cp">#include "heaphook/heaphook.hpp"
+</span><span class="k">using</span> <span class="k">namespace</span> <span class="n">heaphook</span><span class="p">;</span>
+
+<span class="k">class</span> <span class="nc">MyAllocator</span> <span class="o">:</span> <span class="k">public</span> <span class="n">GlobalAllocator</span> <span class="p">{</span>
+  <span class="kt">void</span><span class="o">*</span> <span class="n">do_alloc</span><span class="p">(</span><span class="kt">size_t</span> <span class="n">size</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">align</span><span class="p">)</span> <span class="k">override</span> <span class="p">{</span>
+    <span class="p">...</span>
+  <span class="p">}</span>
+
+  <span class="kt">void</span> <span class="n">do_dealloc</span><span class="p">(</span><span class="kt">void</span><span class="o">*</span> <span class="n">ptr</span><span class="p">)</span> <span class="k">override</span> <span class="p">{</span>
+    <span class="p">...</span>
+  <span class="p">}</span>
+
+  <span class="kt">size_t</span> <span class="n">do_get_block_size</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span> <span class="n">ptr</span><span class="p">)</span> <span class="k">override</span> <span class="p">{</span>
+    <span class="p">...</span>
+  <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="n">GlobalAllocator</span> <span class="o">&amp;</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">get_instance</span><span class="p">()</span> <span class="p">{</span>
+  <span class="k">static</span> <span class="n">MyAllocator</span> <span class="n">allocator</span><span class="p">;</span>
+  <span class="k">return</span> <span class="n">allocator</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre></div>
+<p>Save the above implementation in src/my_allocator.cpp.</p>
+
+<h3 id="2-edit-cmakelists-txt">2. Edit CMakeLists.txt</h3>
+
+<p>To build the implemented allocator, you must edit CMakeLists.txt.
+You can use build_library cmake function to add build target.</p>
+
+<p>build_library takes a library name as its first argument and a set of required source files as the second and subsequent arguments.</p>
+
+<p>For example, </p>
+<div class="highlight"><pre><code class="language-cmake" data-lang="cmake"><span class="nf">build_library</span><span class="p">(</span>my_allocator
+  src/my_allocator.cpp<span class="p">)</span>
+
+</code></pre></div>
+<h3 id="3-build">3. Build</h3>
+
+<p>Go to the top directory and execute the following command.</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nv">$ </span>colcon build
+
+</code></pre></div>
+<p>If the build is successful, a file named <code>lib&lt;libname&gt;.so</code> should be created.
+You can use it as follows.</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nv">$ </span><span class="nb">source install</span>/setup.bash
+<span class="nv">$ LD_PRELOAD</span><span class="o">=</span>libmy_allocator.so executable
+
+</code></pre></div>
+<h2 id="heaphook-api">heaphook API</h2>
+
+<p>This section describes the <code>GlobalAllocator</code> class, which is required when creating an allocator.</p>
+
+<p>The <code>GlobalAllocator</code> class has 5 virtual member functions.</p>
+
+<h3 id="do_alloc">do_alloc</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="o">*</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_alloc</span><span class="p">(</span><span class="kt">size_t</span> <span class="n">size</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">align</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function allocates a memory area that is larger than <code>size</code> byte and aligned with <code>align</code> and returns its address. When implementing this function, the following conditions can be assumed. (heaphook will filter out those that do not meet these conditions.)
+* <code>size</code> &gt; 0
+* <code>align</code> is either
+  * 1, which means there are no alignment constraints.
+  * a power of 2 and multiple of <code>sizeof(void *)</code>, such as 8, 16, 32, ..., 4096, ...</p>
+
+<p>If memory allocation fails due to various factors, <code>nullptr</code> should be returned.</p>
+
+<p>This function hooks the GLIBC allocation functions <code>malloc</code>, <code>posix_memalign</code>, <code>memalign</code>, <code>aligned_alloc</code>, <code>valloc</code> and <code>pvalloc</code>.</p>
+
+<h3 id="do_dealloc">do_dealloc</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_dealloc</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">ptr</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function deallocates a memory area pointed to by ptr, which must have been allocated by other allocation functions <code>do_alloc</code>, <code>do_alloc_zeroed</code> or <code>do_realloc</code>. The following conditions can be assumed,
+* <code>ptr</code> is the value previously returned from these allocation functions. (If not, the program may be killed.)
+* <code>ptr</code> != <code>nullptr</code></p>
+
+<p>This function hooks the <code>free</code> function in GLIBC.</p>
+
+<h3 id="do_alloc_zeroed">do_alloc_zeroed</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="o">*</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_alloc_zeroed</span><span class="p">(</span><span class="kt">size_t</span> <span class="n">size</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function allocates a memory area that is larger than <code>size</code> byte. The memory is set to zero. The following conditions can be assumed,
+* <code>size</code> &gt; 0</p>
+
+<p>If memory allocation fails due to various factors, <code>nullptr</code> should be returned.</p>
+
+<p>This function hooks the <code>calloc</code> function in GLIBC.</p>
+
+<p>A default implementation is provided that calls <code>do_alloc</code> and initializes the allocated memory area with zeros using <code>memset</code>.</p>
+
+<h3 id="do_realloc">do_realloc</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="o">*</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_realloc</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">ptr</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">new_size</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function changes the size of the memory block pointed to by <code>ptr</code> to <code>new_size</code> bytes and return a pointer to the new memory area. The contents of the memory area must remain unchanged. When expanging the memory, the added memory does not need to be initialized. The following conditions can be assumed,
+* <code>ptr</code> is the value previously returned from these allocation functions. (If not, the program may be killed.)
+* <code>ptr</code> != <code>nullptr</code>
+* <code>new_size</code> &gt; 0</p>
+
+<p>If memory allocation fails due to various factors, <code>nullptr</code> should be returned.</p>
+
+<p>This function hooks the <code>realloc</code> function in GLIBC.</p>
+
+<p>A default implementation is provided that performs <code>do_alloc(new_size, 1)</code>, copies contents, and then deallocates the original pointer using <code>dealloc(ptr)</code>.</p>
+
+<h3 id="do_get_block_size">do_get_block_size</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="o">*</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_get_block_size</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">ptr</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function returns the size of the memory block pointed to by <code>ptr</code>. The following conditions can be assumed,
+* <code>ptr</code> is the value previously returned from these allocation functions. (If not, the program may be killed.)
+* <code>ptr</code> != <code>nullptr</code></p>
+
+<p>This function is called internally when calling the GLIBC's <code>malloc_usable_size</code>.</p>
+
+<h2 id="trace-function">Trace function</h2>
+
+<p>heaphook has a trace function for debugging the allocator and analyzing its performance.</p>
+
+<p>In the CMakeList.txt file, after declaring a new allocator building rule with <code>build_library</code>, you can specify <code>target_compile_options(&lt;libname&gt; PRIVATE "-DTRACE")</code> to build library that traces the allocator's behavior.</p>
+<div class="highlight"><pre><code class="language-cmake" data-lang="cmake"><span class="nf">build_library</span><span class="p">(</span>my_allocator ...<span class="p">)</span>
+<span class="nb">target_compile_options</span><span class="p">(</span>my_allocator PRIVATE <span class="s2">"-DTRACE"</span><span class="p">)</span>
+
+</code></pre></div>
+<p>If configured in this way, the library will generate a log file named <code>heaplog.&lt;pid&gt;.log</code> in the current directory. You can visualize heap consumption transitions and performance of each GlobalAllocator member functions in png format based on the generated log file.</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nv">$ </span>misc/heaptrace_analyzer.py heaplog.&lt;pid&gt;.log 
+
+</code></pre></div>
+<h2 id="test-allocator">Test allocator</h2>
+
+<p>To test the new memory allocator, add the following statement in CMakeLists.txt. <code>test_library(&lt;target name&gt; &lt;sources&gt;..)</code> is a cmake function which builds a test program based on Google Test.</p>
+<div class="highlight"><pre><code class="language-cmake" data-lang="cmake"><span class="nf">test_library</span><span class="p">(</span>test_my_allocator
+  src/original_allocator.cpp<span class="p">)</span>
+
+</code></pre></div>
+<p>After describing the above, colcon build will create a test program in build/heaphook/test_my_allocator. The source of this test program is in the file test/test_allocator.cpp, so please refer to it if necessary.</p>
 </div>
               </div>
             </div>
@@ -2168,7 +2482,7 @@ heaphook
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-08-16
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-06
         </span>
       </td>
     </tr>
@@ -2292,7 +2606,7 @@ This path is added to <code>LD_LIBRARY_PATH</code> by the setup script.</p>
 <h2 id="how-to-use">How to use</h2>
 
 <p>For now, We provide two kinds of the heaphook libraries.
-- <code>libpreload_heaptrack.so</code>: Records all the heap allocation/deallocation function calls and generate a log file for visualizing the history of heap consumption.
+- <code>libpreloaded_heaptrack.so</code>: Records all the heap allocation/deallocation function calls and generate a log file for visualizing the history of heap consumption.
 - <code>libpreloaded_tlsf.so</code>: Replaces all the heap allocation/deallocation with TLSF (Tow-Level Segregated Fit) memory allocator.</p>
 
 <p>A typical use case is to utilize <code>libpreloaded_heaptrack</code> to grasp the transition and maximum value of heap consumtion of the target process
@@ -2366,6 +2680,163 @@ From the launch file, you can replace all heap allocations of the process corres
 <span class="p">)</span>
 
 </code></pre></div>
+<h2 id="how-to-add-a-new-memory-allocator">How to add a new memory allocator</h2>
+
+<p>If you want to implement an allocator to replace the GLIBC memory allcator, you can easily do so by using this heaphook library.</p>
+
+<p>The steps you will take are as follows.</p>
+
+<h3 id="1-create-source-file">1. Create source file</h3>
+
+<p>What you have to implement are
+* Include <code>heaphook/heaphook.hpp</code> header file.
+* Implement your own allocator class that inherits the abstract base class <code>GlobalAllocator</code> defined in <code>heaphook/heaphook.hpp</code>.
+  * This base class has 5 virtual functions: <code>do_alloc</code>, <code>do_dealloc</code>, <code>do_alloc_zeroed</code>, <code>do_realloc</code> and <code>do_get_block_size</code>.
+  * <code>do_alloc_zeroed</code> and <code>do_realloc</code> has default implementation, so you don't have to implement them.
+  * For more information on the GlobalAllocagor API, see here.
+* Implement static member function named <code>get_instance</code> in <code>GlobalAllocator</code>.
+  * The implementation of this static member function is almost a fixed form. It defines its own allocator as a static local variable and returns a reference to its instance.
+  * See the following example for a concrete implementation.</p>
+
+<p>The minimum implementation required is as follows.</p>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="cp">#include "heaphook/heaphook.hpp"
+</span><span class="k">using</span> <span class="k">namespace</span> <span class="n">heaphook</span><span class="p">;</span>
+
+<span class="k">class</span> <span class="nc">MyAllocator</span> <span class="o">:</span> <span class="k">public</span> <span class="n">GlobalAllocator</span> <span class="p">{</span>
+  <span class="kt">void</span><span class="o">*</span> <span class="n">do_alloc</span><span class="p">(</span><span class="kt">size_t</span> <span class="n">size</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">align</span><span class="p">)</span> <span class="k">override</span> <span class="p">{</span>
+    <span class="p">...</span>
+  <span class="p">}</span>
+
+  <span class="kt">void</span> <span class="n">do_dealloc</span><span class="p">(</span><span class="kt">void</span><span class="o">*</span> <span class="n">ptr</span><span class="p">)</span> <span class="k">override</span> <span class="p">{</span>
+    <span class="p">...</span>
+  <span class="p">}</span>
+
+  <span class="kt">size_t</span> <span class="n">do_get_block_size</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span> <span class="n">ptr</span><span class="p">)</span> <span class="k">override</span> <span class="p">{</span>
+    <span class="p">...</span>
+  <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="n">GlobalAllocator</span> <span class="o">&amp;</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">get_instance</span><span class="p">()</span> <span class="p">{</span>
+  <span class="k">static</span> <span class="n">MyAllocator</span> <span class="n">allocator</span><span class="p">;</span>
+  <span class="k">return</span> <span class="n">allocator</span><span class="p">;</span>
+<span class="p">}</span>
+
+</code></pre></div>
+<p>Save the above implementation in src/my_allocator.cpp.</p>
+
+<h3 id="2-edit-cmakelists-txt">2. Edit CMakeLists.txt</h3>
+
+<p>To build the implemented allocator, you must edit CMakeLists.txt.
+You can use build_library cmake function to add build target.</p>
+
+<p>build_library takes a library name as its first argument and a set of required source files as the second and subsequent arguments.</p>
+
+<p>For example, </p>
+<div class="highlight"><pre><code class="language-cmake" data-lang="cmake"><span class="nf">build_library</span><span class="p">(</span>my_allocator
+  src/my_allocator.cpp<span class="p">)</span>
+
+</code></pre></div>
+<h3 id="3-build">3. Build</h3>
+
+<p>Go to the top directory and execute the following command.</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nv">$ </span>colcon build
+
+</code></pre></div>
+<p>If the build is successful, a file named <code>lib&lt;libname&gt;.so</code> should be created.
+You can use it as follows.</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nv">$ </span><span class="nb">source install</span>/setup.bash
+<span class="nv">$ LD_PRELOAD</span><span class="o">=</span>libmy_allocator.so executable
+
+</code></pre></div>
+<h2 id="heaphook-api">heaphook API</h2>
+
+<p>This section describes the <code>GlobalAllocator</code> class, which is required when creating an allocator.</p>
+
+<p>The <code>GlobalAllocator</code> class has 5 virtual member functions.</p>
+
+<h3 id="do_alloc">do_alloc</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="o">*</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_alloc</span><span class="p">(</span><span class="kt">size_t</span> <span class="n">size</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">align</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function allocates a memory area that is larger than <code>size</code> byte and aligned with <code>align</code> and returns its address. When implementing this function, the following conditions can be assumed. (heaphook will filter out those that do not meet these conditions.)
+* <code>size</code> &gt; 0
+* <code>align</code> is either
+  * 1, which means there are no alignment constraints.
+  * a power of 2 and multiple of <code>sizeof(void *)</code>, such as 8, 16, 32, ..., 4096, ...</p>
+
+<p>If memory allocation fails due to various factors, <code>nullptr</code> should be returned.</p>
+
+<p>This function hooks the GLIBC allocation functions <code>malloc</code>, <code>posix_memalign</code>, <code>memalign</code>, <code>aligned_alloc</code>, <code>valloc</code> and <code>pvalloc</code>.</p>
+
+<h3 id="do_dealloc">do_dealloc</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_dealloc</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">ptr</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function deallocates a memory area pointed to by ptr, which must have been allocated by other allocation functions <code>do_alloc</code>, <code>do_alloc_zeroed</code> or <code>do_realloc</code>. The following conditions can be assumed,
+* <code>ptr</code> is the value previously returned from these allocation functions. (If not, the program may be killed.)
+* <code>ptr</code> != <code>nullptr</code></p>
+
+<p>This function hooks the <code>free</code> function in GLIBC.</p>
+
+<h3 id="do_alloc_zeroed">do_alloc_zeroed</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="o">*</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_alloc_zeroed</span><span class="p">(</span><span class="kt">size_t</span> <span class="n">size</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function allocates a memory area that is larger than <code>size</code> byte. The memory is set to zero. The following conditions can be assumed,
+* <code>size</code> &gt; 0</p>
+
+<p>If memory allocation fails due to various factors, <code>nullptr</code> should be returned.</p>
+
+<p>This function hooks the <code>calloc</code> function in GLIBC.</p>
+
+<p>A default implementation is provided that calls <code>do_alloc</code> and initializes the allocated memory area with zeros using <code>memset</code>.</p>
+
+<h3 id="do_realloc">do_realloc</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="o">*</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_realloc</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">ptr</span><span class="p">,</span> <span class="kt">size_t</span> <span class="n">new_size</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function changes the size of the memory block pointed to by <code>ptr</code> to <code>new_size</code> bytes and return a pointer to the new memory area. The contents of the memory area must remain unchanged. When expanging the memory, the added memory does not need to be initialized. The following conditions can be assumed,
+* <code>ptr</code> is the value previously returned from these allocation functions. (If not, the program may be killed.)
+* <code>ptr</code> != <code>nullptr</code>
+* <code>new_size</code> &gt; 0</p>
+
+<p>If memory allocation fails due to various factors, <code>nullptr</code> should be returned.</p>
+
+<p>This function hooks the <code>realloc</code> function in GLIBC.</p>
+
+<p>A default implementation is provided that performs <code>do_alloc(new_size, 1)</code>, copies contents, and then deallocates the original pointer using <code>dealloc(ptr)</code>.</p>
+
+<h3 id="do_get_block_size">do_get_block_size</h3>
+<div class="highlight"><pre><code class="language-cpp" data-lang="cpp"><span class="kt">void</span> <span class="o">*</span><span class="n">GlobalAllocator</span><span class="o">::</span><span class="n">do_get_block_size</span><span class="p">(</span><span class="kt">void</span> <span class="o">*</span><span class="n">ptr</span><span class="p">);</span>
+
+</code></pre></div>
+<p>This function returns the size of the memory block pointed to by <code>ptr</code>. The following conditions can be assumed,
+* <code>ptr</code> is the value previously returned from these allocation functions. (If not, the program may be killed.)
+* <code>ptr</code> != <code>nullptr</code></p>
+
+<p>This function is called internally when calling the GLIBC's <code>malloc_usable_size</code>.</p>
+
+<h2 id="trace-function">Trace function</h2>
+
+<p>heaphook has a trace function for debugging the allocator and analyzing its performance.</p>
+
+<p>In the CMakeList.txt file, after declaring a new allocator building rule with <code>build_library</code>, you can specify <code>target_compile_options(&lt;libname&gt; PRIVATE "-DTRACE")</code> to build library that traces the allocator's behavior.</p>
+<div class="highlight"><pre><code class="language-cmake" data-lang="cmake"><span class="nf">build_library</span><span class="p">(</span>my_allocator ...<span class="p">)</span>
+<span class="nb">target_compile_options</span><span class="p">(</span>my_allocator PRIVATE <span class="s2">"-DTRACE"</span><span class="p">)</span>
+
+</code></pre></div>
+<p>If configured in this way, the library will generate a log file named <code>heaplog.&lt;pid&gt;.log</code> in the current directory. You can visualize heap consumption transitions and performance of each GlobalAllocator member functions in png format based on the generated log file.</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nv">$ </span>misc/heaptrace_analyzer.py heaplog.&lt;pid&gt;.log 
+
+</code></pre></div>
+<h2 id="test-allocator">Test allocator</h2>
+
+<p>To test the new memory allocator, add the following statement in CMakeLists.txt. <code>test_library(&lt;target name&gt; &lt;sources&gt;..)</code> is a cmake function which builds a test program based on Google Test.</p>
+<div class="highlight"><pre><code class="language-cmake" data-lang="cmake"><span class="nf">test_library</span><span class="p">(</span>test_my_allocator
+  src/original_allocator.cpp<span class="p">)</span>
+
+</code></pre></div>
+<p>After describing the above, colcon build will create a test program in build/heaphook/test_my_allocator. The source of this test program is in the file test/test_allocator.cpp, so please refer to it if necessary.</p>
 </div>
               </div>
             </div>
@@ -2950,7 +3421,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure/rosindex</span>
           </a>
           |
-          <em>generated on 2023-08-17</em>
+          <em>generated on 2023-11-06</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
