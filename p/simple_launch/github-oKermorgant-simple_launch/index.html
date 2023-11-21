@@ -429,7 +429,7 @@ simple_launch
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>1.7.2</td>
+                <td>1.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -685,7 +685,7 @@ simple_launch
 
 <p><code>simple_launch</code> allows declaring launch arguments and getting them in return.</p>
 
-<p>Most all methods listed below return an instance of <code>SimpleSubstitution</code> that represents any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type. If run from an <code>OpaqueFunction</code> the underlying Python variable is returned.</p>
+<p>Methods listed below return instances of <code>SimpleSubstitution</code> that represents any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type. If run from an <code>OpaqueFunction</code> the underlying Python variable is returned.</p>
 
 <h3 id="declare-a-launch-argument">Declare a launch argument</h3>
 
@@ -701,9 +701,11 @@ simple_launch
 
 <p>Typical when forwarding some launch arguments to a node or an included launch file.</p>
 
-<h2 id="logic-groups">Logic groups</h2>
+<h2 id="groups-or-scopes">Groups or scopes</h2>
 
-<p>Groups are created through the <code>with sl.group():</code> syntax and accept, a namespace an if/unless condition and an event:</p>
+<p>Groups are created through the <code>with sl.group():</code> syntax and accept, a namespace an if/unless condition and an event.</p>
+
+<p>Actions that are added in a scope inherit from all previous defined groups.</p>
 
 <h3 id="by-namespace">By namespace</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(ns=sub_namespace):
@@ -718,7 +720,10 @@ simple_launch
     sl.node(package, executable)
 
 </code></pre></div>
-<p>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</p>
+<ul>
+<li>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</li>
+<li>Combining conditions is work in progress as <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can be combined</a>.</li>
+</ul>
 
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
@@ -735,21 +740,29 @@ simple_launch
 </code></pre></div>
 <p>If <code>if_arg</code> / <code>unless_arg</code> is not a string then it is considered as a <code>if_condition</code> / <code>unless_condition</code>.</p>
 
-<h3 id="from-events-work-in-progress-api-subject-to-change">From events (work in progress, API subject to change)</h3>
+<h3 id="from-events">From events</h3>
 
-<p>The <code>when</code> argument wraps events from the <code>launch.event_handlers</code> module. It combine an event and a delay (0 by default)</p>
-<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch.events import After, OnProcessStart, OnProcessExit
+<p>The <code>when</code> argument wraps events from the <code>launch.event_handlers</code> module. It combines an event and a delay (0 by default)</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch.events import When, OnProcessStart, OnProcessExit, OnProcessIO
 
-    my_node = sl.node(...)   # reference node
+  my_node = sl.node(...)   # reference node
 
-    with sl.group(when = After(my_node, OnProcessStart, 1.)):
-        sl.node(...)  # will run 1 s after main node starts
+  with sl.group(when = When(my_node, OnProcessStart, 1.)):
+      sl.node(...)  # will run 1 s after main node starts
 
-    with sl.group(when = After(my_node, OnProcessExit)):
-        sl.node(...)  # will run as soon as the main node exists
+  with sl.group(when = When(my_node, OnProcessExit)):
+      sl.node(...)  # will run as soon as the main node exists
 
-    with sl.group(when = After(delay = 2.)):
-        sl.node(...)  # will run after 2 sec
+  with sl.group(when = When(my_node, OnProcessIO, io = 'stdout'):
+      # OnProcessIO events need a function changing the event into an action
+      sl.add_action(lambda event: LogInfo(msg = 'Node says "{}"'.format(
+                      event.text.decode().strip())))
+      # several functions can be used if needed, they will be combined in a single one
+      sl.add_action(lambda event: LogInfo(msg = 'Once again, node says "{}"'.format(
+                      event.text.decode().strip())))
+
+  with sl.group(when = When(delay = 2.)):
+      sl.node(...)  # will run after 2 sec
 
 </code></pre></div>
 <h3 id="creating-containers">Creating containers</h3>
@@ -763,7 +776,7 @@ simple_launch
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.container(name='my_container', output='screen', executable='component_container_isolated'):
 
 </code></pre></div>
-<p><strong><em>It is currently impossible to have group blocks within a container block, as containers can only accept <code>ComposableNode</code>s</em></strong></p>
+<p><strong><em>It is currently impossible to have group blocks within a container block, as containers can only accept <code>ComposableNode</code>s</em></strong>. A <code>GroupAction</code> containing e.g. <code>PushRosNamespace</code> and a <code>ComposableNode</code> is not itself a <code>ComposableNode</code>.</p>
 
 <h2 id="use_sim_time"><code>use_sim_time</code></h2>
 
@@ -779,17 +792,21 @@ simple_launch
 
 <p>In all cases, if the <code>use_sim_time</code> parameter is explicitely given to a node, it will be used instead of the <code>SimpleLauncher</code> instance one.</p>
 
-<h2 id="wrapper-around-opaquefunction">Wrapper around <code>OpaqueFunction</code>
+<h2 id="opaquefunction-with-implicit-perform-context">
+<code>OpaqueFunction</code> with implicit <code>.perform(context)</code>
 </h2>
 
 <p>Most of the use cases can be dealt with substitutions and <code>with sl.group</code> blocks.
 In order to design more imperative launch files, the <a href="https://discourse.ros.org/t/simplifying-launch-argument-declaration-and-initialization-in-launch-files/24204"><code>OpaqueFunction</code></a> approach can be used. The main drawback is that potential errors are harder to track.</p>
 
-<p>To do this with <code>simple_launch</code>:
-  - the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.
-  - then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.
-  - all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.
-  - finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</p>
+<p>To do this with <code>simple_launch</code>:</p>
+
+<ul>
+<li>the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.</li>
+<li>then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.</li>
+<li>all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.</li>
+<li>finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</li>
+</ul>
 
 <p>Compare <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_launch.py"><code>example_launch.py</code></a> and <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_opaque_launch.py"><code>example_opaque_launch.py</code></a> to see the two approaches on the same logic.</p>
 
@@ -921,7 +938,7 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <code>file_dir</code> is the path inside the package</li>
 </ul>
 
-<p>If <code>file_dir</code> is <code>None</code> then the <code>find</code> function will actually look for the file inside the package share, assuming that <code>package</code> and <code>file_name</code> are raw strings.</p>
+<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
 
 <p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
 
@@ -935,7 +952,7 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <li>
 <code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
 <li>
-<code>xacro_args</code> are passed to xacro</li>
+<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
 <li>
 <code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
 <li>
@@ -949,6 +966,8 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <h3 id="rviz">Rviz</h3>
 
 <p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
+
+<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
 
 <h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
 
@@ -982,11 +1001,11 @@ def generate_launch_description():
     sl.declare_arg('use_gui', default_value = True, description='Use JSP gui')
 
     xacro_args = sl.arg_map('prefix', 'x', 'y')
-    xacro_args['prefix'] = [xacro_args['prefix'], ':']
+    xacro_args['prefix'] += '/'  # can sum substitutions and strings
 
     with sl.group(ns=sl.arg('prefix')):
         sl.robot_state_publisher('simple_launch', 'turret.xacro', xacro_args = xacro_args)
-        sl.joint_state_publisher(sources_list = ['source_joints'], use_gui = sl.arg('use_gui'))
+        sl.joint_state_publisher(use_gui = sl.arg('use_gui'))
 
     return sl.launch_description()
 
@@ -1093,7 +1112,9 @@ def generate_launch_description():
     return sl.launch_description()
 
 </code></pre></div>
-<!-- ## Events and parameters -->
+<h3 id="events-and-parameters">Events and parameters</h3>
+
+<p>This <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/event_tutorial_launch.py">example file</a> is another way to write the <a href="https://docs.ros.org/en/rolling/Tutorials/Intermediate/Launch/Using-Event-Handlers.html">event launch example</a>.</p>
 
 <h3 id="auto-sim-time">auto sim time</h3>
 
@@ -1159,9 +1180,11 @@ def generate_launch_description():
 </code></pre></div>
 <h2 id="i-want-more-examples">I want more examples</h2>
 
-<p>Other self-contained examples (and slides) have been used to teach the ROS 2 launch file system.</p>
+<p>Other self-contained examples (and slides) have been used to teach the ROS 2 launch file system and the nav stack.</p>
 
-<p>They are available in the <a href="https://github.com/oKermorgant/anf_launch">anf_launch</a> package.</p>
+<p>Various aspects of the launch systen are shown in the <a href="https://github.com/oKermorgant/anf_launch">anf_launch</a> package.</p>
+
+<p>A simple tutorial on <code>Nav2</code>  using <code>simple_launch</code> is available in the <a href="https://github.com/oKermorgant/anf_nav">anf_nav</a> package.</p>
 </div>
               </div>
             </div>
@@ -1177,6 +1200,16 @@ def generate_launch_description():
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-simple_launch">Changelog for package simple_launch</h1>
+
+<h2 id="1-8-0-2023-11-20">1.8.0 (2023-11-20)</h2>
+
+<ul>
+<li>  sync documentation and examples</li>
+<li>  when instead of after for events</li>
+<li>  scoped events</li>
+<li>  add event wrapper</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
 
 <h2 id="1-7-2-2023-10-02">1.7.2 (2023-10-02)</h2>
 
@@ -1891,7 +1924,7 @@ simple_launch
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>1.7.2</td>
+                <td>1.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -2147,7 +2180,7 @@ simple_launch
 
 <p><code>simple_launch</code> allows declaring launch arguments and getting them in return.</p>
 
-<p>Most all methods listed below return an instance of <code>SimpleSubstitution</code> that represents any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type. If run from an <code>OpaqueFunction</code> the underlying Python variable is returned.</p>
+<p>Methods listed below return instances of <code>SimpleSubstitution</code> that represents any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type. If run from an <code>OpaqueFunction</code> the underlying Python variable is returned.</p>
 
 <h3 id="declare-a-launch-argument">Declare a launch argument</h3>
 
@@ -2163,9 +2196,11 @@ simple_launch
 
 <p>Typical when forwarding some launch arguments to a node or an included launch file.</p>
 
-<h2 id="logic-groups">Logic groups</h2>
+<h2 id="groups-or-scopes">Groups or scopes</h2>
 
-<p>Groups are created through the <code>with sl.group():</code> syntax and accept, a namespace an if/unless condition and an event:</p>
+<p>Groups are created through the <code>with sl.group():</code> syntax and accept, a namespace an if/unless condition and an event.</p>
+
+<p>Actions that are added in a scope inherit from all previous defined groups.</p>
 
 <h3 id="by-namespace">By namespace</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(ns=sub_namespace):
@@ -2180,7 +2215,10 @@ simple_launch
     sl.node(package, executable)
 
 </code></pre></div>
-<p>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</p>
+<ul>
+<li>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</li>
+<li>Combining conditions is work in progress as <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can be combined</a>.</li>
+</ul>
 
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
@@ -2197,21 +2235,29 @@ simple_launch
 </code></pre></div>
 <p>If <code>if_arg</code> / <code>unless_arg</code> is not a string then it is considered as a <code>if_condition</code> / <code>unless_condition</code>.</p>
 
-<h3 id="from-events-work-in-progress-api-subject-to-change">From events (work in progress, API subject to change)</h3>
+<h3 id="from-events">From events</h3>
 
-<p>The <code>when</code> argument wraps events from the <code>launch.event_handlers</code> module. It combine an event and a delay (0 by default)</p>
-<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch.events import After, OnProcessStart, OnProcessExit
+<p>The <code>when</code> argument wraps events from the <code>launch.event_handlers</code> module. It combines an event and a delay (0 by default)</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch.events import When, OnProcessStart, OnProcessExit, OnProcessIO
 
-    my_node = sl.node(...)   # reference node
+  my_node = sl.node(...)   # reference node
 
-    with sl.group(when = After(my_node, OnProcessStart, 1.)):
-        sl.node(...)  # will run 1 s after main node starts
+  with sl.group(when = When(my_node, OnProcessStart, 1.)):
+      sl.node(...)  # will run 1 s after main node starts
 
-    with sl.group(when = After(my_node, OnProcessExit)):
-        sl.node(...)  # will run as soon as the main node exists
+  with sl.group(when = When(my_node, OnProcessExit)):
+      sl.node(...)  # will run as soon as the main node exists
 
-    with sl.group(when = After(delay = 2.)):
-        sl.node(...)  # will run after 2 sec
+  with sl.group(when = When(my_node, OnProcessIO, io = 'stdout'):
+      # OnProcessIO events need a function changing the event into an action
+      sl.add_action(lambda event: LogInfo(msg = 'Node says "{}"'.format(
+                      event.text.decode().strip())))
+      # several functions can be used if needed, they will be combined in a single one
+      sl.add_action(lambda event: LogInfo(msg = 'Once again, node says "{}"'.format(
+                      event.text.decode().strip())))
+
+  with sl.group(when = When(delay = 2.)):
+      sl.node(...)  # will run after 2 sec
 
 </code></pre></div>
 <h3 id="creating-containers">Creating containers</h3>
@@ -2225,7 +2271,7 @@ simple_launch
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.container(name='my_container', output='screen', executable='component_container_isolated'):
 
 </code></pre></div>
-<p><strong><em>It is currently impossible to have group blocks within a container block, as containers can only accept <code>ComposableNode</code>s</em></strong></p>
+<p><strong><em>It is currently impossible to have group blocks within a container block, as containers can only accept <code>ComposableNode</code>s</em></strong>. A <code>GroupAction</code> containing e.g. <code>PushRosNamespace</code> and a <code>ComposableNode</code> is not itself a <code>ComposableNode</code>.</p>
 
 <h2 id="use_sim_time"><code>use_sim_time</code></h2>
 
@@ -2241,17 +2287,21 @@ simple_launch
 
 <p>In all cases, if the <code>use_sim_time</code> parameter is explicitely given to a node, it will be used instead of the <code>SimpleLauncher</code> instance one.</p>
 
-<h2 id="wrapper-around-opaquefunction">Wrapper around <code>OpaqueFunction</code>
+<h2 id="opaquefunction-with-implicit-perform-context">
+<code>OpaqueFunction</code> with implicit <code>.perform(context)</code>
 </h2>
 
 <p>Most of the use cases can be dealt with substitutions and <code>with sl.group</code> blocks.
 In order to design more imperative launch files, the <a href="https://discourse.ros.org/t/simplifying-launch-argument-declaration-and-initialization-in-launch-files/24204"><code>OpaqueFunction</code></a> approach can be used. The main drawback is that potential errors are harder to track.</p>
 
-<p>To do this with <code>simple_launch</code>:
-  - the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.
-  - then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.
-  - all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.
-  - finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</p>
+<p>To do this with <code>simple_launch</code>:</p>
+
+<ul>
+<li>the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.</li>
+<li>then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.</li>
+<li>all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.</li>
+<li>finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</li>
+</ul>
 
 <p>Compare <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_launch.py"><code>example_launch.py</code></a> and <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_opaque_launch.py"><code>example_opaque_launch.py</code></a> to see the two approaches on the same logic.</p>
 
@@ -2383,7 +2433,7 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <code>file_dir</code> is the path inside the package</li>
 </ul>
 
-<p>If <code>file_dir</code> is <code>None</code> then the <code>find</code> function will actually look for the file inside the package share, assuming that <code>package</code> and <code>file_name</code> are raw strings.</p>
+<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
 
 <p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
 
@@ -2397,7 +2447,7 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <li>
 <code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
 <li>
-<code>xacro_args</code> are passed to xacro</li>
+<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
 <li>
 <code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
 <li>
@@ -2411,6 +2461,8 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <h3 id="rviz">Rviz</h3>
 
 <p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
+
+<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
 
 <h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
 
@@ -2444,11 +2496,11 @@ def generate_launch_description():
     sl.declare_arg('use_gui', default_value = True, description='Use JSP gui')
 
     xacro_args = sl.arg_map('prefix', 'x', 'y')
-    xacro_args['prefix'] = [xacro_args['prefix'], ':']
+    xacro_args['prefix'] += '/'  # can sum substitutions and strings
 
     with sl.group(ns=sl.arg('prefix')):
         sl.robot_state_publisher('simple_launch', 'turret.xacro', xacro_args = xacro_args)
-        sl.joint_state_publisher(sources_list = ['source_joints'], use_gui = sl.arg('use_gui'))
+        sl.joint_state_publisher(use_gui = sl.arg('use_gui'))
 
     return sl.launch_description()
 
@@ -2555,7 +2607,9 @@ def generate_launch_description():
     return sl.launch_description()
 
 </code></pre></div>
-<!-- ## Events and parameters -->
+<h3 id="events-and-parameters">Events and parameters</h3>
+
+<p>This <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/event_tutorial_launch.py">example file</a> is another way to write the <a href="https://docs.ros.org/en/rolling/Tutorials/Intermediate/Launch/Using-Event-Handlers.html">event launch example</a>.</p>
 
 <h3 id="auto-sim-time">auto sim time</h3>
 
@@ -2621,9 +2675,11 @@ def generate_launch_description():
 </code></pre></div>
 <h2 id="i-want-more-examples">I want more examples</h2>
 
-<p>Other self-contained examples (and slides) have been used to teach the ROS 2 launch file system.</p>
+<p>Other self-contained examples (and slides) have been used to teach the ROS 2 launch file system and the nav stack.</p>
 
-<p>They are available in the <a href="https://github.com/oKermorgant/anf_launch">anf_launch</a> package.</p>
+<p>Various aspects of the launch systen are shown in the <a href="https://github.com/oKermorgant/anf_launch">anf_launch</a> package.</p>
+
+<p>A simple tutorial on <code>Nav2</code>  using <code>simple_launch</code> is available in the <a href="https://github.com/oKermorgant/anf_nav">anf_nav</a> package.</p>
 </div>
               </div>
             </div>
@@ -2639,6 +2695,16 @@ def generate_launch_description():
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-simple_launch">Changelog for package simple_launch</h1>
+
+<h2 id="1-8-0-2023-11-20">1.8.0 (2023-11-20)</h2>
+
+<ul>
+<li>  sync documentation and examples</li>
+<li>  when instead of after for events</li>
+<li>  scoped events</li>
+<li>  add event wrapper</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
 
 <h2 id="1-7-2-2023-10-02">1.7.2 (2023-10-02)</h2>
 
@@ -3353,7 +3419,7 @@ simple_launch
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>1.7.2</td>
+                <td>1.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -3609,7 +3675,7 @@ simple_launch
 
 <p><code>simple_launch</code> allows declaring launch arguments and getting them in return.</p>
 
-<p>Most all methods listed below return an instance of <code>SimpleSubstitution</code> that represents any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type. If run from an <code>OpaqueFunction</code> the underlying Python variable is returned.</p>
+<p>Methods listed below return instances of <code>SimpleSubstitution</code> that represents any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type. If run from an <code>OpaqueFunction</code> the underlying Python variable is returned.</p>
 
 <h3 id="declare-a-launch-argument">Declare a launch argument</h3>
 
@@ -3625,9 +3691,11 @@ simple_launch
 
 <p>Typical when forwarding some launch arguments to a node or an included launch file.</p>
 
-<h2 id="logic-groups">Logic groups</h2>
+<h2 id="groups-or-scopes">Groups or scopes</h2>
 
-<p>Groups are created through the <code>with sl.group():</code> syntax and accept, a namespace an if/unless condition and an event:</p>
+<p>Groups are created through the <code>with sl.group():</code> syntax and accept, a namespace an if/unless condition and an event.</p>
+
+<p>Actions that are added in a scope inherit from all previous defined groups.</p>
 
 <h3 id="by-namespace">By namespace</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(ns=sub_namespace):
@@ -3642,7 +3710,10 @@ simple_launch
     sl.node(package, executable)
 
 </code></pre></div>
-<p>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</p>
+<ul>
+<li>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</li>
+<li>Combining conditions is work in progress as <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can be combined</a>.</li>
+</ul>
 
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
@@ -3659,21 +3730,29 @@ simple_launch
 </code></pre></div>
 <p>If <code>if_arg</code> / <code>unless_arg</code> is not a string then it is considered as a <code>if_condition</code> / <code>unless_condition</code>.</p>
 
-<h3 id="from-events-work-in-progress-api-subject-to-change">From events (work in progress, API subject to change)</h3>
+<h3 id="from-events">From events</h3>
 
-<p>The <code>when</code> argument wraps events from the <code>launch.event_handlers</code> module. It combine an event and a delay (0 by default)</p>
-<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch.events import After, OnProcessStart, OnProcessExit
+<p>The <code>when</code> argument wraps events from the <code>launch.event_handlers</code> module. It combines an event and a delay (0 by default)</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch.events import When, OnProcessStart, OnProcessExit, OnProcessIO
 
-    my_node = sl.node(...)   # reference node
+  my_node = sl.node(...)   # reference node
 
-    with sl.group(when = After(my_node, OnProcessStart, 1.)):
-        sl.node(...)  # will run 1 s after main node starts
+  with sl.group(when = When(my_node, OnProcessStart, 1.)):
+      sl.node(...)  # will run 1 s after main node starts
 
-    with sl.group(when = After(my_node, OnProcessExit)):
-        sl.node(...)  # will run as soon as the main node exists
+  with sl.group(when = When(my_node, OnProcessExit)):
+      sl.node(...)  # will run as soon as the main node exists
 
-    with sl.group(when = After(delay = 2.)):
-        sl.node(...)  # will run after 2 sec
+  with sl.group(when = When(my_node, OnProcessIO, io = 'stdout'):
+      # OnProcessIO events need a function changing the event into an action
+      sl.add_action(lambda event: LogInfo(msg = 'Node says "{}"'.format(
+                      event.text.decode().strip())))
+      # several functions can be used if needed, they will be combined in a single one
+      sl.add_action(lambda event: LogInfo(msg = 'Once again, node says "{}"'.format(
+                      event.text.decode().strip())))
+
+  with sl.group(when = When(delay = 2.)):
+      sl.node(...)  # will run after 2 sec
 
 </code></pre></div>
 <h3 id="creating-containers">Creating containers</h3>
@@ -3687,7 +3766,7 @@ simple_launch
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.container(name='my_container', output='screen', executable='component_container_isolated'):
 
 </code></pre></div>
-<p><strong><em>It is currently impossible to have group blocks within a container block, as containers can only accept <code>ComposableNode</code>s</em></strong></p>
+<p><strong><em>It is currently impossible to have group blocks within a container block, as containers can only accept <code>ComposableNode</code>s</em></strong>. A <code>GroupAction</code> containing e.g. <code>PushRosNamespace</code> and a <code>ComposableNode</code> is not itself a <code>ComposableNode</code>.</p>
 
 <h2 id="use_sim_time"><code>use_sim_time</code></h2>
 
@@ -3703,17 +3782,21 @@ simple_launch
 
 <p>In all cases, if the <code>use_sim_time</code> parameter is explicitely given to a node, it will be used instead of the <code>SimpleLauncher</code> instance one.</p>
 
-<h2 id="wrapper-around-opaquefunction">Wrapper around <code>OpaqueFunction</code>
+<h2 id="opaquefunction-with-implicit-perform-context">
+<code>OpaqueFunction</code> with implicit <code>.perform(context)</code>
 </h2>
 
 <p>Most of the use cases can be dealt with substitutions and <code>with sl.group</code> blocks.
 In order to design more imperative launch files, the <a href="https://discourse.ros.org/t/simplifying-launch-argument-declaration-and-initialization-in-launch-files/24204"><code>OpaqueFunction</code></a> approach can be used. The main drawback is that potential errors are harder to track.</p>
 
-<p>To do this with <code>simple_launch</code>:
-  - the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.
-  - then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.
-  - all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.
-  - finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</p>
+<p>To do this with <code>simple_launch</code>:</p>
+
+<ul>
+<li>the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.</li>
+<li>then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.</li>
+<li>all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.</li>
+<li>finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</li>
+</ul>
 
 <p>Compare <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_launch.py"><code>example_launch.py</code></a> and <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_opaque_launch.py"><code>example_opaque_launch.py</code></a> to see the two approaches on the same logic.</p>
 
@@ -3845,7 +3928,7 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <code>file_dir</code> is the path inside the package</li>
 </ul>
 
-<p>If <code>file_dir</code> is <code>None</code> then the <code>find</code> function will actually look for the file inside the package share, assuming that <code>package</code> and <code>file_name</code> are raw strings.</p>
+<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
 
 <p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
 
@@ -3859,7 +3942,7 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <li>
 <code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
 <li>
-<code>xacro_args</code> are passed to xacro</li>
+<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
 <li>
 <code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
 <li>
@@ -3873,6 +3956,8 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <h3 id="rviz">Rviz</h3>
 
 <p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
+
+<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
 
 <h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
 
@@ -3906,11 +3991,11 @@ def generate_launch_description():
     sl.declare_arg('use_gui', default_value = True, description='Use JSP gui')
 
     xacro_args = sl.arg_map('prefix', 'x', 'y')
-    xacro_args['prefix'] = [xacro_args['prefix'], ':']
+    xacro_args['prefix'] += '/'  # can sum substitutions and strings
 
     with sl.group(ns=sl.arg('prefix')):
         sl.robot_state_publisher('simple_launch', 'turret.xacro', xacro_args = xacro_args)
-        sl.joint_state_publisher(sources_list = ['source_joints'], use_gui = sl.arg('use_gui'))
+        sl.joint_state_publisher(use_gui = sl.arg('use_gui'))
 
     return sl.launch_description()
 
@@ -4017,7 +4102,9 @@ def generate_launch_description():
     return sl.launch_description()
 
 </code></pre></div>
-<!-- ## Events and parameters -->
+<h3 id="events-and-parameters">Events and parameters</h3>
+
+<p>This <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/event_tutorial_launch.py">example file</a> is another way to write the <a href="https://docs.ros.org/en/rolling/Tutorials/Intermediate/Launch/Using-Event-Handlers.html">event launch example</a>.</p>
 
 <h3 id="auto-sim-time">auto sim time</h3>
 
@@ -4083,9 +4170,11 @@ def generate_launch_description():
 </code></pre></div>
 <h2 id="i-want-more-examples">I want more examples</h2>
 
-<p>Other self-contained examples (and slides) have been used to teach the ROS 2 launch file system.</p>
+<p>Other self-contained examples (and slides) have been used to teach the ROS 2 launch file system and the nav stack.</p>
 
-<p>They are available in the <a href="https://github.com/oKermorgant/anf_launch">anf_launch</a> package.</p>
+<p>Various aspects of the launch systen are shown in the <a href="https://github.com/oKermorgant/anf_launch">anf_launch</a> package.</p>
+
+<p>A simple tutorial on <code>Nav2</code>  using <code>simple_launch</code> is available in the <a href="https://github.com/oKermorgant/anf_nav">anf_nav</a> package.</p>
 </div>
               </div>
             </div>
@@ -4101,6 +4190,16 @@ def generate_launch_description():
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-simple_launch">Changelog for package simple_launch</h1>
+
+<h2 id="1-8-0-2023-11-20">1.8.0 (2023-11-20)</h2>
+
+<ul>
+<li>  sync documentation and examples</li>
+<li>  when instead of after for events</li>
+<li>  scoped events</li>
+<li>  add event wrapper</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
 
 <h2 id="1-7-2-2023-10-02">1.7.2 (2023-10-02)</h2>
 
@@ -4863,7 +4962,7 @@ simple_launch
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>1.7.2</td>
+                <td>1.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -5119,7 +5218,7 @@ simple_launch
 
 <p><code>simple_launch</code> allows declaring launch arguments and getting them in return.</p>
 
-<p>Most all methods listed below return an instance of <code>SimpleSubstitution</code> that represents any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type. If run from an <code>OpaqueFunction</code> the underlying Python variable is returned.</p>
+<p>Methods listed below return instances of <code>SimpleSubstitution</code> that represents any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type. If run from an <code>OpaqueFunction</code> the underlying Python variable is returned.</p>
 
 <h3 id="declare-a-launch-argument">Declare a launch argument</h3>
 
@@ -5135,9 +5234,11 @@ simple_launch
 
 <p>Typical when forwarding some launch arguments to a node or an included launch file.</p>
 
-<h2 id="logic-groups">Logic groups</h2>
+<h2 id="groups-or-scopes">Groups or scopes</h2>
 
-<p>Groups are created through the <code>with sl.group():</code> syntax and accept, a namespace an if/unless condition and an event:</p>
+<p>Groups are created through the <code>with sl.group():</code> syntax and accept, a namespace an if/unless condition and an event.</p>
+
+<p>Actions that are added in a scope inherit from all previous defined groups.</p>
 
 <h3 id="by-namespace">By namespace</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(ns=sub_namespace):
@@ -5152,7 +5253,10 @@ simple_launch
     sl.node(package, executable)
 
 </code></pre></div>
-<p>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</p>
+<ul>
+<li>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</li>
+<li>Combining conditions is work in progress as <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can be combined</a>.</li>
+</ul>
 
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
@@ -5169,21 +5273,29 @@ simple_launch
 </code></pre></div>
 <p>If <code>if_arg</code> / <code>unless_arg</code> is not a string then it is considered as a <code>if_condition</code> / <code>unless_condition</code>.</p>
 
-<h3 id="from-events-work-in-progress-api-subject-to-change">From events (work in progress, API subject to change)</h3>
+<h3 id="from-events">From events</h3>
 
-<p>The <code>when</code> argument wraps events from the <code>launch.event_handlers</code> module. It combine an event and a delay (0 by default)</p>
-<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch.events import After, OnProcessStart, OnProcessExit
+<p>The <code>when</code> argument wraps events from the <code>launch.event_handlers</code> module. It combines an event and a delay (0 by default)</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch.events import When, OnProcessStart, OnProcessExit, OnProcessIO
 
-    my_node = sl.node(...)   # reference node
+  my_node = sl.node(...)   # reference node
 
-    with sl.group(when = After(my_node, OnProcessStart, 1.)):
-        sl.node(...)  # will run 1 s after main node starts
+  with sl.group(when = When(my_node, OnProcessStart, 1.)):
+      sl.node(...)  # will run 1 s after main node starts
 
-    with sl.group(when = After(my_node, OnProcessExit)):
-        sl.node(...)  # will run as soon as the main node exists
+  with sl.group(when = When(my_node, OnProcessExit)):
+      sl.node(...)  # will run as soon as the main node exists
 
-    with sl.group(when = After(delay = 2.)):
-        sl.node(...)  # will run after 2 sec
+  with sl.group(when = When(my_node, OnProcessIO, io = 'stdout'):
+      # OnProcessIO events need a function changing the event into an action
+      sl.add_action(lambda event: LogInfo(msg = 'Node says "{}"'.format(
+                      event.text.decode().strip())))
+      # several functions can be used if needed, they will be combined in a single one
+      sl.add_action(lambda event: LogInfo(msg = 'Once again, node says "{}"'.format(
+                      event.text.decode().strip())))
+
+  with sl.group(when = When(delay = 2.)):
+      sl.node(...)  # will run after 2 sec
 
 </code></pre></div>
 <h3 id="creating-containers">Creating containers</h3>
@@ -5197,7 +5309,7 @@ simple_launch
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.container(name='my_container', output='screen', executable='component_container_isolated'):
 
 </code></pre></div>
-<p><strong><em>It is currently impossible to have group blocks within a container block, as containers can only accept <code>ComposableNode</code>s</em></strong></p>
+<p><strong><em>It is currently impossible to have group blocks within a container block, as containers can only accept <code>ComposableNode</code>s</em></strong>. A <code>GroupAction</code> containing e.g. <code>PushRosNamespace</code> and a <code>ComposableNode</code> is not itself a <code>ComposableNode</code>.</p>
 
 <h2 id="use_sim_time"><code>use_sim_time</code></h2>
 
@@ -5213,17 +5325,21 @@ simple_launch
 
 <p>In all cases, if the <code>use_sim_time</code> parameter is explicitely given to a node, it will be used instead of the <code>SimpleLauncher</code> instance one.</p>
 
-<h2 id="wrapper-around-opaquefunction">Wrapper around <code>OpaqueFunction</code>
+<h2 id="opaquefunction-with-implicit-perform-context">
+<code>OpaqueFunction</code> with implicit <code>.perform(context)</code>
 </h2>
 
 <p>Most of the use cases can be dealt with substitutions and <code>with sl.group</code> blocks.
 In order to design more imperative launch files, the <a href="https://discourse.ros.org/t/simplifying-launch-argument-declaration-and-initialization-in-launch-files/24204"><code>OpaqueFunction</code></a> approach can be used. The main drawback is that potential errors are harder to track.</p>
 
-<p>To do this with <code>simple_launch</code>:
-  - the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.
-  - then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.
-  - all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.
-  - finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</p>
+<p>To do this with <code>simple_launch</code>:</p>
+
+<ul>
+<li>the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.</li>
+<li>then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.</li>
+<li>all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.</li>
+<li>finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</li>
+</ul>
 
 <p>Compare <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_launch.py"><code>example_launch.py</code></a> and <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_opaque_launch.py"><code>example_opaque_launch.py</code></a> to see the two approaches on the same logic.</p>
 
@@ -5355,7 +5471,7 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <code>file_dir</code> is the path inside the package</li>
 </ul>
 
-<p>If <code>file_dir</code> is <code>None</code> then the <code>find</code> function will actually look for the file inside the package share, assuming that <code>package</code> and <code>file_name</code> are raw strings.</p>
+<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
 
 <p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
 
@@ -5369,7 +5485,7 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <li>
 <code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
 <li>
-<code>xacro_args</code> are passed to xacro</li>
+<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
 <li>
 <code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
 <li>
@@ -5383,6 +5499,8 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <h3 id="rviz">Rviz</h3>
 
 <p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
+
+<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
 
 <h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
 
@@ -5416,11 +5534,11 @@ def generate_launch_description():
     sl.declare_arg('use_gui', default_value = True, description='Use JSP gui')
 
     xacro_args = sl.arg_map('prefix', 'x', 'y')
-    xacro_args['prefix'] = [xacro_args['prefix'], ':']
+    xacro_args['prefix'] += '/'  # can sum substitutions and strings
 
     with sl.group(ns=sl.arg('prefix')):
         sl.robot_state_publisher('simple_launch', 'turret.xacro', xacro_args = xacro_args)
-        sl.joint_state_publisher(sources_list = ['source_joints'], use_gui = sl.arg('use_gui'))
+        sl.joint_state_publisher(use_gui = sl.arg('use_gui'))
 
     return sl.launch_description()
 
@@ -5527,7 +5645,9 @@ def generate_launch_description():
     return sl.launch_description()
 
 </code></pre></div>
-<!-- ## Events and parameters -->
+<h3 id="events-and-parameters">Events and parameters</h3>
+
+<p>This <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/event_tutorial_launch.py">example file</a> is another way to write the <a href="https://docs.ros.org/en/rolling/Tutorials/Intermediate/Launch/Using-Event-Handlers.html">event launch example</a>.</p>
 
 <h3 id="auto-sim-time">auto sim time</h3>
 
@@ -5593,9 +5713,11 @@ def generate_launch_description():
 </code></pre></div>
 <h2 id="i-want-more-examples">I want more examples</h2>
 
-<p>Other self-contained examples (and slides) have been used to teach the ROS 2 launch file system.</p>
+<p>Other self-contained examples (and slides) have been used to teach the ROS 2 launch file system and the nav stack.</p>
 
-<p>They are available in the <a href="https://github.com/oKermorgant/anf_launch">anf_launch</a> package.</p>
+<p>Various aspects of the launch systen are shown in the <a href="https://github.com/oKermorgant/anf_launch">anf_launch</a> package.</p>
+
+<p>A simple tutorial on <code>Nav2</code>  using <code>simple_launch</code> is available in the <a href="https://github.com/oKermorgant/anf_nav">anf_nav</a> package.</p>
 </div>
               </div>
             </div>
@@ -5611,6 +5733,16 @@ def generate_launch_description():
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-simple_launch">Changelog for package simple_launch</h1>
+
+<h2 id="1-8-0-2023-11-20">1.8.0 (2023-11-20)</h2>
+
+<ul>
+<li>  sync documentation and examples</li>
+<li>  when instead of after for events</li>
+<li>  scoped events</li>
+<li>  add event wrapper</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
 
 <h2 id="1-7-2-2023-10-02">1.7.2 (2023-10-02)</h2>
 
@@ -6325,7 +6457,7 @@ simple_launch
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>1.7.2</td>
+                <td>1.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -6581,7 +6713,7 @@ simple_launch
 
 <p><code>simple_launch</code> allows declaring launch arguments and getting them in return.</p>
 
-<p>Most all methods listed below return an instance of <code>SimpleSubstitution</code> that represents any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type. If run from an <code>OpaqueFunction</code> the underlying Python variable is returned.</p>
+<p>Methods listed below return instances of <code>SimpleSubstitution</code> that represents any Substitution, but that provides concatenation (<code>+</code>) and path concatenation (<code>/</code>) operators. It is still a <code>Substitution</code>, not a raw Python type. If run from an <code>OpaqueFunction</code> the underlying Python variable is returned.</p>
 
 <h3 id="declare-a-launch-argument">Declare a launch argument</h3>
 
@@ -6597,9 +6729,11 @@ simple_launch
 
 <p>Typical when forwarding some launch arguments to a node or an included launch file.</p>
 
-<h2 id="logic-groups">Logic groups</h2>
+<h2 id="groups-or-scopes">Groups or scopes</h2>
 
-<p>Groups are created through the <code>with sl.group():</code> syntax and accept, a namespace an if/unless condition and an event:</p>
+<p>Groups are created through the <code>with sl.group():</code> syntax and accept, a namespace an if/unless condition and an event.</p>
+
+<p>Actions that are added in a scope inherit from all previous defined groups.</p>
 
 <h3 id="by-namespace">By namespace</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(ns=sub_namespace):
@@ -6614,7 +6748,10 @@ simple_launch
     sl.node(package, executable)
 
 </code></pre></div>
-<p>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</p>
+<ul>
+<li>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</li>
+<li>Combining conditions is work in progress as <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can be combined</a>.</li>
+</ul>
 
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.group(if_arg='use_gui'):
@@ -6631,21 +6768,29 @@ simple_launch
 </code></pre></div>
 <p>If <code>if_arg</code> / <code>unless_arg</code> is not a string then it is considered as a <code>if_condition</code> / <code>unless_condition</code>.</p>
 
-<h3 id="from-events-work-in-progress-api-subject-to-change">From events (work in progress, API subject to change)</h3>
+<h3 id="from-events">From events</h3>
 
-<p>The <code>when</code> argument wraps events from the <code>launch.event_handlers</code> module. It combine an event and a delay (0 by default)</p>
-<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch.events import After, OnProcessStart, OnProcessExit
+<p>The <code>when</code> argument wraps events from the <code>launch.event_handlers</code> module. It combines an event and a delay (0 by default)</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch.events import When, OnProcessStart, OnProcessExit, OnProcessIO
 
-    my_node = sl.node(...)   # reference node
+  my_node = sl.node(...)   # reference node
 
-    with sl.group(when = After(my_node, OnProcessStart, 1.)):
-        sl.node(...)  # will run 1 s after main node starts
+  with sl.group(when = When(my_node, OnProcessStart, 1.)):
+      sl.node(...)  # will run 1 s after main node starts
 
-    with sl.group(when = After(my_node, OnProcessExit)):
-        sl.node(...)  # will run as soon as the main node exists
+  with sl.group(when = When(my_node, OnProcessExit)):
+      sl.node(...)  # will run as soon as the main node exists
 
-    with sl.group(when = After(delay = 2.)):
-        sl.node(...)  # will run after 2 sec
+  with sl.group(when = When(my_node, OnProcessIO, io = 'stdout'):
+      # OnProcessIO events need a function changing the event into an action
+      sl.add_action(lambda event: LogInfo(msg = 'Node says "{}"'.format(
+                      event.text.decode().strip())))
+      # several functions can be used if needed, they will be combined in a single one
+      sl.add_action(lambda event: LogInfo(msg = 'Once again, node says "{}"'.format(
+                      event.text.decode().strip())))
+
+  with sl.group(when = When(delay = 2.)):
+      sl.node(...)  # will run after 2 sec
 
 </code></pre></div>
 <h3 id="creating-containers">Creating containers</h3>
@@ -6659,7 +6804,7 @@ simple_launch
 <div class="highlight"><pre><code class="language-" data-lang="">  with sl.container(name='my_container', output='screen', executable='component_container_isolated'):
 
 </code></pre></div>
-<p><strong><em>It is currently impossible to have group blocks within a container block, as containers can only accept <code>ComposableNode</code>s</em></strong></p>
+<p><strong><em>It is currently impossible to have group blocks within a container block, as containers can only accept <code>ComposableNode</code>s</em></strong>. A <code>GroupAction</code> containing e.g. <code>PushRosNamespace</code> and a <code>ComposableNode</code> is not itself a <code>ComposableNode</code>.</p>
 
 <h2 id="use_sim_time"><code>use_sim_time</code></h2>
 
@@ -6675,17 +6820,21 @@ simple_launch
 
 <p>In all cases, if the <code>use_sim_time</code> parameter is explicitely given to a node, it will be used instead of the <code>SimpleLauncher</code> instance one.</p>
 
-<h2 id="wrapper-around-opaquefunction">Wrapper around <code>OpaqueFunction</code>
+<h2 id="opaquefunction-with-implicit-perform-context">
+<code>OpaqueFunction</code> with implicit <code>.perform(context)</code>
 </h2>
 
 <p>Most of the use cases can be dealt with substitutions and <code>with sl.group</code> blocks.
 In order to design more imperative launch files, the <a href="https://discourse.ros.org/t/simplifying-launch-argument-declaration-and-initialization-in-launch-files/24204"><code>OpaqueFunction</code></a> approach can be used. The main drawback is that potential errors are harder to track.</p>
 
-<p>To do this with <code>simple_launch</code>:
-  - the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.
-  - then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.
-  - all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.
-  - finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</p>
+<p>To do this with <code>simple_launch</code>:</p>
+
+<ul>
+<li>the <code>SimpleLauncher</code> instance and the argument declaration should be done in the main body of your launch file.</li>
+<li>then, define a function (e.g. <code>launch_setup</code>) that takes no argument, where the logic of the launch file resides.</li>
+<li>all arguments obtained through <code>sl.arg</code> will be basic Python types, obtained from performing the substitutions.</li>
+<li>finally just export <code>generate_launch_description = sl.launch_description(opaque_function = launch_setup)</code>.</li>
+</ul>
 
 <p>Compare <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_launch.py"><code>example_launch.py</code></a> and <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/example_opaque_launch.py"><code>example_opaque_launch.py</code></a> to see the two approaches on the same logic.</p>
 
@@ -6817,7 +6966,7 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <code>file_dir</code> is the path inside the package</li>
 </ul>
 
-<p>If <code>file_dir</code> is <code>None</code> then the <code>find</code> function will actually look for the file inside the package share, assuming that <code>package</code> and <code>file_name</code> are raw strings.</p>
+<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
 
 <p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
 
@@ -6831,7 +6980,7 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <li>
 <code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
 <li>
-<code>xacro_args</code> are passed to xacro</li>
+<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
 <li>
 <code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
 <li>
@@ -6845,6 +6994,8 @@ urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
 <h3 id="rviz">Rviz</h3>
 
 <p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
+
+<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
 
 <h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
 
@@ -6878,11 +7029,11 @@ def generate_launch_description():
     sl.declare_arg('use_gui', default_value = True, description='Use JSP gui')
 
     xacro_args = sl.arg_map('prefix', 'x', 'y')
-    xacro_args['prefix'] = [xacro_args['prefix'], ':']
+    xacro_args['prefix'] += '/'  # can sum substitutions and strings
 
     with sl.group(ns=sl.arg('prefix')):
         sl.robot_state_publisher('simple_launch', 'turret.xacro', xacro_args = xacro_args)
-        sl.joint_state_publisher(sources_list = ['source_joints'], use_gui = sl.arg('use_gui'))
+        sl.joint_state_publisher(use_gui = sl.arg('use_gui'))
 
     return sl.launch_description()
 
@@ -6989,7 +7140,9 @@ def generate_launch_description():
     return sl.launch_description()
 
 </code></pre></div>
-<!-- ## Events and parameters -->
+<h3 id="events-and-parameters">Events and parameters</h3>
+
+<p>This <a href="https://github.com/oKermorgant/simple_launch/tree/devel/./example/event_tutorial_launch.py">example file</a> is another way to write the <a href="https://docs.ros.org/en/rolling/Tutorials/Intermediate/Launch/Using-Event-Handlers.html">event launch example</a>.</p>
 
 <h3 id="auto-sim-time">auto sim time</h3>
 
@@ -7055,9 +7208,11 @@ def generate_launch_description():
 </code></pre></div>
 <h2 id="i-want-more-examples">I want more examples</h2>
 
-<p>Other self-contained examples (and slides) have been used to teach the ROS 2 launch file system.</p>
+<p>Other self-contained examples (and slides) have been used to teach the ROS 2 launch file system and the nav stack.</p>
 
-<p>They are available in the <a href="https://github.com/oKermorgant/anf_launch">anf_launch</a> package.</p>
+<p>Various aspects of the launch systen are shown in the <a href="https://github.com/oKermorgant/anf_launch">anf_launch</a> package.</p>
+
+<p>A simple tutorial on <code>Nav2</code>  using <code>simple_launch</code> is available in the <a href="https://github.com/oKermorgant/anf_nav">anf_nav</a> package.</p>
 </div>
               </div>
             </div>
@@ -7073,6 +7228,16 @@ def generate_launch_description():
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-simple_launch">Changelog for package simple_launch</h1>
+
+<h2 id="1-8-0-2023-11-20">1.8.0 (2023-11-20)</h2>
+
+<ul>
+<li>  sync documentation and examples</li>
+<li>  when instead of after for events</li>
+<li>  scoped events</li>
+<li>  add event wrapper</li>
+<li>  Contributors: Olivier Kermorgant</li>
+</ul>
 
 <h2 id="1-7-2-2023-10-02">1.7.2 (2023-10-02)</h2>
 
@@ -7706,7 +7871,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure/rosindex</span>
           </a>
           |
-          <em>generated on 2023-11-20</em>
+          <em>generated on 2023-11-21</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
