@@ -356,7 +356,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-20
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-22
         </span>
       </td>
     </tr>
@@ -586,7 +586,7 @@
 </code></pre></div>
 <ul>
 <li>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</li>
-<li>Combining conditions is work in progress as <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can be combined</a>.</li>
+<li>Combining conditions coming from launch arguments can be done with <code>sl.py_eval</code> as shown below.</li>
 </ul>
 
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
@@ -688,6 +688,93 @@ else:
   # do other stuff
 
 </code></pre></div>
+<h2 id="other-shortcuts">Other shortcuts</h2>
+
+<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
+
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
+
+<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
+
+<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
+
+<h3 id="path-concatenation">Path concatenation</h3>
+
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
+urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
+
+</code></pre></div>
+<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
+
+<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
+
+<h3 id="find-a-share-file">Find a share file</h3>
+
+<p><code>path = sl.find(package, file_name = None, file_dir = None)</code> where:</p>
+
+<ul>
+<li>
+<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
+<li>
+<code>file_name</code> is the name of the file to find</li>
+<li>
+<code>file_dir</code> is the path inside the package</li>
+</ul>
+
+<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
+
+<p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
+
+<h3 id="robot-state-publisher">Robot state publisher</h3>
+
+<p><code>sl.robot_state_publisher(package, description_file, description_dir=None, xacro_args=None, prefix_gz_plugins=False, **node_args)</code> where</p>
+
+<ul>
+<li>
+<code>description_file</code> is a URDF or xacro file</li>
+<li>
+<code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
+<li>
+<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
+<li>
+<code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
+<li>
+<code>node_args</code> are any additional arguments for <code>robot_state_publisher</code> (typically remapping)</li>
+</ul>
+
+<h3 id="python-expressions">Python expressions</h3>
+
+<p><code>sl.py_eval</code> will evaluate the given arguments as a Python expression, possibly performed if in an Opaque Function.</p>
+<div class="highlight"><pre><code class="language-" data-lang=""># RGB color as a list of [0-255] integers
+sl.declare_arg('color', [255,0,0])
+# same color as a string of [0-1] numbers (URDF format), note the padding commas to get a string
+xacro_color = "'" + sl.py_eval("' '.join(str(c/255) for c in ", sl.arg('color'), ')') + "'"
+
+</code></pre></div>
+<h3 id="conditions">Conditions</h3>
+
+<p><code>sl.py_eval</code> can be used to combine conditions. It is robust to lower case <code>true</code> or <code>false</code> and will return a <code>SimpleSubstitution</code>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">sl.declare_arg('some_condition', True)
+opposed = sl.py_eval('not ', sl.arg('some_condition'))
+
+</code></pre></div>
+<p>Note that <code>IfCondition</code> and <code>UnlessCondition</code> cannot be combined, <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can</a>.</p>
+
+<h3 id="joint-state-publisher">Joint state publisher</h3>
+
+<p><code>sl.joint_state_publisher(use_gui, **node_args)</code>: fires up a <code>joint_state_publisher</code>, with or without the gui.</p>
+
+<h3 id="rviz">Rviz</h3>
+
+<p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
+
+<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
+
+<h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
+
+<p>If any unavailable functionality is needed, the <code>sl.add_action(action)</code> function adds any passed <code>Action</code> at the current namespace / conditional / event level.</p>
+
 <h2 id="interaction-with-gazebo-ignition">Interaction with Gazebo / Ignition</h2>
 
 <p><em>Note: Ignition being renamed to Gazebo, all tools in this section use Gazebo / gz names</em></p>
@@ -767,75 +854,6 @@ sl.spawn_gz_model(name, spawn_args = sl.gazebo_axes_args())
 
 <p>The SimpleLauncher instance can then run all created bridges with: <code>sl.create_gz_bridge([bridges], &lt;node_name&gt;)</code>, as illustrated in the examples at this end of this document.
 If some bridges involve <code>sensor_msgs/Image</code> then a dedicated <code>ros_gz_image</code> bridge will be used. The corresponding <code>camera_info</code> topic will be automatically bridged.</p>
-
-<h2 id="other-shortcuts">Other shortcuts</h2>
-
-<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
-
-<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
-
-<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
-
-<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
-
-<h3 id="path-concatenation">Path concatenation</h3>
-
-<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
-urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
-
-</code></pre></div>
-<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
-
-<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
-
-<h3 id="find-a-share-file">Find a share file</h3>
-
-<p><code>path = sl.find(package, file_name = None, file_dir = None)</code> where:</p>
-
-<ul>
-<li>
-<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
-<li>
-<code>file_name</code> is the name of the file to find</li>
-<li>
-<code>file_dir</code> is the path inside the package</li>
-</ul>
-
-<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
-
-<p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
-
-<h3 id="robot-state-publisher">Robot state publisher</h3>
-
-<p><code>sl.robot_state_publisher(package, description_file, description_dir=None, xacro_args=None, prefix_gz_plugins=False, **node_args)</code> where</p>
-
-<ul>
-<li>
-<code>description_file</code> is a URDF or xacro file</li>
-<li>
-<code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
-<li>
-<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
-<li>
-<code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
-<li>
-<code>node_args</code> are any additional arguments for <code>robot_state_publisher</code> (typically remapping)</li>
-</ul>
-
-<h3 id="joint-state-publisher">Joint state publisher</h3>
-
-<p><code>sl.joint_state_publisher(use_gui, **node_args)</code>: fires up a <code>joint_state_publisher</code>, with or without the gui.</p>
-
-<h3 id="rviz">Rviz</h3>
-
-<p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
-
-<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
-
-<h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
-
-<p>If any unavailable functionality is needed, the <code>sl.add_action(action)</code> function adds any passed <code>Action</code> at the current namespace / conditional / event level.</p>
 
 <h2 id="examples">Examples</h2>
 
@@ -958,6 +976,33 @@ def launch_setup():
 # /!\ no `def generate_launch_description():`
 
 generate_launch_description = sl.launch_description(opaque_function = launch_setup)
+
+</code></pre></div>
+<h3 id="combining-conditions">Combining conditions</h3>
+
+<p>The file below shows how to use <code>sl.py_eval</code> to combine conditions. We have to build a valid Python expression, not forgetting the spaces around <code>and</code>/<code>or</code>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    cond1 = sl.declare_arg('cond1', True)
+    cond2 = sl.declare_arg('cond2', False)
+
+    for logic in ('and', 'or'):
+
+        # builds &lt;cond1&gt; &lt;logic&gt; &lt;cond2&gt; Python expression
+        combined = sl.py_eval(cond1, f' {logic} ', cond2)
+
+        sl.log_info([f'{logic} condition is ', combined])
+
+        with sl.group(if_condition = combined):
+            sl.node('demo_nodes_cpp', 'talker', name = f'talker_{logic}')
+
+        # also works with sl.node(..., condition = IfCondition(combined))
+
+    return sl.launch_description()
 
 </code></pre></div>
 <h3 id="composition">Composition</h3>
@@ -1096,7 +1141,7 @@ def generate_launch_description():
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-20
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-22
         </span>
       </td>
     </tr>
@@ -1326,7 +1371,7 @@ def generate_launch_description():
 </code></pre></div>
 <ul>
 <li>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</li>
-<li>Combining conditions is work in progress as <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can be combined</a>.</li>
+<li>Combining conditions coming from launch arguments can be done with <code>sl.py_eval</code> as shown below.</li>
 </ul>
 
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
@@ -1428,6 +1473,93 @@ else:
   # do other stuff
 
 </code></pre></div>
+<h2 id="other-shortcuts">Other shortcuts</h2>
+
+<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
+
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
+
+<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
+
+<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
+
+<h3 id="path-concatenation">Path concatenation</h3>
+
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
+urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
+
+</code></pre></div>
+<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
+
+<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
+
+<h3 id="find-a-share-file">Find a share file</h3>
+
+<p><code>path = sl.find(package, file_name = None, file_dir = None)</code> where:</p>
+
+<ul>
+<li>
+<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
+<li>
+<code>file_name</code> is the name of the file to find</li>
+<li>
+<code>file_dir</code> is the path inside the package</li>
+</ul>
+
+<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
+
+<p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
+
+<h3 id="robot-state-publisher">Robot state publisher</h3>
+
+<p><code>sl.robot_state_publisher(package, description_file, description_dir=None, xacro_args=None, prefix_gz_plugins=False, **node_args)</code> where</p>
+
+<ul>
+<li>
+<code>description_file</code> is a URDF or xacro file</li>
+<li>
+<code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
+<li>
+<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
+<li>
+<code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
+<li>
+<code>node_args</code> are any additional arguments for <code>robot_state_publisher</code> (typically remapping)</li>
+</ul>
+
+<h3 id="python-expressions">Python expressions</h3>
+
+<p><code>sl.py_eval</code> will evaluate the given arguments as a Python expression, possibly performed if in an Opaque Function.</p>
+<div class="highlight"><pre><code class="language-" data-lang=""># RGB color as a list of [0-255] integers
+sl.declare_arg('color', [255,0,0])
+# same color as a string of [0-1] numbers (URDF format), note the padding commas to get a string
+xacro_color = "'" + sl.py_eval("' '.join(str(c/255) for c in ", sl.arg('color'), ')') + "'"
+
+</code></pre></div>
+<h3 id="conditions">Conditions</h3>
+
+<p><code>sl.py_eval</code> can be used to combine conditions. It is robust to lower case <code>true</code> or <code>false</code> and will return a <code>SimpleSubstitution</code>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">sl.declare_arg('some_condition', True)
+opposed = sl.py_eval('not ', sl.arg('some_condition'))
+
+</code></pre></div>
+<p>Note that <code>IfCondition</code> and <code>UnlessCondition</code> cannot be combined, <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can</a>.</p>
+
+<h3 id="joint-state-publisher">Joint state publisher</h3>
+
+<p><code>sl.joint_state_publisher(use_gui, **node_args)</code>: fires up a <code>joint_state_publisher</code>, with or without the gui.</p>
+
+<h3 id="rviz">Rviz</h3>
+
+<p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
+
+<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
+
+<h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
+
+<p>If any unavailable functionality is needed, the <code>sl.add_action(action)</code> function adds any passed <code>Action</code> at the current namespace / conditional / event level.</p>
+
 <h2 id="interaction-with-gazebo-ignition">Interaction with Gazebo / Ignition</h2>
 
 <p><em>Note: Ignition being renamed to Gazebo, all tools in this section use Gazebo / gz names</em></p>
@@ -1507,75 +1639,6 @@ sl.spawn_gz_model(name, spawn_args = sl.gazebo_axes_args())
 
 <p>The SimpleLauncher instance can then run all created bridges with: <code>sl.create_gz_bridge([bridges], &lt;node_name&gt;)</code>, as illustrated in the examples at this end of this document.
 If some bridges involve <code>sensor_msgs/Image</code> then a dedicated <code>ros_gz_image</code> bridge will be used. The corresponding <code>camera_info</code> topic will be automatically bridged.</p>
-
-<h2 id="other-shortcuts">Other shortcuts</h2>
-
-<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
-
-<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
-
-<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
-
-<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
-
-<h3 id="path-concatenation">Path concatenation</h3>
-
-<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
-urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
-
-</code></pre></div>
-<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
-
-<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
-
-<h3 id="find-a-share-file">Find a share file</h3>
-
-<p><code>path = sl.find(package, file_name = None, file_dir = None)</code> where:</p>
-
-<ul>
-<li>
-<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
-<li>
-<code>file_name</code> is the name of the file to find</li>
-<li>
-<code>file_dir</code> is the path inside the package</li>
-</ul>
-
-<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
-
-<p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
-
-<h3 id="robot-state-publisher">Robot state publisher</h3>
-
-<p><code>sl.robot_state_publisher(package, description_file, description_dir=None, xacro_args=None, prefix_gz_plugins=False, **node_args)</code> where</p>
-
-<ul>
-<li>
-<code>description_file</code> is a URDF or xacro file</li>
-<li>
-<code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
-<li>
-<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
-<li>
-<code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
-<li>
-<code>node_args</code> are any additional arguments for <code>robot_state_publisher</code> (typically remapping)</li>
-</ul>
-
-<h3 id="joint-state-publisher">Joint state publisher</h3>
-
-<p><code>sl.joint_state_publisher(use_gui, **node_args)</code>: fires up a <code>joint_state_publisher</code>, with or without the gui.</p>
-
-<h3 id="rviz">Rviz</h3>
-
-<p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
-
-<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
-
-<h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
-
-<p>If any unavailable functionality is needed, the <code>sl.add_action(action)</code> function adds any passed <code>Action</code> at the current namespace / conditional / event level.</p>
 
 <h2 id="examples">Examples</h2>
 
@@ -1698,6 +1761,33 @@ def launch_setup():
 # /!\ no `def generate_launch_description():`
 
 generate_launch_description = sl.launch_description(opaque_function = launch_setup)
+
+</code></pre></div>
+<h3 id="combining-conditions">Combining conditions</h3>
+
+<p>The file below shows how to use <code>sl.py_eval</code> to combine conditions. We have to build a valid Python expression, not forgetting the spaces around <code>and</code>/<code>or</code>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    cond1 = sl.declare_arg('cond1', True)
+    cond2 = sl.declare_arg('cond2', False)
+
+    for logic in ('and', 'or'):
+
+        # builds &lt;cond1&gt; &lt;logic&gt; &lt;cond2&gt; Python expression
+        combined = sl.py_eval(cond1, f' {logic} ', cond2)
+
+        sl.log_info([f'{logic} condition is ', combined])
+
+        with sl.group(if_condition = combined):
+            sl.node('demo_nodes_cpp', 'talker', name = f'talker_{logic}')
+
+        # also works with sl.node(..., condition = IfCondition(combined))
+
+    return sl.launch_description()
 
 </code></pre></div>
 <h3 id="composition">Composition</h3>
@@ -1836,7 +1926,7 @@ def generate_launch_description():
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-20
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-22
         </span>
       </td>
     </tr>
@@ -2066,7 +2156,7 @@ def generate_launch_description():
 </code></pre></div>
 <ul>
 <li>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</li>
-<li>Combining conditions is work in progress as <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can be combined</a>.</li>
+<li>Combining conditions coming from launch arguments can be done with <code>sl.py_eval</code> as shown below.</li>
 </ul>
 
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
@@ -2168,6 +2258,93 @@ else:
   # do other stuff
 
 </code></pre></div>
+<h2 id="other-shortcuts">Other shortcuts</h2>
+
+<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
+
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
+
+<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
+
+<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
+
+<h3 id="path-concatenation">Path concatenation</h3>
+
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
+urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
+
+</code></pre></div>
+<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
+
+<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
+
+<h3 id="find-a-share-file">Find a share file</h3>
+
+<p><code>path = sl.find(package, file_name = None, file_dir = None)</code> where:</p>
+
+<ul>
+<li>
+<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
+<li>
+<code>file_name</code> is the name of the file to find</li>
+<li>
+<code>file_dir</code> is the path inside the package</li>
+</ul>
+
+<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
+
+<p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
+
+<h3 id="robot-state-publisher">Robot state publisher</h3>
+
+<p><code>sl.robot_state_publisher(package, description_file, description_dir=None, xacro_args=None, prefix_gz_plugins=False, **node_args)</code> where</p>
+
+<ul>
+<li>
+<code>description_file</code> is a URDF or xacro file</li>
+<li>
+<code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
+<li>
+<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
+<li>
+<code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
+<li>
+<code>node_args</code> are any additional arguments for <code>robot_state_publisher</code> (typically remapping)</li>
+</ul>
+
+<h3 id="python-expressions">Python expressions</h3>
+
+<p><code>sl.py_eval</code> will evaluate the given arguments as a Python expression, possibly performed if in an Opaque Function.</p>
+<div class="highlight"><pre><code class="language-" data-lang=""># RGB color as a list of [0-255] integers
+sl.declare_arg('color', [255,0,0])
+# same color as a string of [0-1] numbers (URDF format), note the padding commas to get a string
+xacro_color = "'" + sl.py_eval("' '.join(str(c/255) for c in ", sl.arg('color'), ')') + "'"
+
+</code></pre></div>
+<h3 id="conditions">Conditions</h3>
+
+<p><code>sl.py_eval</code> can be used to combine conditions. It is robust to lower case <code>true</code> or <code>false</code> and will return a <code>SimpleSubstitution</code>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">sl.declare_arg('some_condition', True)
+opposed = sl.py_eval('not ', sl.arg('some_condition'))
+
+</code></pre></div>
+<p>Note that <code>IfCondition</code> and <code>UnlessCondition</code> cannot be combined, <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can</a>.</p>
+
+<h3 id="joint-state-publisher">Joint state publisher</h3>
+
+<p><code>sl.joint_state_publisher(use_gui, **node_args)</code>: fires up a <code>joint_state_publisher</code>, with or without the gui.</p>
+
+<h3 id="rviz">Rviz</h3>
+
+<p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
+
+<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
+
+<h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
+
+<p>If any unavailable functionality is needed, the <code>sl.add_action(action)</code> function adds any passed <code>Action</code> at the current namespace / conditional / event level.</p>
+
 <h2 id="interaction-with-gazebo-ignition">Interaction with Gazebo / Ignition</h2>
 
 <p><em>Note: Ignition being renamed to Gazebo, all tools in this section use Gazebo / gz names</em></p>
@@ -2247,75 +2424,6 @@ sl.spawn_gz_model(name, spawn_args = sl.gazebo_axes_args())
 
 <p>The SimpleLauncher instance can then run all created bridges with: <code>sl.create_gz_bridge([bridges], &lt;node_name&gt;)</code>, as illustrated in the examples at this end of this document.
 If some bridges involve <code>sensor_msgs/Image</code> then a dedicated <code>ros_gz_image</code> bridge will be used. The corresponding <code>camera_info</code> topic will be automatically bridged.</p>
-
-<h2 id="other-shortcuts">Other shortcuts</h2>
-
-<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
-
-<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
-
-<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
-
-<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
-
-<h3 id="path-concatenation">Path concatenation</h3>
-
-<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
-urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
-
-</code></pre></div>
-<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
-
-<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
-
-<h3 id="find-a-share-file">Find a share file</h3>
-
-<p><code>path = sl.find(package, file_name = None, file_dir = None)</code> where:</p>
-
-<ul>
-<li>
-<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
-<li>
-<code>file_name</code> is the name of the file to find</li>
-<li>
-<code>file_dir</code> is the path inside the package</li>
-</ul>
-
-<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
-
-<p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
-
-<h3 id="robot-state-publisher">Robot state publisher</h3>
-
-<p><code>sl.robot_state_publisher(package, description_file, description_dir=None, xacro_args=None, prefix_gz_plugins=False, **node_args)</code> where</p>
-
-<ul>
-<li>
-<code>description_file</code> is a URDF or xacro file</li>
-<li>
-<code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
-<li>
-<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
-<li>
-<code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
-<li>
-<code>node_args</code> are any additional arguments for <code>robot_state_publisher</code> (typically remapping)</li>
-</ul>
-
-<h3 id="joint-state-publisher">Joint state publisher</h3>
-
-<p><code>sl.joint_state_publisher(use_gui, **node_args)</code>: fires up a <code>joint_state_publisher</code>, with or without the gui.</p>
-
-<h3 id="rviz">Rviz</h3>
-
-<p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
-
-<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
-
-<h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
-
-<p>If any unavailable functionality is needed, the <code>sl.add_action(action)</code> function adds any passed <code>Action</code> at the current namespace / conditional / event level.</p>
 
 <h2 id="examples">Examples</h2>
 
@@ -2438,6 +2546,33 @@ def launch_setup():
 # /!\ no `def generate_launch_description():`
 
 generate_launch_description = sl.launch_description(opaque_function = launch_setup)
+
+</code></pre></div>
+<h3 id="combining-conditions">Combining conditions</h3>
+
+<p>The file below shows how to use <code>sl.py_eval</code> to combine conditions. We have to build a valid Python expression, not forgetting the spaces around <code>and</code>/<code>or</code>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    cond1 = sl.declare_arg('cond1', True)
+    cond2 = sl.declare_arg('cond2', False)
+
+    for logic in ('and', 'or'):
+
+        # builds &lt;cond1&gt; &lt;logic&gt; &lt;cond2&gt; Python expression
+        combined = sl.py_eval(cond1, f' {logic} ', cond2)
+
+        sl.log_info([f'{logic} condition is ', combined])
+
+        with sl.group(if_condition = combined):
+            sl.node('demo_nodes_cpp', 'talker', name = f'talker_{logic}')
+
+        # also works with sl.node(..., condition = IfCondition(combined))
+
+    return sl.launch_description()
 
 </code></pre></div>
 <h3 id="composition">Composition</h3>
@@ -2624,7 +2759,7 @@ def generate_launch_description():
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-20
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-22
         </span>
       </td>
     </tr>
@@ -2854,7 +2989,7 @@ def generate_launch_description():
 </code></pre></div>
 <ul>
 <li>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</li>
-<li>Combining conditions is work in progress as <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can be combined</a>.</li>
+<li>Combining conditions coming from launch arguments can be done with <code>sl.py_eval</code> as shown below.</li>
 </ul>
 
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
@@ -2956,6 +3091,93 @@ else:
   # do other stuff
 
 </code></pre></div>
+<h2 id="other-shortcuts">Other shortcuts</h2>
+
+<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
+
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
+
+<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
+
+<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
+
+<h3 id="path-concatenation">Path concatenation</h3>
+
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
+urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
+
+</code></pre></div>
+<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
+
+<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
+
+<h3 id="find-a-share-file">Find a share file</h3>
+
+<p><code>path = sl.find(package, file_name = None, file_dir = None)</code> where:</p>
+
+<ul>
+<li>
+<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
+<li>
+<code>file_name</code> is the name of the file to find</li>
+<li>
+<code>file_dir</code> is the path inside the package</li>
+</ul>
+
+<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
+
+<p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
+
+<h3 id="robot-state-publisher">Robot state publisher</h3>
+
+<p><code>sl.robot_state_publisher(package, description_file, description_dir=None, xacro_args=None, prefix_gz_plugins=False, **node_args)</code> where</p>
+
+<ul>
+<li>
+<code>description_file</code> is a URDF or xacro file</li>
+<li>
+<code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
+<li>
+<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
+<li>
+<code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
+<li>
+<code>node_args</code> are any additional arguments for <code>robot_state_publisher</code> (typically remapping)</li>
+</ul>
+
+<h3 id="python-expressions">Python expressions</h3>
+
+<p><code>sl.py_eval</code> will evaluate the given arguments as a Python expression, possibly performed if in an Opaque Function.</p>
+<div class="highlight"><pre><code class="language-" data-lang=""># RGB color as a list of [0-255] integers
+sl.declare_arg('color', [255,0,0])
+# same color as a string of [0-1] numbers (URDF format), note the padding commas to get a string
+xacro_color = "'" + sl.py_eval("' '.join(str(c/255) for c in ", sl.arg('color'), ')') + "'"
+
+</code></pre></div>
+<h3 id="conditions">Conditions</h3>
+
+<p><code>sl.py_eval</code> can be used to combine conditions. It is robust to lower case <code>true</code> or <code>false</code> and will return a <code>SimpleSubstitution</code>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">sl.declare_arg('some_condition', True)
+opposed = sl.py_eval('not ', sl.arg('some_condition'))
+
+</code></pre></div>
+<p>Note that <code>IfCondition</code> and <code>UnlessCondition</code> cannot be combined, <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can</a>.</p>
+
+<h3 id="joint-state-publisher">Joint state publisher</h3>
+
+<p><code>sl.joint_state_publisher(use_gui, **node_args)</code>: fires up a <code>joint_state_publisher</code>, with or without the gui.</p>
+
+<h3 id="rviz">Rviz</h3>
+
+<p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
+
+<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
+
+<h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
+
+<p>If any unavailable functionality is needed, the <code>sl.add_action(action)</code> function adds any passed <code>Action</code> at the current namespace / conditional / event level.</p>
+
 <h2 id="interaction-with-gazebo-ignition">Interaction with Gazebo / Ignition</h2>
 
 <p><em>Note: Ignition being renamed to Gazebo, all tools in this section use Gazebo / gz names</em></p>
@@ -3035,75 +3257,6 @@ sl.spawn_gz_model(name, spawn_args = sl.gazebo_axes_args())
 
 <p>The SimpleLauncher instance can then run all created bridges with: <code>sl.create_gz_bridge([bridges], &lt;node_name&gt;)</code>, as illustrated in the examples at this end of this document.
 If some bridges involve <code>sensor_msgs/Image</code> then a dedicated <code>ros_gz_image</code> bridge will be used. The corresponding <code>camera_info</code> topic will be automatically bridged.</p>
-
-<h2 id="other-shortcuts">Other shortcuts</h2>
-
-<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
-
-<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
-
-<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
-
-<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
-
-<h3 id="path-concatenation">Path concatenation</h3>
-
-<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
-urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
-
-</code></pre></div>
-<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
-
-<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
-
-<h3 id="find-a-share-file">Find a share file</h3>
-
-<p><code>path = sl.find(package, file_name = None, file_dir = None)</code> where:</p>
-
-<ul>
-<li>
-<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
-<li>
-<code>file_name</code> is the name of the file to find</li>
-<li>
-<code>file_dir</code> is the path inside the package</li>
-</ul>
-
-<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
-
-<p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
-
-<h3 id="robot-state-publisher">Robot state publisher</h3>
-
-<p><code>sl.robot_state_publisher(package, description_file, description_dir=None, xacro_args=None, prefix_gz_plugins=False, **node_args)</code> where</p>
-
-<ul>
-<li>
-<code>description_file</code> is a URDF or xacro file</li>
-<li>
-<code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
-<li>
-<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
-<li>
-<code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
-<li>
-<code>node_args</code> are any additional arguments for <code>robot_state_publisher</code> (typically remapping)</li>
-</ul>
-
-<h3 id="joint-state-publisher">Joint state publisher</h3>
-
-<p><code>sl.joint_state_publisher(use_gui, **node_args)</code>: fires up a <code>joint_state_publisher</code>, with or without the gui.</p>
-
-<h3 id="rviz">Rviz</h3>
-
-<p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
-
-<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
-
-<h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
-
-<p>If any unavailable functionality is needed, the <code>sl.add_action(action)</code> function adds any passed <code>Action</code> at the current namespace / conditional / event level.</p>
 
 <h2 id="examples">Examples</h2>
 
@@ -3226,6 +3379,33 @@ def launch_setup():
 # /!\ no `def generate_launch_description():`
 
 generate_launch_description = sl.launch_description(opaque_function = launch_setup)
+
+</code></pre></div>
+<h3 id="combining-conditions">Combining conditions</h3>
+
+<p>The file below shows how to use <code>sl.py_eval</code> to combine conditions. We have to build a valid Python expression, not forgetting the spaces around <code>and</code>/<code>or</code>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    cond1 = sl.declare_arg('cond1', True)
+    cond2 = sl.declare_arg('cond2', False)
+
+    for logic in ('and', 'or'):
+
+        # builds &lt;cond1&gt; &lt;logic&gt; &lt;cond2&gt; Python expression
+        combined = sl.py_eval(cond1, f' {logic} ', cond2)
+
+        sl.log_info([f'{logic} condition is ', combined])
+
+        with sl.group(if_condition = combined):
+            sl.node('demo_nodes_cpp', 'talker', name = f'talker_{logic}')
+
+        # also works with sl.node(..., condition = IfCondition(combined))
+
+    return sl.launch_description()
 
 </code></pre></div>
 <h3 id="composition">Composition</h3>
@@ -3364,7 +3544,7 @@ def generate_launch_description():
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-20
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-11-22
         </span>
       </td>
     </tr>
@@ -3594,7 +3774,7 @@ def generate_launch_description():
 </code></pre></div>
 <ul>
 <li>Only one condition can be set in a group, nested condition must be combined first, or used in nested groups.</li>
-<li>Combining conditions is work in progress as <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can be combined</a>.</li>
+<li>Combining conditions coming from launch arguments can be done with <code>sl.py_eval</code> as shown below.</li>
 </ul>
 
 <h3 id="from-conditional-arguments">From conditional arguments</h3>
@@ -3696,6 +3876,93 @@ else:
   # do other stuff
 
 </code></pre></div>
+<h2 id="other-shortcuts">Other shortcuts</h2>
+
+<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
+
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
+
+<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
+
+<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
+
+<h3 id="path-concatenation">Path concatenation</h3>
+
+<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
+<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
+urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
+
+</code></pre></div>
+<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
+
+<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
+
+<h3 id="find-a-share-file">Find a share file</h3>
+
+<p><code>path = sl.find(package, file_name = None, file_dir = None)</code> where:</p>
+
+<ul>
+<li>
+<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
+<li>
+<code>file_name</code> is the name of the file to find</li>
+<li>
+<code>file_dir</code> is the path inside the package</li>
+</ul>
+
+<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
+
+<p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
+
+<h3 id="robot-state-publisher">Robot state publisher</h3>
+
+<p><code>sl.robot_state_publisher(package, description_file, description_dir=None, xacro_args=None, prefix_gz_plugins=False, **node_args)</code> where</p>
+
+<ul>
+<li>
+<code>description_file</code> is a URDF or xacro file</li>
+<li>
+<code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
+<li>
+<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
+<li>
+<code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
+<li>
+<code>node_args</code> are any additional arguments for <code>robot_state_publisher</code> (typically remapping)</li>
+</ul>
+
+<h3 id="python-expressions">Python expressions</h3>
+
+<p><code>sl.py_eval</code> will evaluate the given arguments as a Python expression, possibly performed if in an Opaque Function.</p>
+<div class="highlight"><pre><code class="language-" data-lang=""># RGB color as a list of [0-255] integers
+sl.declare_arg('color', [255,0,0])
+# same color as a string of [0-1] numbers (URDF format), note the padding commas to get a string
+xacro_color = "'" + sl.py_eval("' '.join(str(c/255) for c in ", sl.arg('color'), ')') + "'"
+
+</code></pre></div>
+<h3 id="conditions">Conditions</h3>
+
+<p><code>sl.py_eval</code> can be used to combine conditions. It is robust to lower case <code>true</code> or <code>false</code> and will return a <code>SimpleSubstitution</code>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">sl.declare_arg('some_condition', True)
+opposed = sl.py_eval('not ', sl.arg('some_condition'))
+
+</code></pre></div>
+<p>Note that <code>IfCondition</code> and <code>UnlessCondition</code> cannot be combined, <a href="https://answers.ros.org/answers/414006/revisions/">only the underlying <code>Substitution</code>s can</a>.</p>
+
+<h3 id="joint-state-publisher">Joint state publisher</h3>
+
+<p><code>sl.joint_state_publisher(use_gui, **node_args)</code>: fires up a <code>joint_state_publisher</code>, with or without the gui.</p>
+
+<h3 id="rviz">Rviz</h3>
+
+<p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
+
+<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
+
+<h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
+
+<p>If any unavailable functionality is needed, the <code>sl.add_action(action)</code> function adds any passed <code>Action</code> at the current namespace / conditional / event level.</p>
+
 <h2 id="interaction-with-gazebo-ignition">Interaction with Gazebo / Ignition</h2>
 
 <p><em>Note: Ignition being renamed to Gazebo, all tools in this section use Gazebo / gz names</em></p>
@@ -3775,75 +4042,6 @@ sl.spawn_gz_model(name, spawn_args = sl.gazebo_axes_args())
 
 <p>The SimpleLauncher instance can then run all created bridges with: <code>sl.create_gz_bridge([bridges], &lt;node_name&gt;)</code>, as illustrated in the examples at this end of this document.
 If some bridges involve <code>sensor_msgs/Image</code> then a dedicated <code>ros_gz_image</code> bridge will be used. The corresponding <code>camera_info</code> topic will be automatically bridged.</p>
-
-<h2 id="other-shortcuts">Other shortcuts</h2>
-
-<h3 id="string-substitution-concatenation">String / substitution concatenation</h3>
-
-<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;robot name&gt;.xacro</code>:</p>
-
-<p><code>file_name = sl.arg('robot') + '.xacro'</code></p>
-
-<p><em>deprecated</em>: <code>sl.name_join(sl.arg('robot'), '.xacro')</code></p>
-
-<h3 id="path-concatenation">Path concatenation</h3>
-
-<p>The following syntax builds the <code>SimpleSubstitution</code> corresponding to <code>&lt;package_path&gt;/urdf/&lt;robot name&gt;.xacro</code>:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">file_name = sl.arg('robot') + '.xacro'
-urdf_file = os.path.join(get_package_share_directory(package),'urdf')/file_name
-
-</code></pre></div>
-<p>Obviously if all the path elements are raw strings, you should use <code>os.path.join</code> all along.</p>
-
-<p><em>deprecated</em>: <code>sl.path_join(get_package_share_directory(package), sl.arg('robot'), '.xacro')</code></p>
-
-<h3 id="find-a-share-file">Find a share file</h3>
-
-<p><code>path = sl.find(package, file_name = None, file_dir = None)</code> where:</p>
-
-<ul>
-<li>
-<code>package</code> is the name of the package or <code>None</code> if <code>file_name</code> is already an absolute path</li>
-<li>
-<code>file_name</code> is the name of the file to find</li>
-<li>
-<code>file_dir</code> is the path inside the package</li>
-</ul>
-
-<p>If <code>file_dir</code> is <code>None</code> but <code>package</code> and <code>file_name</code> are raw strings then the <code>find</code> function will actually look for the file inside the package share, using <code>os.walk</code>.</p>
-
-<p>If <code>file_name</code> is <code>None</code> then the function just returns the path to the package share directory (e.g. <code>get_package_share_directory(package)</code>)</p>
-
-<h3 id="robot-state-publisher">Robot state publisher</h3>
-
-<p><code>sl.robot_state_publisher(package, description_file, description_dir=None, xacro_args=None, prefix_gz_plugins=False, **node_args)</code> where</p>
-
-<ul>
-<li>
-<code>description_file</code> is a URDF or xacro file</li>
-<li>
-<code>description_dir</code> is the sub-directory of the file. If omitted, let the script search for the file assuming it is a raw string</li>
-<li>
-<code>xacro_args</code> is a dictionary of arguments to forward to xacro</li>
-<li>
-<code>prefix_gz_plugins</code> is used only if a <code>frame_prefix</code> parameter is given to <code>robot_state_publisher</code>. In this case it will forward the frame prefix to Gazebo-published messages that include frame names</li>
-<li>
-<code>node_args</code> are any additional arguments for <code>robot_state_publisher</code> (typically remapping)</li>
-</ul>
-
-<h3 id="joint-state-publisher">Joint state publisher</h3>
-
-<p><code>sl.joint_state_publisher(use_gui, **node_args)</code>: fires up a <code>joint_state_publisher</code>, with or without the gui.</p>
-
-<h3 id="rviz">Rviz</h3>
-
-<p><code>sl.rviz(config_file = None, warnings = False)</code>: runs RViz on the given configuration file. If <code>warnings</code> is <code>False</code> (default) then runs with <code>log-level FATAL</code> in order to avoid many messages in the console.</p>
-
-<p>Classical use case: <code>sl.rviz(sl.find('my_package', 'some_rviz_config.rviz'))</code></p>
-
-<h3 id="fallback-to-low-level-syntax">Fallback to low-level syntax</h3>
-
-<p>If any unavailable functionality is needed, the <code>sl.add_action(action)</code> function adds any passed <code>Action</code> at the current namespace / conditional / event level.</p>
 
 <h2 id="examples">Examples</h2>
 
@@ -3966,6 +4164,33 @@ def launch_setup():
 # /!\ no `def generate_launch_description():`
 
 generate_launch_description = sl.launch_description(opaque_function = launch_setup)
+
+</code></pre></div>
+<h3 id="combining-conditions">Combining conditions</h3>
+
+<p>The file below shows how to use <code>sl.py_eval</code> to combine conditions. We have to build a valid Python expression, not forgetting the spaces around <code>and</code>/<code>or</code>.</p>
+<div class="highlight"><pre><code class="language-" data-lang="">from simple_launch import SimpleLauncher
+
+def generate_launch_description():
+
+    sl = SimpleLauncher()
+
+    cond1 = sl.declare_arg('cond1', True)
+    cond2 = sl.declare_arg('cond2', False)
+
+    for logic in ('and', 'or'):
+
+        # builds &lt;cond1&gt; &lt;logic&gt; &lt;cond2&gt; Python expression
+        combined = sl.py_eval(cond1, f' {logic} ', cond2)
+
+        sl.log_info([f'{logic} condition is ', combined])
+
+        with sl.group(if_condition = combined):
+            sl.node('demo_nodes_cpp', 'talker', name = f'talker_{logic}')
+
+        # also works with sl.node(..., condition = IfCondition(combined))
+
+    return sl.launch_description()
 
 </code></pre></div>
 <h3 id="composition">Composition</h3>
@@ -4156,7 +4381,7 @@ def generate_launch_description():
             <span class="username">ros-infrastructure/rosindex</span>
           </a>
           |
-          <em>generated on 2023-11-21</em>
+          <em>generated on 2023-11-22</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
