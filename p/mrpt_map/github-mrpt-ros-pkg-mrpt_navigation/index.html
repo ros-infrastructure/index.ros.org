@@ -542,7 +542,7 @@ mrpt_tutorials
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-12-13
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-12-20
         </span>
       </td>
     </tr>
@@ -696,18 +696,15 @@ as requested by parameters, and publishes the metric map in the corresponding to
 <p>There are <strong>three formats</strong> in which maps can be read:</p>
 
 <ol>
-<li><p>As a <a href="https://wiki.ros.org/map_server">ROS standard YAML file</a>. Here, a <code>*.yaml</code> file specifies the metadata of a 2D occupancy gridmap, which is stored as an accompanying image file.</p></li>
+<li><p>The <strong>preferred format</strong> is as an <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>'s metric map files (<code>*.mm</code>), normally generated
+via <a href="https://github.com/MOLAorg/mp2p_icp/tree/master/apps/sm2mm">sm2mm</a> from a <a href="https://docs.mrpt.org/reference/latest/class_mrpt_maps_CSimpleMap.html">MRPT "simplemap"</a> (<code>*.simplemap</code>) that comes from a SLAM session,
+e.g. using the forthcoming package <a href="https://github.com/MOLAorg/mola_lidar_odometry">mola_lidar_odometry</a>.</p></li>
+<li><p>As a <a href="https://wiki.ros.org/map_server">ROS standard YAML file</a>. Here, a <code>*.yaml</code> file specifies the metadata of a 2D occupancy gridmap, which is stored as an accompanying image file. The map will be actually encapsulated into a <code>metric_map_t</code> map with layer name <code>map</code>.</p></li>
 <li><p>As a <a href="https://docs.mrpt.org/reference/latest/group_mrpt_serialization_grp.html">serialized</a> MRPT metric map file.
 A <code>*.metricmap</code> file contains any of the existing 
 <a href="https://docs.mrpt.org/reference/latest/group_mrpt_maps_grp.html">MRPT metric maps</a>
-(point clouds, grid maps, etc.), which may come from custom 
-applications or other SLAM packages.</p></li>
-<li><p>As an <a href="https://docs.mrpt.org/reference/latest/class_mrpt_maps_CSimpleMap.html">MRPT "simplemap"</a> <code>*.simplemap</code> which contains
-raw sensory data, together with a metric map specification
-in an <a href="https://docs.mrpt.org/reference/latest/tutorial-mrpt-maps-model.html">multi-metric map</a>
-<code>*.ini</code> file. The former typically
-comes from an MRPT SLAM package. The later, then can be used
-to build different metric maps (octomaps, gridmaps, pointclouds, etc.) from the same original SLAM result.</p></li>
+(point clouds, grid maps, etc.), which may come from custom applications or other SLAM packages.
+The map will be actually encapsulated into a <code>metric_map_t</code> map with layer name <code>raw</code>.</p></li>
 </ol>
 
 <p>Refer to example launch files at the end of this file for examples
@@ -715,16 +712,23 @@ of usage of each of these methods.</p>
 
 <h3 id="ros-parameters">ROS Parameters</h3>
 
+<h4 id="related-to-determining-where-to-read-the-map-from">Related to determining where to read the map from</h4>
+
+<ul>
+<li>(Option 1 above) <code>mm_file</code> (Default=undefined). Determine the <code>metric_map_t</code> file to load, coming from <a href="https://github.com/MOLAorg/mp2p_icp/tree/master/apps/sm2mm">sm2mm</a> or any other custom user application using <code>mp2p_icp</code>.</li>
+<li>(Option 2 above) <code>map_yaml_file</code> (Default=undefined): Define this parameter to load a <a href="https://wiki.ros.org/map_server">ROS standard YAML file</a> gridmap.</li>
+<li>(Option 3 above) <code>mrpt_metricmap_file</code> (Default=undefined).</li>
+</ul>
+
+<h4 id="related-to-ros-published-topics">Related to ROS published topics:</h4>
+
 <ul>
 <li>
-<code>map_yaml_file</code> (Default=undefined): Define this parameter to load a <a href="https://wiki.ros.org/map_server">ROS standard YAML file</a> gridmap (option 1 above).</li>
+<code>frame_id</code> (Default=<code>map</code>): TF frame.</li>
 <li>
-<code>ini_file</code> and <code>map_file</code> (Default=undefined): Define these two parameters to use option 2 above.</li>
-<li>
-<code>mrpt_metricmap_file</code> (Default=undefined): Define this parameter to use option 3 above (TODO).</li>
-<li><p><code>frame_id</code> (Default=<code>map</code>): TF frame.</p></li>
-<li><p><code>pub_map_ros</code> (Default=<code>map</code>) and <code>pub_metadata</code> (Default=<code>map_metadata</code>): The topic names to which to publish the occupancy gridmap and its metadata. In case of the read map being
-an MRPT multimetric map, the first occupancy grid will be published here.</p></li>
+<code>pub_mm_topic</code> (Default=<code>mrpt_map/metric_map</code>). Despite the map source, it will be eventually stored as a <code>mp2p_icp</code>'s <code>metric_map_t</code> (<code>*.mm</code>) structure, then each layer will be published using its <strong>layer name</strong> as a <strong>topic name</strong> and with the appropriate type
+(e.g. PointCloud2, OccupancyGrid,...). Also, the whole metric map is published as a generic serialized object to the topic defined by the 
+parameter <code>pub_mm_topic</code>.</li>
 </ul>
 
 <h3 id="subscribed-topics">Subscribed topics</h3>
@@ -735,10 +739,12 @@ an MRPT multimetric map, the first occupancy grid will be published here.</p></l
 
 <ul>
 <li>
-<code>map</code> (<code>nav_msgs::msg::OccupancyGrid</code>)</li>
+<code>mrpt_map/metric_map</code> (<code>mrpt_msgs::msg::GenericObject</code>) (topic name can be changed with parameter <code>pub_mm_topic</code>).</li>
 <li>
-<code>pub_metadata</code> (<code>nav_msgs::msg::MapMetaData</code>)</li>
+<code>mrpt_map/&lt;LAYER_NAME&gt;</code> (<code>nav_msgs::msg::OccupancyGrid</code>, <code>sensors_msgs::msg::PointCloud2</code>, ...), one per map layer.</li>
 </ul>
+
+<p>If using options 2 or 3 above, there will be just one layer named <code>map</code>.</p>
 
 <h3 id="template-ros-2-launch-files">Template ROS 2 launch files</h3>
 
@@ -746,10 +752,6 @@ an MRPT multimetric map, the first occupancy grid will be published here.</p></l
 <div class="highlight"><pre><code class="language-" data-lang="">ros2 launch mrpt_map mrpt_map_server.launch.py
 </code></pre></div>
 <p>which can be used in user projects to launch the MRPT map server node, by setting these <a href="https://docs.ros.org/en/rolling/Tutorials/Intermediate/Launch/Using-Substitutions.html">launch arguments</a>:</p>
-
-<ul>
-<li><code>xxx</code></li>
-</ul>
 
 <h2 id="demos">Demos</h2>
 
@@ -1678,7 +1680,7 @@ mrpt_tutorials
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-12-13
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-12-20
         </span>
       </td>
     </tr>
@@ -1832,18 +1834,15 @@ as requested by parameters, and publishes the metric map in the corresponding to
 <p>There are <strong>three formats</strong> in which maps can be read:</p>
 
 <ol>
-<li><p>As a <a href="https://wiki.ros.org/map_server">ROS standard YAML file</a>. Here, a <code>*.yaml</code> file specifies the metadata of a 2D occupancy gridmap, which is stored as an accompanying image file.</p></li>
+<li><p>The <strong>preferred format</strong> is as an <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>'s metric map files (<code>*.mm</code>), normally generated
+via <a href="https://github.com/MOLAorg/mp2p_icp/tree/master/apps/sm2mm">sm2mm</a> from a <a href="https://docs.mrpt.org/reference/latest/class_mrpt_maps_CSimpleMap.html">MRPT "simplemap"</a> (<code>*.simplemap</code>) that comes from a SLAM session,
+e.g. using the forthcoming package <a href="https://github.com/MOLAorg/mola_lidar_odometry">mola_lidar_odometry</a>.</p></li>
+<li><p>As a <a href="https://wiki.ros.org/map_server">ROS standard YAML file</a>. Here, a <code>*.yaml</code> file specifies the metadata of a 2D occupancy gridmap, which is stored as an accompanying image file. The map will be actually encapsulated into a <code>metric_map_t</code> map with layer name <code>map</code>.</p></li>
 <li><p>As a <a href="https://docs.mrpt.org/reference/latest/group_mrpt_serialization_grp.html">serialized</a> MRPT metric map file.
 A <code>*.metricmap</code> file contains any of the existing 
 <a href="https://docs.mrpt.org/reference/latest/group_mrpt_maps_grp.html">MRPT metric maps</a>
-(point clouds, grid maps, etc.), which may come from custom 
-applications or other SLAM packages.</p></li>
-<li><p>As an <a href="https://docs.mrpt.org/reference/latest/class_mrpt_maps_CSimpleMap.html">MRPT "simplemap"</a> <code>*.simplemap</code> which contains
-raw sensory data, together with a metric map specification
-in an <a href="https://docs.mrpt.org/reference/latest/tutorial-mrpt-maps-model.html">multi-metric map</a>
-<code>*.ini</code> file. The former typically
-comes from an MRPT SLAM package. The later, then can be used
-to build different metric maps (octomaps, gridmaps, pointclouds, etc.) from the same original SLAM result.</p></li>
+(point clouds, grid maps, etc.), which may come from custom applications or other SLAM packages.
+The map will be actually encapsulated into a <code>metric_map_t</code> map with layer name <code>raw</code>.</p></li>
 </ol>
 
 <p>Refer to example launch files at the end of this file for examples
@@ -1851,16 +1850,23 @@ of usage of each of these methods.</p>
 
 <h3 id="ros-parameters">ROS Parameters</h3>
 
+<h4 id="related-to-determining-where-to-read-the-map-from">Related to determining where to read the map from</h4>
+
+<ul>
+<li>(Option 1 above) <code>mm_file</code> (Default=undefined). Determine the <code>metric_map_t</code> file to load, coming from <a href="https://github.com/MOLAorg/mp2p_icp/tree/master/apps/sm2mm">sm2mm</a> or any other custom user application using <code>mp2p_icp</code>.</li>
+<li>(Option 2 above) <code>map_yaml_file</code> (Default=undefined): Define this parameter to load a <a href="https://wiki.ros.org/map_server">ROS standard YAML file</a> gridmap.</li>
+<li>(Option 3 above) <code>mrpt_metricmap_file</code> (Default=undefined).</li>
+</ul>
+
+<h4 id="related-to-ros-published-topics">Related to ROS published topics:</h4>
+
 <ul>
 <li>
-<code>map_yaml_file</code> (Default=undefined): Define this parameter to load a <a href="https://wiki.ros.org/map_server">ROS standard YAML file</a> gridmap (option 1 above).</li>
+<code>frame_id</code> (Default=<code>map</code>): TF frame.</li>
 <li>
-<code>ini_file</code> and <code>map_file</code> (Default=undefined): Define these two parameters to use option 2 above.</li>
-<li>
-<code>mrpt_metricmap_file</code> (Default=undefined): Define this parameter to use option 3 above (TODO).</li>
-<li><p><code>frame_id</code> (Default=<code>map</code>): TF frame.</p></li>
-<li><p><code>pub_map_ros</code> (Default=<code>map</code>) and <code>pub_metadata</code> (Default=<code>map_metadata</code>): The topic names to which to publish the occupancy gridmap and its metadata. In case of the read map being
-an MRPT multimetric map, the first occupancy grid will be published here.</p></li>
+<code>pub_mm_topic</code> (Default=<code>mrpt_map/metric_map</code>). Despite the map source, it will be eventually stored as a <code>mp2p_icp</code>'s <code>metric_map_t</code> (<code>*.mm</code>) structure, then each layer will be published using its <strong>layer name</strong> as a <strong>topic name</strong> and with the appropriate type
+(e.g. PointCloud2, OccupancyGrid,...). Also, the whole metric map is published as a generic serialized object to the topic defined by the 
+parameter <code>pub_mm_topic</code>.</li>
 </ul>
 
 <h3 id="subscribed-topics">Subscribed topics</h3>
@@ -1871,10 +1877,12 @@ an MRPT multimetric map, the first occupancy grid will be published here.</p></l
 
 <ul>
 <li>
-<code>map</code> (<code>nav_msgs::msg::OccupancyGrid</code>)</li>
+<code>mrpt_map/metric_map</code> (<code>mrpt_msgs::msg::GenericObject</code>) (topic name can be changed with parameter <code>pub_mm_topic</code>).</li>
 <li>
-<code>pub_metadata</code> (<code>nav_msgs::msg::MapMetaData</code>)</li>
+<code>mrpt_map/&lt;LAYER_NAME&gt;</code> (<code>nav_msgs::msg::OccupancyGrid</code>, <code>sensors_msgs::msg::PointCloud2</code>, ...), one per map layer.</li>
 </ul>
+
+<p>If using options 2 or 3 above, there will be just one layer named <code>map</code>.</p>
 
 <h3 id="template-ros-2-launch-files">Template ROS 2 launch files</h3>
 
@@ -1882,10 +1890,6 @@ an MRPT multimetric map, the first occupancy grid will be published here.</p></l
 <div class="highlight"><pre><code class="language-" data-lang="">ros2 launch mrpt_map mrpt_map_server.launch.py
 </code></pre></div>
 <p>which can be used in user projects to launch the MRPT map server node, by setting these <a href="https://docs.ros.org/en/rolling/Tutorials/Intermediate/Launch/Using-Substitutions.html">launch arguments</a>:</p>
-
-<ul>
-<li><code>xxx</code></li>
-</ul>
 
 <h2 id="demos">Demos</h2>
 
@@ -2814,7 +2818,7 @@ mrpt_tutorials
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-12-13
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-12-20
         </span>
       </td>
     </tr>
@@ -2968,18 +2972,15 @@ as requested by parameters, and publishes the metric map in the corresponding to
 <p>There are <strong>three formats</strong> in which maps can be read:</p>
 
 <ol>
-<li><p>As a <a href="https://wiki.ros.org/map_server">ROS standard YAML file</a>. Here, a <code>*.yaml</code> file specifies the metadata of a 2D occupancy gridmap, which is stored as an accompanying image file.</p></li>
+<li><p>The <strong>preferred format</strong> is as an <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>'s metric map files (<code>*.mm</code>), normally generated
+via <a href="https://github.com/MOLAorg/mp2p_icp/tree/master/apps/sm2mm">sm2mm</a> from a <a href="https://docs.mrpt.org/reference/latest/class_mrpt_maps_CSimpleMap.html">MRPT "simplemap"</a> (<code>*.simplemap</code>) that comes from a SLAM session,
+e.g. using the forthcoming package <a href="https://github.com/MOLAorg/mola_lidar_odometry">mola_lidar_odometry</a>.</p></li>
+<li><p>As a <a href="https://wiki.ros.org/map_server">ROS standard YAML file</a>. Here, a <code>*.yaml</code> file specifies the metadata of a 2D occupancy gridmap, which is stored as an accompanying image file. The map will be actually encapsulated into a <code>metric_map_t</code> map with layer name <code>map</code>.</p></li>
 <li><p>As a <a href="https://docs.mrpt.org/reference/latest/group_mrpt_serialization_grp.html">serialized</a> MRPT metric map file.
 A <code>*.metricmap</code> file contains any of the existing 
 <a href="https://docs.mrpt.org/reference/latest/group_mrpt_maps_grp.html">MRPT metric maps</a>
-(point clouds, grid maps, etc.), which may come from custom 
-applications or other SLAM packages.</p></li>
-<li><p>As an <a href="https://docs.mrpt.org/reference/latest/class_mrpt_maps_CSimpleMap.html">MRPT "simplemap"</a> <code>*.simplemap</code> which contains
-raw sensory data, together with a metric map specification
-in an <a href="https://docs.mrpt.org/reference/latest/tutorial-mrpt-maps-model.html">multi-metric map</a>
-<code>*.ini</code> file. The former typically
-comes from an MRPT SLAM package. The later, then can be used
-to build different metric maps (octomaps, gridmaps, pointclouds, etc.) from the same original SLAM result.</p></li>
+(point clouds, grid maps, etc.), which may come from custom applications or other SLAM packages.
+The map will be actually encapsulated into a <code>metric_map_t</code> map with layer name <code>raw</code>.</p></li>
 </ol>
 
 <p>Refer to example launch files at the end of this file for examples
@@ -2987,16 +2988,23 @@ of usage of each of these methods.</p>
 
 <h3 id="ros-parameters">ROS Parameters</h3>
 
+<h4 id="related-to-determining-where-to-read-the-map-from">Related to determining where to read the map from</h4>
+
+<ul>
+<li>(Option 1 above) <code>mm_file</code> (Default=undefined). Determine the <code>metric_map_t</code> file to load, coming from <a href="https://github.com/MOLAorg/mp2p_icp/tree/master/apps/sm2mm">sm2mm</a> or any other custom user application using <code>mp2p_icp</code>.</li>
+<li>(Option 2 above) <code>map_yaml_file</code> (Default=undefined): Define this parameter to load a <a href="https://wiki.ros.org/map_server">ROS standard YAML file</a> gridmap.</li>
+<li>(Option 3 above) <code>mrpt_metricmap_file</code> (Default=undefined).</li>
+</ul>
+
+<h4 id="related-to-ros-published-topics">Related to ROS published topics:</h4>
+
 <ul>
 <li>
-<code>map_yaml_file</code> (Default=undefined): Define this parameter to load a <a href="https://wiki.ros.org/map_server">ROS standard YAML file</a> gridmap (option 1 above).</li>
+<code>frame_id</code> (Default=<code>map</code>): TF frame.</li>
 <li>
-<code>ini_file</code> and <code>map_file</code> (Default=undefined): Define these two parameters to use option 2 above.</li>
-<li>
-<code>mrpt_metricmap_file</code> (Default=undefined): Define this parameter to use option 3 above (TODO).</li>
-<li><p><code>frame_id</code> (Default=<code>map</code>): TF frame.</p></li>
-<li><p><code>pub_map_ros</code> (Default=<code>map</code>) and <code>pub_metadata</code> (Default=<code>map_metadata</code>): The topic names to which to publish the occupancy gridmap and its metadata. In case of the read map being
-an MRPT multimetric map, the first occupancy grid will be published here.</p></li>
+<code>pub_mm_topic</code> (Default=<code>mrpt_map/metric_map</code>). Despite the map source, it will be eventually stored as a <code>mp2p_icp</code>'s <code>metric_map_t</code> (<code>*.mm</code>) structure, then each layer will be published using its <strong>layer name</strong> as a <strong>topic name</strong> and with the appropriate type
+(e.g. PointCloud2, OccupancyGrid,...). Also, the whole metric map is published as a generic serialized object to the topic defined by the 
+parameter <code>pub_mm_topic</code>.</li>
 </ul>
 
 <h3 id="subscribed-topics">Subscribed topics</h3>
@@ -3007,10 +3015,12 @@ an MRPT multimetric map, the first occupancy grid will be published here.</p></l
 
 <ul>
 <li>
-<code>map</code> (<code>nav_msgs::msg::OccupancyGrid</code>)</li>
+<code>mrpt_map/metric_map</code> (<code>mrpt_msgs::msg::GenericObject</code>) (topic name can be changed with parameter <code>pub_mm_topic</code>).</li>
 <li>
-<code>pub_metadata</code> (<code>nav_msgs::msg::MapMetaData</code>)</li>
+<code>mrpt_map/&lt;LAYER_NAME&gt;</code> (<code>nav_msgs::msg::OccupancyGrid</code>, <code>sensors_msgs::msg::PointCloud2</code>, ...), one per map layer.</li>
 </ul>
+
+<p>If using options 2 or 3 above, there will be just one layer named <code>map</code>.</p>
 
 <h3 id="template-ros-2-launch-files">Template ROS 2 launch files</h3>
 
@@ -3018,10 +3028,6 @@ an MRPT multimetric map, the first occupancy grid will be published here.</p></l
 <div class="highlight"><pre><code class="language-" data-lang="">ros2 launch mrpt_map mrpt_map_server.launch.py
 </code></pre></div>
 <p>which can be used in user projects to launch the MRPT map server node, by setting these <a href="https://docs.ros.org/en/rolling/Tutorials/Intermediate/Launch/Using-Substitutions.html">launch arguments</a>:</p>
-
-<ul>
-<li><code>xxx</code></li>
-</ul>
 
 <h2 id="demos">Demos</h2>
 
@@ -8768,7 +8774,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure/rosindex</span>
           </a>
           |
-          <em>generated on 2023-12-13</em>
+          <em>generated on 2023-12-20</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
