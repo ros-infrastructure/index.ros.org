@@ -450,7 +450,7 @@ mrpt_tutorials
     
     
     
-    <a href="#humble-deps" data-toggle="tab"><span class="label label-primary">9</span> Dependencies</a>
+    <a href="#humble-deps" data-toggle="tab"><span class="label label-primary">10</span> Dependencies</a>
   </li>
   <li class="better-tabs">
     
@@ -529,7 +529,7 @@ mrpt_tutorials
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-01-05
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-01-10
         </span>
       </td>
     </tr>
@@ -671,7 +671,7 @@ Unlike classic ROS 1 <code>map_server</code>, this node can publish a range of d
 <h3 id="working-rationale">Working rationale</h3>
 
 <p>The C++ ROS 2 node loads all parameters at start up, loads the map
-as requested by parameters, and publishes the metric map in the corresponding topics. It is also possible to change the map via ROS services.</p>
+as requested by parameters, and publishes the metric map in the corresponding topics. Messages are automatically re-sent when new subscribers are detected.</p>
 
 <p>There are <strong>three formats</strong> in which maps can be read:</p>
 
@@ -684,8 +684,11 @@ e.g. using the forthcoming package <a href="https://github.com/MOLAorg/mola_lida
 A <code>*.metricmap</code> file contains any of the existing 
 <a href="https://docs.mrpt.org/reference/latest/group_mrpt_maps_grp.html">MRPT metric maps</a>
 (point clouds, grid maps, etc.), which may come from custom applications or other SLAM packages.
-The map will be actually encapsulated into a <code>metric_map_t</code> map with layer name <code>raw</code>.</p></li>
+The map will be actually encapsulated into a <code>metric_map_t</code> map with layer name <code>map</code>.</p></li>
 </ol>
+
+<p>So, whatever is the map source, this node will internally build a <a href="https://docs.mola-slam.org/mp2p_icp/"><code>metric_map_t</code></a>
+with one or more map layers, so it gets published in a uniform way to subscribers.</p>
 
 <p>Refer to example launch files at the end of this file for examples
 of usage of each of these methods.</p>
@@ -706,7 +709,7 @@ of usage of each of these methods.</p>
 <li>
 <code>frame_id</code> (Default=<code>map</code>): TF frame.</li>
 <li>
-<code>pub_mm_topic</code> (Default=<code>mrpt_map_server/metric_map</code>). Despite the map source, it will be eventually stored as a <code>mp2p_icp</code>'s <code>metric_map_t</code> (<code>*.mm</code>) structure, then each layer will be published using its <strong>layer name</strong> as a <strong>topic name</strong> and with the appropriate type
+<code>pub_mm_topic</code> (Default=<code>mrpt_map</code>). Despite the map source, it will be eventually stored as a <code>mp2p_icp</code>'s <code>metric_map_t</code> (<code>*.mm</code>) structure, then each layer will be published using its <strong>layer name</strong> as a <strong>topic name</strong> and with the appropriate type
 (e.g. PointCloud2, OccupancyGrid,...). Also, the whole metric map is published as a generic serialized object to the topic defined by the 
 parameter <code>pub_mm_topic</code>.</li>
 </ul>
@@ -719,9 +722,16 @@ parameter <code>pub_mm_topic</code>.</li>
 
 <ul>
 <li>
-<code>mrpt_map_server/metric_map</code> (<code>mrpt_msgs::msg::GenericObject</code>) (topic name can be changed with parameter <code>pub_mm_topic</code>).</li>
+<code>${pub_mm_topic}/metric_map</code> (Default: <code>mrpt_map/metric_map</code>) (<code>mrpt_msgs::msg::GenericObject</code>) (topic name can be changed with parameter <code>pub_mm_topic</code>).</li>
 <li>
-<code>mrpt_map_server/&lt;LAYER_NAME&gt;</code> (<code>nav_msgs::msg::OccupancyGrid</code>, <code>sensors_msgs::msg::PointCloud2</code>, ...), one per map layer.</li>
+<code>${pub_mm_topic}/&lt;LAYER_NAME&gt;</code> (Default: <code>mrpt_map/&lt;LAYER_NAME&gt;</code>) (<code>mrpt_msgs::msg::GenericObject</code>) </li>
+<li>
+<code>${pub_mm_topic}/&lt;LAYER_NAME&gt;_points</code> (<code>sensor_msgs::msg::PointCloud2</code>), one per map layer.</li>
+<li>
+<code>${pub_mm_topic}/&lt;LAYER_NAME&gt;_gridmap</code> (<code>nav_msgs::msg::OccupancyGrid</code>)</li>
+<li>
+<code>${pub_mm_topic}/&lt;LAYER_NAME&gt;_gridmap_metadata</code> (<code>nav_msgs::msg::MapMetaData</code>)</li>
+<li>(... one per map layer ...)</li>
 </ul>
 
 <p>If using options 2 or 3 above, there will be just one layer named <code>map</code>.</p>
@@ -735,8 +745,13 @@ parameter <code>pub_mm_topic</code>.</li>
 
 <h2 id="demos">Demos</h2>
 
-<p>Launch an map server from a ROS yaml gridmap (<a href="https://github.com/mrpt-ros-pkg/mrpt_navigation/tree/ros2/mrpt_map_server/../mrpt_tutorials/launch/demo_map_server_gridmap_from_yaml.launch.py">launch file</a>):</p>
+<p>Launch a map server from a ROS yaml gridmap (<a href="https://github.com/mrpt-ros-pkg/mrpt_navigation/tree/ros2/mrpt_map_server/../mrpt_tutorials/launch/demo_map_server_gridmap_from_yaml.launch.py">launch file</a>):</p>
 <div class="highlight"><pre><code class="language-bash" data-lang="bash">ros2 launch mrpt_tutorials demo_map_server_gridmap_from_yaml.launch.py
+
+</code></pre></div>
+<p>Launch a map server from a custom <code>.mm</code> map (<a href="https://github.com/mrpt-ros-pkg/mrpt_navigation/tree/ros2/mrpt_map_server/../mrpt_tutorials/launch/demo_map_server_from_mm.launch.py">launch file</a>), 
+which in the launch file is read from the environment variable <code>MM_FILE</code>, so it can be used like:</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nv">MM_FILE</span><span class="o">=</span>/path/to/my/map.mm ros2 launch mrpt_tutorials demo_map_server_from_mm.launch.py
 
 </code></pre></div>
 </div>
@@ -1090,6 +1105,26 @@ Bader</li>
                           </a>
                         </td>
                         <td><a href="/p/nav_msgs#humble">nav_msgs</a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/mrpt_msgs#humble-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/mrpt_msgs" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/mrpt_msgs#humble">mrpt_msgs</a></td>
                       </tr>
                     
                   
@@ -1496,7 +1531,7 @@ mrpt_tutorials
     
     
     
-    <a href="#iron-deps" data-toggle="tab"><span class="label label-primary">9</span> Dependencies</a>
+    <a href="#iron-deps" data-toggle="tab"><span class="label label-primary">10</span> Dependencies</a>
   </li>
   <li class="better-tabs">
     
@@ -1575,7 +1610,7 @@ mrpt_tutorials
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-01-05
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-01-10
         </span>
       </td>
     </tr>
@@ -1717,7 +1752,7 @@ Unlike classic ROS 1 <code>map_server</code>, this node can publish a range of d
 <h3 id="working-rationale">Working rationale</h3>
 
 <p>The C++ ROS 2 node loads all parameters at start up, loads the map
-as requested by parameters, and publishes the metric map in the corresponding topics. It is also possible to change the map via ROS services.</p>
+as requested by parameters, and publishes the metric map in the corresponding topics. Messages are automatically re-sent when new subscribers are detected.</p>
 
 <p>There are <strong>three formats</strong> in which maps can be read:</p>
 
@@ -1730,8 +1765,11 @@ e.g. using the forthcoming package <a href="https://github.com/MOLAorg/mola_lida
 A <code>*.metricmap</code> file contains any of the existing 
 <a href="https://docs.mrpt.org/reference/latest/group_mrpt_maps_grp.html">MRPT metric maps</a>
 (point clouds, grid maps, etc.), which may come from custom applications or other SLAM packages.
-The map will be actually encapsulated into a <code>metric_map_t</code> map with layer name <code>raw</code>.</p></li>
+The map will be actually encapsulated into a <code>metric_map_t</code> map with layer name <code>map</code>.</p></li>
 </ol>
+
+<p>So, whatever is the map source, this node will internally build a <a href="https://docs.mola-slam.org/mp2p_icp/"><code>metric_map_t</code></a>
+with one or more map layers, so it gets published in a uniform way to subscribers.</p>
 
 <p>Refer to example launch files at the end of this file for examples
 of usage of each of these methods.</p>
@@ -1752,7 +1790,7 @@ of usage of each of these methods.</p>
 <li>
 <code>frame_id</code> (Default=<code>map</code>): TF frame.</li>
 <li>
-<code>pub_mm_topic</code> (Default=<code>mrpt_map_server/metric_map</code>). Despite the map source, it will be eventually stored as a <code>mp2p_icp</code>'s <code>metric_map_t</code> (<code>*.mm</code>) structure, then each layer will be published using its <strong>layer name</strong> as a <strong>topic name</strong> and with the appropriate type
+<code>pub_mm_topic</code> (Default=<code>mrpt_map</code>). Despite the map source, it will be eventually stored as a <code>mp2p_icp</code>'s <code>metric_map_t</code> (<code>*.mm</code>) structure, then each layer will be published using its <strong>layer name</strong> as a <strong>topic name</strong> and with the appropriate type
 (e.g. PointCloud2, OccupancyGrid,...). Also, the whole metric map is published as a generic serialized object to the topic defined by the 
 parameter <code>pub_mm_topic</code>.</li>
 </ul>
@@ -1765,9 +1803,16 @@ parameter <code>pub_mm_topic</code>.</li>
 
 <ul>
 <li>
-<code>mrpt_map_server/metric_map</code> (<code>mrpt_msgs::msg::GenericObject</code>) (topic name can be changed with parameter <code>pub_mm_topic</code>).</li>
+<code>${pub_mm_topic}/metric_map</code> (Default: <code>mrpt_map/metric_map</code>) (<code>mrpt_msgs::msg::GenericObject</code>) (topic name can be changed with parameter <code>pub_mm_topic</code>).</li>
 <li>
-<code>mrpt_map_server/&lt;LAYER_NAME&gt;</code> (<code>nav_msgs::msg::OccupancyGrid</code>, <code>sensors_msgs::msg::PointCloud2</code>, ...), one per map layer.</li>
+<code>${pub_mm_topic}/&lt;LAYER_NAME&gt;</code> (Default: <code>mrpt_map/&lt;LAYER_NAME&gt;</code>) (<code>mrpt_msgs::msg::GenericObject</code>) </li>
+<li>
+<code>${pub_mm_topic}/&lt;LAYER_NAME&gt;_points</code> (<code>sensor_msgs::msg::PointCloud2</code>), one per map layer.</li>
+<li>
+<code>${pub_mm_topic}/&lt;LAYER_NAME&gt;_gridmap</code> (<code>nav_msgs::msg::OccupancyGrid</code>)</li>
+<li>
+<code>${pub_mm_topic}/&lt;LAYER_NAME&gt;_gridmap_metadata</code> (<code>nav_msgs::msg::MapMetaData</code>)</li>
+<li>(... one per map layer ...)</li>
 </ul>
 
 <p>If using options 2 or 3 above, there will be just one layer named <code>map</code>.</p>
@@ -1781,8 +1826,13 @@ parameter <code>pub_mm_topic</code>.</li>
 
 <h2 id="demos">Demos</h2>
 
-<p>Launch an map server from a ROS yaml gridmap (<a href="https://github.com/mrpt-ros-pkg/mrpt_navigation/tree/ros2/mrpt_map_server/../mrpt_tutorials/launch/demo_map_server_gridmap_from_yaml.launch.py">launch file</a>):</p>
+<p>Launch a map server from a ROS yaml gridmap (<a href="https://github.com/mrpt-ros-pkg/mrpt_navigation/tree/ros2/mrpt_map_server/../mrpt_tutorials/launch/demo_map_server_gridmap_from_yaml.launch.py">launch file</a>):</p>
 <div class="highlight"><pre><code class="language-bash" data-lang="bash">ros2 launch mrpt_tutorials demo_map_server_gridmap_from_yaml.launch.py
+
+</code></pre></div>
+<p>Launch a map server from a custom <code>.mm</code> map (<a href="https://github.com/mrpt-ros-pkg/mrpt_navigation/tree/ros2/mrpt_map_server/../mrpt_tutorials/launch/demo_map_server_from_mm.launch.py">launch file</a>), 
+which in the launch file is read from the environment variable <code>MM_FILE</code>, so it can be used like:</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nv">MM_FILE</span><span class="o">=</span>/path/to/my/map.mm ros2 launch mrpt_tutorials demo_map_server_from_mm.launch.py
 
 </code></pre></div>
 </div>
@@ -2136,6 +2186,26 @@ Bader</li>
                           </a>
                         </td>
                         <td><a href="/p/nav_msgs#iron">nav_msgs</a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/mrpt_msgs#iron-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/mrpt_msgs" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/mrpt_msgs#iron">mrpt_msgs</a></td>
                       </tr>
                     
                   
@@ -2542,7 +2612,7 @@ mrpt_tutorials
     
     
     
-    <a href="#rolling-deps" data-toggle="tab"><span class="label label-primary">9</span> Dependencies</a>
+    <a href="#rolling-deps" data-toggle="tab"><span class="label label-primary">10</span> Dependencies</a>
   </li>
   <li class="better-tabs">
     
@@ -2621,7 +2691,7 @@ mrpt_tutorials
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-01-05
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-01-10
         </span>
       </td>
     </tr>
@@ -2763,7 +2833,7 @@ Unlike classic ROS 1 <code>map_server</code>, this node can publish a range of d
 <h3 id="working-rationale">Working rationale</h3>
 
 <p>The C++ ROS 2 node loads all parameters at start up, loads the map
-as requested by parameters, and publishes the metric map in the corresponding topics. It is also possible to change the map via ROS services.</p>
+as requested by parameters, and publishes the metric map in the corresponding topics. Messages are automatically re-sent when new subscribers are detected.</p>
 
 <p>There are <strong>three formats</strong> in which maps can be read:</p>
 
@@ -2776,8 +2846,11 @@ e.g. using the forthcoming package <a href="https://github.com/MOLAorg/mola_lida
 A <code>*.metricmap</code> file contains any of the existing 
 <a href="https://docs.mrpt.org/reference/latest/group_mrpt_maps_grp.html">MRPT metric maps</a>
 (point clouds, grid maps, etc.), which may come from custom applications or other SLAM packages.
-The map will be actually encapsulated into a <code>metric_map_t</code> map with layer name <code>raw</code>.</p></li>
+The map will be actually encapsulated into a <code>metric_map_t</code> map with layer name <code>map</code>.</p></li>
 </ol>
+
+<p>So, whatever is the map source, this node will internally build a <a href="https://docs.mola-slam.org/mp2p_icp/"><code>metric_map_t</code></a>
+with one or more map layers, so it gets published in a uniform way to subscribers.</p>
 
 <p>Refer to example launch files at the end of this file for examples
 of usage of each of these methods.</p>
@@ -2798,7 +2871,7 @@ of usage of each of these methods.</p>
 <li>
 <code>frame_id</code> (Default=<code>map</code>): TF frame.</li>
 <li>
-<code>pub_mm_topic</code> (Default=<code>mrpt_map_server/metric_map</code>). Despite the map source, it will be eventually stored as a <code>mp2p_icp</code>'s <code>metric_map_t</code> (<code>*.mm</code>) structure, then each layer will be published using its <strong>layer name</strong> as a <strong>topic name</strong> and with the appropriate type
+<code>pub_mm_topic</code> (Default=<code>mrpt_map</code>). Despite the map source, it will be eventually stored as a <code>mp2p_icp</code>'s <code>metric_map_t</code> (<code>*.mm</code>) structure, then each layer will be published using its <strong>layer name</strong> as a <strong>topic name</strong> and with the appropriate type
 (e.g. PointCloud2, OccupancyGrid,...). Also, the whole metric map is published as a generic serialized object to the topic defined by the 
 parameter <code>pub_mm_topic</code>.</li>
 </ul>
@@ -2811,9 +2884,16 @@ parameter <code>pub_mm_topic</code>.</li>
 
 <ul>
 <li>
-<code>mrpt_map_server/metric_map</code> (<code>mrpt_msgs::msg::GenericObject</code>) (topic name can be changed with parameter <code>pub_mm_topic</code>).</li>
+<code>${pub_mm_topic}/metric_map</code> (Default: <code>mrpt_map/metric_map</code>) (<code>mrpt_msgs::msg::GenericObject</code>) (topic name can be changed with parameter <code>pub_mm_topic</code>).</li>
 <li>
-<code>mrpt_map_server/&lt;LAYER_NAME&gt;</code> (<code>nav_msgs::msg::OccupancyGrid</code>, <code>sensors_msgs::msg::PointCloud2</code>, ...), one per map layer.</li>
+<code>${pub_mm_topic}/&lt;LAYER_NAME&gt;</code> (Default: <code>mrpt_map/&lt;LAYER_NAME&gt;</code>) (<code>mrpt_msgs::msg::GenericObject</code>) </li>
+<li>
+<code>${pub_mm_topic}/&lt;LAYER_NAME&gt;_points</code> (<code>sensor_msgs::msg::PointCloud2</code>), one per map layer.</li>
+<li>
+<code>${pub_mm_topic}/&lt;LAYER_NAME&gt;_gridmap</code> (<code>nav_msgs::msg::OccupancyGrid</code>)</li>
+<li>
+<code>${pub_mm_topic}/&lt;LAYER_NAME&gt;_gridmap_metadata</code> (<code>nav_msgs::msg::MapMetaData</code>)</li>
+<li>(... one per map layer ...)</li>
 </ul>
 
 <p>If using options 2 or 3 above, there will be just one layer named <code>map</code>.</p>
@@ -2827,8 +2907,13 @@ parameter <code>pub_mm_topic</code>.</li>
 
 <h2 id="demos">Demos</h2>
 
-<p>Launch an map server from a ROS yaml gridmap (<a href="https://github.com/mrpt-ros-pkg/mrpt_navigation/tree/ros2/mrpt_map_server/../mrpt_tutorials/launch/demo_map_server_gridmap_from_yaml.launch.py">launch file</a>):</p>
+<p>Launch a map server from a ROS yaml gridmap (<a href="https://github.com/mrpt-ros-pkg/mrpt_navigation/tree/ros2/mrpt_map_server/../mrpt_tutorials/launch/demo_map_server_gridmap_from_yaml.launch.py">launch file</a>):</p>
 <div class="highlight"><pre><code class="language-bash" data-lang="bash">ros2 launch mrpt_tutorials demo_map_server_gridmap_from_yaml.launch.py
+
+</code></pre></div>
+<p>Launch a map server from a custom <code>.mm</code> map (<a href="https://github.com/mrpt-ros-pkg/mrpt_navigation/tree/ros2/mrpt_map_server/../mrpt_tutorials/launch/demo_map_server_from_mm.launch.py">launch file</a>), 
+which in the launch file is read from the environment variable <code>MM_FILE</code>, so it can be used like:</p>
+<div class="highlight"><pre><code class="language-bash" data-lang="bash"><span class="nv">MM_FILE</span><span class="o">=</span>/path/to/my/map.mm ros2 launch mrpt_tutorials demo_map_server_from_mm.launch.py
 
 </code></pre></div>
 </div>
@@ -3182,6 +3267,26 @@ Bader</li>
                           </a>
                         </td>
                         <td><a href="/p/nav_msgs#rolling">nav_msgs</a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          
+                          
+                          <a href="/p/mrpt_msgs#rolling-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td class="text-center">
+                          <a href="/packages/mrpt_msgs" class="label label-default">
+                            1
+                          </a>
+                        </td>
+                        <td><a href="/p/mrpt_msgs#rolling">mrpt_msgs</a></td>
                       </tr>
                     
                   
@@ -4369,7 +4474,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure/rosindex</span>
           </a>
           |
-          <em>generated on 2024-01-05</em>
+          <em>generated on 2024-01-10</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
