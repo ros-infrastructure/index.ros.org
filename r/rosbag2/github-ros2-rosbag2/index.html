@@ -1641,7 +1641,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-04-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-04-11
         </span>
       </td>
     </tr>
@@ -1887,6 +1887,9 @@ These verbs are available for <code>ros2 bag</code>:</p>
 </ul>
 
 <p>For up-to-date information on the available options for each, use <code>ros2 bag &lt;verb&gt; --help</code>.</p>
+
+<p>Moreover, <code>rosbag2_transport::Player</code> and <code>rosbag2_transport::Recorder</code> components can be instantiated in <code>rclcpp</code> component containers, which makes possible to use intra-process communication for greater efficiency.
+See <a href="https://github.com/ros2/rosbag2/tree/rolling/#using-with-composition">composition</a> section for details.</p>
 
 <h3 id="recording-data">Recording data</h3>
 
@@ -2248,6 +2251,117 @@ For example, if we named the above XML launch script, <code>record_all.launch.xm
 <div class="highlight"><pre><code class="language-sh" data-lang="sh"><span class="nv">$ </span>ros2 launch record_all.launch.xml
 
 </code></pre></div>
+<p>You can also invoke the <code>play</code> and <code>record</code> functionalities provided by <code>rosbag2_transport</code> package as nodes.
+The advantage to use this invocation strategy is that the Python layer handling the <code>ros2 bag</code> CLI is completely skipped.</p>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">launch</span>
+
+<span class="k">def</span> <span class="nf">generate_launch_description</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">launch</span><span class="o">.</span><span class="n">LaunchDescription</span><span class="p">([</span>
+        <span class="n">launch</span><span class="o">.</span><span class="n">actions</span><span class="o">.</span><span class="n">Node</span><span class="p">(</span>
+            <span class="n">package</span><span class="o">=</span><span class="s">'rosbag2_transport'</span><span class="p">,</span>
+            <span class="n">executable</span><span class="o">=</span><span class="s">'player'</span><span class="p">,</span>
+            <span class="n">name</span><span class="o">=</span><span class="s">'player'</span><span class="p">,</span>
+            <span class="n">output</span><span class="o">=</span><span class="s">"screen"</span><span class="p">,</span>
+            <span class="n">parameters</span><span class="o">=</span><span class="p">[</span><span class="s">"/path/to/params.yaml"</span><span class="p">],</span>
+        <span class="p">)</span>
+    <span class="p">])</span>
+
+</code></pre></div>
+<h2 id="using-with-composition">Using with composition</h2>
+
+<p>Play and record are fundamental tasks of <code>rosbag2</code>. However, playing or recording data at high rates may have limitations (e.g. spurious packet drops) due to one of the following:
+- low network bandwith
+- high CPU load
+- slow mass memory
+- ROS 2 middleware serialization/deserialization delays &amp; overhead</p>
+
+<p>ROS 2 C++ nodes can benefit from intra-process communication to partially or completely bypass network transport of messages between two nodes.</p>
+
+<p>Multiple <em>components</em> can be <em>composed</em>, either <a href="https://docs.ros.org/en/rolling/Tutorials/Intermediate/Composition.html#compile-time-composition-using-ros-services">statically</a> or <a href="https://docs.ros.org/en/rolling/Tutorials/Intermediate/Composition.html#run-time-composition-using-ros-services-with-a-publisher-and-subscriber">dynamically</a>: all the composed component will share the same address space because they will be loaded in a single process.</p>
+
+<p>A prerequirement is for each C++ node to be <a href="https://docs.ros.org/en/rolling/Concepts/Intermediate/About-Composition.html?highlight=composition"><em>composable</em></a> and to follow the <a href="https://docs.ros.org/en/rolling/Tutorials/Demos/Intra-Process-Communication.html?highlight=intra">guidelines</a> for efficient publishing &amp; subscription.</p>
+
+<p>With the above requirements met, the user can:
+- compose multiple nodes together
+- explicitly enable intra-process communication</p>
+
+<p>Whenever a publisher and a subscriber on the same topic belong to the same <em>composed</em> process, and intra-process is enabled for both, <code>rclcpp</code> completely bypasses RMW layer and below transport layer (i.e. DDS). Instead, messages are shared via process memory and <em>potentially</em> never copied. Some exception hold, so please have a look to the <a href="https://docs.ros.org/en/rolling/Tutorials/Demos/Intra-Process-Communication.html?highlight=intra">IPC guidelines</a>.</p>
+
+<p>Here is an example of Python launchfile composition. Notice that composable container components do not expect YAML files to be directly passed to them: parameters have to be "dumped" out from the YAML file (if you have one). A suggestion of possible implementation is offered as a starting point.</p>
+<div class="highlight"><pre><code class="language-python" data-lang="python"><span class="kn">import</span> <span class="nn">launch</span>
+<span class="kn">import</span> <span class="nn">launch_ros</span>
+<span class="kn">import</span> <span class="nn">yaml</span>
+
+<span class="s">'''
+Used to load parameters for composable nodes from a standard param file
+'''</span>
+<span class="k">def</span> <span class="nf">dump_params</span><span class="p">(</span><span class="n">param_file_path</span><span class="p">,</span> <span class="n">node_name</span><span class="p">):</span>
+    <span class="k">with</span> <span class="nb">open</span><span class="p">(</span><span class="n">param_file_path</span><span class="p">,</span> <span class="s">'r'</span><span class="p">)</span> <span class="k">as</span> <span class="nb">file</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">yaml</span><span class="o">.</span><span class="n">safe_load</span><span class="p">(</span><span class="nb">file</span><span class="p">)[</span><span class="n">node_name</span><span class="p">][</span><span class="s">'ros__parameters'</span><span class="p">]]</span>
+
+<span class="k">def</span> <span class="nf">generate_launch_description</span><span class="p">():</span>
+    <span class="k">return</span> <span class="n">launch</span><span class="o">.</span><span class="n">LaunchDescription</span><span class="p">([</span>
+        <span class="n">launch</span><span class="o">.</span><span class="n">actions</span><span class="o">.</span><span class="n">ComposableNodeContainer</span><span class="p">(</span>
+            <span class="n">name</span><span class="o">=</span><span class="s">'composable_container'</span><span class="p">,</span>
+            <span class="n">package</span><span class="o">=</span><span class="s">'rclcpp_components'</span><span class="p">,</span>
+            <span class="n">executable</span><span class="o">=</span><span class="s">'component_container'</span><span class="p">,</span>
+            <span class="n">composable_node_descriptions</span><span class="o">=</span><span class="p">[</span>
+                <span class="n">launch_ros</span><span class="o">.</span><span class="n">descriptions</span><span class="o">.</span><span class="n">ComposableNode</span><span class="p">(</span>
+                    <span class="n">package</span><span class="o">=</span><span class="s">'rosbag2_transport'</span><span class="p">,</span>
+                    <span class="n">plugin</span><span class="o">=</span><span class="s">'rosbag2_transport::Player'</span><span class="p">,</span>
+                    <span class="n">name</span><span class="o">=</span><span class="s">'player'</span><span class="p">,</span>
+                    <span class="n">parameters</span><span class="o">=</span><span class="n">dump_params</span><span class="p">(</span><span class="s">"/path/to/params.yaml"</span><span class="p">,</span> <span class="s">"player"</span><span class="p">),</span>
+                    <span class="n">extra_arguments</span><span class="o">=</span><span class="p">[{</span><span class="s">'use_intra_process_comms'</span><span class="p">:</span> <span class="bp">True</span><span class="p">}]</span>
+                <span class="p">),</span>
+                <span class="c1"># your other components here
+</span>            <span class="p">]</span>
+        <span class="p">)</span>
+    <span class="p">])</span>
+<span class="p">}</span>
+
+</code></pre></div>
+<p>Here's an example YAML configuration for both composable player and recorder:</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">recorder</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">use_sim_time</span><span class="pi">:</span> <span class="no">false</span>
+    <span class="na">record</span><span class="pi">:</span>
+      <span class="na">all</span><span class="pi">:</span> <span class="no">true</span>
+      <span class="na">is_discovery_disabled</span><span class="pi">:</span> <span class="no">false</span>
+      <span class="na">topic_polling_interval</span><span class="pi">:</span>
+        <span class="na">sec</span><span class="pi">:</span> <span class="s">0</span>
+        <span class="na">nsec</span><span class="pi">:</span> <span class="s">10000000</span>
+      <span class="na">include_hidden_topics</span><span class="pi">:</span> <span class="no">true</span>
+      <span class="na">ignore_leaf_topics</span><span class="pi">:</span> <span class="no">false</span>
+      <span class="na">start_paused</span><span class="pi">:</span> <span class="no">false</span>
+
+    <span class="na">storage</span><span class="pi">:</span>
+      <span class="na">uri</span><span class="pi">:</span> <span class="s2">"</span><span class="s">/path/to/destination/folder"</span>
+      <span class="na">storage_id</span><span class="pi">:</span> <span class="s2">"</span><span class="s">sqlite3"</span>
+      <span class="na">max_cache_size</span><span class="pi">:</span> <span class="s">20000000</span>
+
+</code></pre></div>
+<p>and</p>
+<div class="highlight"><pre><code class="language-yaml" data-lang="yaml"><span class="na">player</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">play</span><span class="pi">:</span>
+      <span class="na">read_ahead_queue_size</span><span class="pi">:</span> <span class="s">1000</span>
+      <span class="na">node_prefix</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+      <span class="na">rate</span><span class="pi">:</span> <span class="s">1.0</span>
+      <span class="na">loop</span><span class="pi">:</span> <span class="no">false</span>
+      <span class="c1"># Negative timestamps will make the playback to not stop.  </span>
+      <span class="na">playback_duration</span><span class="pi">:</span>
+        <span class="na">sec</span><span class="pi">:</span> <span class="s">-1</span>
+        <span class="na">nsec</span><span class="pi">:</span> <span class="s">00000000</span>
+      <span class="na">start_paused</span><span class="pi">:</span> <span class="no">false</span>
+
+    <span class="na">storage</span><span class="pi">:</span>
+      <span class="na">uri</span><span class="pi">:</span> <span class="s2">"</span><span class="s">path/to/rosbag/file"</span>
+      <span class="na">storage_id</span><span class="pi">:</span> <span class="s2">"</span><span class="s">mcap"</span>
+      <span class="na">storage_config_uri</span><span class="pi">:</span> <span class="s2">"</span><span class="s">"</span>
+
+</code></pre></div>
+<p>For a full list of available parameters, you can refer to <a href="https://github.com/ros2/rosbag2/tree/rolling/rosbag2_transport/test/resources/player_node_params.yaml"><code>player</code></a> and <a href="https://github.com/ros2/rosbag2/tree/rolling/rosbag2_transport/test/resources/recorder_node_params.yaml"><code>recorder</code></a> configurations from the <code>test</code> folder of <code>rosbag2_transport</code>.</p>
+
 <h2 id="storage-format-plugin-architecture">Storage format plugin architecture</h2>
 
 <p>Looking at the output of the <code>ros2 bag info</code> command, we can see a field <code>Storage id:</code>.
@@ -4409,7 +4523,7 @@ be under the Apache 2 License, as dictated by that
             <span class="username">ros-infrastructure/rosindex</span>
           </a>
           |
-          <em>generated on 2024-04-10</em>
+          <em>generated on 2024-04-11</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
