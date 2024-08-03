@@ -391,7 +391,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-05-30
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-08-03
         </span>
       </td>
     </tr>
@@ -468,7 +468,7 @@
                 
                   <tr>
                     <td><a href="/p/urg_stamped/github-seqsense-urg_stamped">urg_stamped</a></td>
-                    <td>0.1.1</td>
+                    <td>0.2.0</td>
                   </tr>
                 
                 </tbody>
@@ -486,17 +486,34 @@
 
 <p>Precisely and accurately stamped URG driver for ROS</p>
 
-<h2 id="backgrounds-and-algorithms">Backgrounds and Algorithms</h2>
+<h2 id="background-and-algorithm">Background and Algorithm</h2>
 
 <p>2D-LIDAR URG series provides 1ms resolution timestamp and exclusive clock synchronization mode.
 It was hard to compensate clock drift during measurement using them.
 Also, the resolution of the timestamp was not enough for a high-speed motion of the sensor.</p>
 
-<p>urg_stamped estimates sub-millisecond timestamp with clock drift compensation.
-The estimation is structured by following threefold:
-- Observe sensor internal timestamp by using sensor state command that sometimes responds immediately.
-- Observe data packet arrival time that is correlated to the true measurement time.
-- Fuse accurate but low-resolution timestamp and noisy but high-resolution arrival time by the complementary filter.</p>
+<p>So, urg_stamped estimates sub-millisecond by the following algorithm:</p>
+
+<ul>
+<li>Determine sensor internal clock state (clock offset and gain) using TM command
+
+<ul>
+<li>1. Observe sub-millisecond clock offset by finding increment of millisecond resolution sensor timestamp</li>
+<li>2. Observe clock gain from multiple observations of the clock offset</li>
+</ul>
+</li>
+<li>Determine scan origin time and interval
+
+<ul>
+<li>UTM: (UTM sends scan data right after the scan is finished)</li>
+<li>1. Observe scan timing based on scan data arrival time</li>
+<li>UST: (UST sends scan data on the next 1ms frame after the scan is finished)</li>
+<li>1. Find sensor scan timestamp jitter</li>
+<li>2. Observe scan origin time and scan interval using scan timestamp jitter</li>
+</ul>
+</li>
+<li>Calculate sub-millisecond scan timestamp based on the observed scan origin time and scan interval</li>
+</ul>
 
 <h2 id="usages">Usages</h2>
 
@@ -506,7 +523,7 @@ The estimation is structured by following threefold:
 
 <ul>
 <li>
-<strong>scan</strong> (sensor_msgs::LaserScan)</li>
+<strong>scan</strong> (<code>sensor_msgs::LaserScan</code>)</li>
 </ul>
 
 <h3 id="parameters">Parameters</h3>
@@ -530,13 +547,9 @@ The estimation is structured by following threefold:
 
 <ul>
 <li>
-<strong>sync_interval_min</strong> (double): minimum interval to try observing sensor internal timestamp in seconds</li>
+<strong>clock_estim_interval</strong> (double): sensor internal clock state estimation interval in seconds (dropping several scans during estimation)</li>
 <li>
-<strong>sync_interval_max</strong> (double): maximum interval to try observing sensor internal timestamp in seconds</li>
-<li>
-<strong>delay_estim_interval</strong> (double): communication delay estimation interval in seconds (dropping 2 or 3 scans during delay estimation)</li>
-<li>
-<strong>disable_on_scan_sync</strong> (bool): disable on-scan time synchronization for models like UST-05LX</li>
+<strong>fallback_on_continuous_scan_drop</strong> (int): fallback to naive 1ms accuracy timestamp if failed to estimate sub-millisecond timestamp more than this value</li>
 </ul>
 
 <h2 id="known-limitations">Known Limitations</h2>
@@ -562,12 +575,18 @@ The accuracy of the timestamp affects offset and precision of the timestamp affe
 
 <h3 id="results">Results</h3>
 
+<blockquote>
+<p>[!NOTE]<br>
+Following results are based on the previous algorithm (urg_stamped&lt;0.2.0).
+They will be updated later.</p>
+</blockquote>
+
 <p>The image below shows point cloud with 1 rad/s of the turntable which can be assumed as a reference.
 (decay time of the point cloud: 10 seconds)</p>
 
-<p><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_1radps.png" alt="urg_stamped 1 rad/s"></p>
+<p><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_1radps.png" alt="urg\_stamped 1 rad/s"></p>
 
-<p>urg_node has large error even if calibrate_time and synchronize_time options are enabled (captioned as urg_node (sync)).
+<p>urg_node has large error even if calibrate_time and synchronize_time options are enabled (captioned as <code>urg_node (sync)</code>).
 urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 
 <table>
@@ -581,18 +600,18 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 <tbody>
 <tr>
 <td>urg_stamped</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_10radps.png" alt="urg_stamped 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_20radps.png" alt="urg_stamped 20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_10radps.png" alt="urg\_stamped 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_20radps.png" alt="urg\_stamped 20 rad/s"></td>
 </tr>
 <tr>
 <td>urg_node</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_10radps.png" alt="urg_node 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_20radps.png" alt="urg_node 20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_10radps.png" alt="urg\_node 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_20radps.png" alt="urg\_node 20 rad/s"></td>
 </tr>
 <tr>
 <td>urg_node<br>(sync)</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_10radps.png" alt="urg_node sync 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_20radps.png" alt="urg_node sync_20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_10radps.png" alt="urg\_node sync 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_20radps.png" alt="urg\_node sync\_20 rad/s"></td>
 </tr>
 </tbody>
 </table>
@@ -699,7 +718,7 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-05-30
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-08-03
         </span>
       </td>
     </tr>
@@ -776,7 +795,7 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
                 
                   <tr>
                     <td><a href="/p/urg_stamped/github-seqsense-urg_stamped">urg_stamped</a></td>
-                    <td>0.1.1</td>
+                    <td>0.2.0</td>
                   </tr>
                 
                 </tbody>
@@ -794,17 +813,34 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 
 <p>Precisely and accurately stamped URG driver for ROS</p>
 
-<h2 id="backgrounds-and-algorithms">Backgrounds and Algorithms</h2>
+<h2 id="background-and-algorithm">Background and Algorithm</h2>
 
 <p>2D-LIDAR URG series provides 1ms resolution timestamp and exclusive clock synchronization mode.
 It was hard to compensate clock drift during measurement using them.
 Also, the resolution of the timestamp was not enough for a high-speed motion of the sensor.</p>
 
-<p>urg_stamped estimates sub-millisecond timestamp with clock drift compensation.
-The estimation is structured by following threefold:
-- Observe sensor internal timestamp by using sensor state command that sometimes responds immediately.
-- Observe data packet arrival time that is correlated to the true measurement time.
-- Fuse accurate but low-resolution timestamp and noisy but high-resolution arrival time by the complementary filter.</p>
+<p>So, urg_stamped estimates sub-millisecond by the following algorithm:</p>
+
+<ul>
+<li>Determine sensor internal clock state (clock offset and gain) using TM command
+
+<ul>
+<li>1. Observe sub-millisecond clock offset by finding increment of millisecond resolution sensor timestamp</li>
+<li>2. Observe clock gain from multiple observations of the clock offset</li>
+</ul>
+</li>
+<li>Determine scan origin time and interval
+
+<ul>
+<li>UTM: (UTM sends scan data right after the scan is finished)</li>
+<li>1. Observe scan timing based on scan data arrival time</li>
+<li>UST: (UST sends scan data on the next 1ms frame after the scan is finished)</li>
+<li>1. Find sensor scan timestamp jitter</li>
+<li>2. Observe scan origin time and scan interval using scan timestamp jitter</li>
+</ul>
+</li>
+<li>Calculate sub-millisecond scan timestamp based on the observed scan origin time and scan interval</li>
+</ul>
 
 <h2 id="usages">Usages</h2>
 
@@ -814,7 +850,7 @@ The estimation is structured by following threefold:
 
 <ul>
 <li>
-<strong>scan</strong> (sensor_msgs::LaserScan)</li>
+<strong>scan</strong> (<code>sensor_msgs::LaserScan</code>)</li>
 </ul>
 
 <h3 id="parameters">Parameters</h3>
@@ -838,13 +874,9 @@ The estimation is structured by following threefold:
 
 <ul>
 <li>
-<strong>sync_interval_min</strong> (double): minimum interval to try observing sensor internal timestamp in seconds</li>
+<strong>clock_estim_interval</strong> (double): sensor internal clock state estimation interval in seconds (dropping several scans during estimation)</li>
 <li>
-<strong>sync_interval_max</strong> (double): maximum interval to try observing sensor internal timestamp in seconds</li>
-<li>
-<strong>delay_estim_interval</strong> (double): communication delay estimation interval in seconds (dropping 2 or 3 scans during delay estimation)</li>
-<li>
-<strong>disable_on_scan_sync</strong> (bool): disable on-scan time synchronization for models like UST-05LX</li>
+<strong>fallback_on_continuous_scan_drop</strong> (int): fallback to naive 1ms accuracy timestamp if failed to estimate sub-millisecond timestamp more than this value</li>
 </ul>
 
 <h2 id="known-limitations">Known Limitations</h2>
@@ -870,12 +902,18 @@ The accuracy of the timestamp affects offset and precision of the timestamp affe
 
 <h3 id="results">Results</h3>
 
+<blockquote>
+<p>[!NOTE]<br>
+Following results are based on the previous algorithm (urg_stamped&lt;0.2.0).
+They will be updated later.</p>
+</blockquote>
+
 <p>The image below shows point cloud with 1 rad/s of the turntable which can be assumed as a reference.
 (decay time of the point cloud: 10 seconds)</p>
 
-<p><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_1radps.png" alt="urg_stamped 1 rad/s"></p>
+<p><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_1radps.png" alt="urg\_stamped 1 rad/s"></p>
 
-<p>urg_node has large error even if calibrate_time and synchronize_time options are enabled (captioned as urg_node (sync)).
+<p>urg_node has large error even if calibrate_time and synchronize_time options are enabled (captioned as <code>urg_node (sync)</code>).
 urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 
 <table>
@@ -889,18 +927,18 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 <tbody>
 <tr>
 <td>urg_stamped</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_10radps.png" alt="urg_stamped 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_20radps.png" alt="urg_stamped 20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_10radps.png" alt="urg\_stamped 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_20radps.png" alt="urg\_stamped 20 rad/s"></td>
 </tr>
 <tr>
 <td>urg_node</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_10radps.png" alt="urg_node 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_20radps.png" alt="urg_node 20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_10radps.png" alt="urg\_node 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_20radps.png" alt="urg\_node 20 rad/s"></td>
 </tr>
 <tr>
 <td>urg_node<br>(sync)</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_10radps.png" alt="urg_node sync 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_20radps.png" alt="urg_node sync_20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_10radps.png" alt="urg\_node sync 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_20radps.png" alt="urg\_node sync\_20 rad/s"></td>
 </tr>
 </tbody>
 </table>
@@ -959,7 +997,7 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-05-30
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-08-03
         </span>
       </td>
     </tr>
@@ -1036,7 +1074,7 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
                 
                   <tr>
                     <td><a href="/p/urg_stamped/github-seqsense-urg_stamped">urg_stamped</a></td>
-                    <td>0.1.1</td>
+                    <td>0.2.0</td>
                   </tr>
                 
                 </tbody>
@@ -1054,17 +1092,34 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 
 <p>Precisely and accurately stamped URG driver for ROS</p>
 
-<h2 id="backgrounds-and-algorithms">Backgrounds and Algorithms</h2>
+<h2 id="background-and-algorithm">Background and Algorithm</h2>
 
 <p>2D-LIDAR URG series provides 1ms resolution timestamp and exclusive clock synchronization mode.
 It was hard to compensate clock drift during measurement using them.
 Also, the resolution of the timestamp was not enough for a high-speed motion of the sensor.</p>
 
-<p>urg_stamped estimates sub-millisecond timestamp with clock drift compensation.
-The estimation is structured by following threefold:
-- Observe sensor internal timestamp by using sensor state command that sometimes responds immediately.
-- Observe data packet arrival time that is correlated to the true measurement time.
-- Fuse accurate but low-resolution timestamp and noisy but high-resolution arrival time by the complementary filter.</p>
+<p>So, urg_stamped estimates sub-millisecond by the following algorithm:</p>
+
+<ul>
+<li>Determine sensor internal clock state (clock offset and gain) using TM command
+
+<ul>
+<li>1. Observe sub-millisecond clock offset by finding increment of millisecond resolution sensor timestamp</li>
+<li>2. Observe clock gain from multiple observations of the clock offset</li>
+</ul>
+</li>
+<li>Determine scan origin time and interval
+
+<ul>
+<li>UTM: (UTM sends scan data right after the scan is finished)</li>
+<li>1. Observe scan timing based on scan data arrival time</li>
+<li>UST: (UST sends scan data on the next 1ms frame after the scan is finished)</li>
+<li>1. Find sensor scan timestamp jitter</li>
+<li>2. Observe scan origin time and scan interval using scan timestamp jitter</li>
+</ul>
+</li>
+<li>Calculate sub-millisecond scan timestamp based on the observed scan origin time and scan interval</li>
+</ul>
 
 <h2 id="usages">Usages</h2>
 
@@ -1074,7 +1129,7 @@ The estimation is structured by following threefold:
 
 <ul>
 <li>
-<strong>scan</strong> (sensor_msgs::LaserScan)</li>
+<strong>scan</strong> (<code>sensor_msgs::LaserScan</code>)</li>
 </ul>
 
 <h3 id="parameters">Parameters</h3>
@@ -1098,13 +1153,9 @@ The estimation is structured by following threefold:
 
 <ul>
 <li>
-<strong>sync_interval_min</strong> (double): minimum interval to try observing sensor internal timestamp in seconds</li>
+<strong>clock_estim_interval</strong> (double): sensor internal clock state estimation interval in seconds (dropping several scans during estimation)</li>
 <li>
-<strong>sync_interval_max</strong> (double): maximum interval to try observing sensor internal timestamp in seconds</li>
-<li>
-<strong>delay_estim_interval</strong> (double): communication delay estimation interval in seconds (dropping 2 or 3 scans during delay estimation)</li>
-<li>
-<strong>disable_on_scan_sync</strong> (bool): disable on-scan time synchronization for models like UST-05LX</li>
+<strong>fallback_on_continuous_scan_drop</strong> (int): fallback to naive 1ms accuracy timestamp if failed to estimate sub-millisecond timestamp more than this value</li>
 </ul>
 
 <h2 id="known-limitations">Known Limitations</h2>
@@ -1130,12 +1181,18 @@ The accuracy of the timestamp affects offset and precision of the timestamp affe
 
 <h3 id="results">Results</h3>
 
+<blockquote>
+<p>[!NOTE]<br>
+Following results are based on the previous algorithm (urg_stamped&lt;0.2.0).
+They will be updated later.</p>
+</blockquote>
+
 <p>The image below shows point cloud with 1 rad/s of the turntable which can be assumed as a reference.
 (decay time of the point cloud: 10 seconds)</p>
 
-<p><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_1radps.png" alt="urg_stamped 1 rad/s"></p>
+<p><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_1radps.png" alt="urg\_stamped 1 rad/s"></p>
 
-<p>urg_node has large error even if calibrate_time and synchronize_time options are enabled (captioned as urg_node (sync)).
+<p>urg_node has large error even if calibrate_time and synchronize_time options are enabled (captioned as <code>urg_node (sync)</code>).
 urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 
 <table>
@@ -1149,18 +1206,18 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 <tbody>
 <tr>
 <td>urg_stamped</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_10radps.png" alt="urg_stamped 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_20radps.png" alt="urg_stamped 20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_10radps.png" alt="urg\_stamped 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_20radps.png" alt="urg\_stamped 20 rad/s"></td>
 </tr>
 <tr>
 <td>urg_node</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_10radps.png" alt="urg_node 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_20radps.png" alt="urg_node 20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_10radps.png" alt="urg\_node 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_20radps.png" alt="urg\_node 20 rad/s"></td>
 </tr>
 <tr>
 <td>urg_node<br>(sync)</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_10radps.png" alt="urg_node sync 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_20radps.png" alt="urg_node sync_20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_10radps.png" alt="urg\_node sync 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_20radps.png" alt="urg\_node sync\_20 rad/s"></td>
 </tr>
 </tbody>
 </table>
@@ -1219,7 +1276,7 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-05-30
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-08-03
         </span>
       </td>
     </tr>
@@ -1296,7 +1353,7 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
                 
                   <tr>
                     <td><a href="/p/urg_stamped/github-seqsense-urg_stamped">urg_stamped</a></td>
-                    <td>0.1.1</td>
+                    <td>0.2.0</td>
                   </tr>
                 
                 </tbody>
@@ -1314,17 +1371,34 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 
 <p>Precisely and accurately stamped URG driver for ROS</p>
 
-<h2 id="backgrounds-and-algorithms">Backgrounds and Algorithms</h2>
+<h2 id="background-and-algorithm">Background and Algorithm</h2>
 
 <p>2D-LIDAR URG series provides 1ms resolution timestamp and exclusive clock synchronization mode.
 It was hard to compensate clock drift during measurement using them.
 Also, the resolution of the timestamp was not enough for a high-speed motion of the sensor.</p>
 
-<p>urg_stamped estimates sub-millisecond timestamp with clock drift compensation.
-The estimation is structured by following threefold:
-- Observe sensor internal timestamp by using sensor state command that sometimes responds immediately.
-- Observe data packet arrival time that is correlated to the true measurement time.
-- Fuse accurate but low-resolution timestamp and noisy but high-resolution arrival time by the complementary filter.</p>
+<p>So, urg_stamped estimates sub-millisecond by the following algorithm:</p>
+
+<ul>
+<li>Determine sensor internal clock state (clock offset and gain) using TM command
+
+<ul>
+<li>1. Observe sub-millisecond clock offset by finding increment of millisecond resolution sensor timestamp</li>
+<li>2. Observe clock gain from multiple observations of the clock offset</li>
+</ul>
+</li>
+<li>Determine scan origin time and interval
+
+<ul>
+<li>UTM: (UTM sends scan data right after the scan is finished)</li>
+<li>1. Observe scan timing based on scan data arrival time</li>
+<li>UST: (UST sends scan data on the next 1ms frame after the scan is finished)</li>
+<li>1. Find sensor scan timestamp jitter</li>
+<li>2. Observe scan origin time and scan interval using scan timestamp jitter</li>
+</ul>
+</li>
+<li>Calculate sub-millisecond scan timestamp based on the observed scan origin time and scan interval</li>
+</ul>
 
 <h2 id="usages">Usages</h2>
 
@@ -1334,7 +1408,7 @@ The estimation is structured by following threefold:
 
 <ul>
 <li>
-<strong>scan</strong> (sensor_msgs::LaserScan)</li>
+<strong>scan</strong> (<code>sensor_msgs::LaserScan</code>)</li>
 </ul>
 
 <h3 id="parameters">Parameters</h3>
@@ -1358,13 +1432,9 @@ The estimation is structured by following threefold:
 
 <ul>
 <li>
-<strong>sync_interval_min</strong> (double): minimum interval to try observing sensor internal timestamp in seconds</li>
+<strong>clock_estim_interval</strong> (double): sensor internal clock state estimation interval in seconds (dropping several scans during estimation)</li>
 <li>
-<strong>sync_interval_max</strong> (double): maximum interval to try observing sensor internal timestamp in seconds</li>
-<li>
-<strong>delay_estim_interval</strong> (double): communication delay estimation interval in seconds (dropping 2 or 3 scans during delay estimation)</li>
-<li>
-<strong>disable_on_scan_sync</strong> (bool): disable on-scan time synchronization for models like UST-05LX</li>
+<strong>fallback_on_continuous_scan_drop</strong> (int): fallback to naive 1ms accuracy timestamp if failed to estimate sub-millisecond timestamp more than this value</li>
 </ul>
 
 <h2 id="known-limitations">Known Limitations</h2>
@@ -1390,12 +1460,18 @@ The accuracy of the timestamp affects offset and precision of the timestamp affe
 
 <h3 id="results">Results</h3>
 
+<blockquote>
+<p>[!NOTE]<br>
+Following results are based on the previous algorithm (urg_stamped&lt;0.2.0).
+They will be updated later.</p>
+</blockquote>
+
 <p>The image below shows point cloud with 1 rad/s of the turntable which can be assumed as a reference.
 (decay time of the point cloud: 10 seconds)</p>
 
-<p><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_1radps.png" alt="urg_stamped 1 rad/s"></p>
+<p><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_1radps.png" alt="urg\_stamped 1 rad/s"></p>
 
-<p>urg_node has large error even if calibrate_time and synchronize_time options are enabled (captioned as urg_node (sync)).
+<p>urg_node has large error even if calibrate_time and synchronize_time options are enabled (captioned as <code>urg_node (sync)</code>).
 urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 
 <table>
@@ -1409,18 +1485,18 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 <tbody>
 <tr>
 <td>urg_stamped</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_10radps.png" alt="urg_stamped 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_20radps.png" alt="urg_stamped 20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_10radps.png" alt="urg\_stamped 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_20radps.png" alt="urg\_stamped 20 rad/s"></td>
 </tr>
 <tr>
 <td>urg_node</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_10radps.png" alt="urg_node 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_20radps.png" alt="urg_node 20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_10radps.png" alt="urg\_node 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_20radps.png" alt="urg\_node 20 rad/s"></td>
 </tr>
 <tr>
 <td>urg_node<br>(sync)</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_10radps.png" alt="urg_node sync 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_20radps.png" alt="urg_node sync_20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_10radps.png" alt="urg\_node sync 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_20radps.png" alt="urg\_node sync\_20 rad/s"></td>
 </tr>
 </tbody>
 </table>
@@ -1471,7 +1547,7 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-05-30
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-08-03
         </span>
       </td>
     </tr>
@@ -1548,7 +1624,7 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
                 
                   <tr>
                     <td><a href="/p/urg_stamped/github-seqsense-urg_stamped">urg_stamped</a></td>
-                    <td>0.1.1</td>
+                    <td>0.2.0</td>
                   </tr>
                 
                 </tbody>
@@ -1566,17 +1642,34 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 
 <p>Precisely and accurately stamped URG driver for ROS</p>
 
-<h2 id="backgrounds-and-algorithms">Backgrounds and Algorithms</h2>
+<h2 id="background-and-algorithm">Background and Algorithm</h2>
 
 <p>2D-LIDAR URG series provides 1ms resolution timestamp and exclusive clock synchronization mode.
 It was hard to compensate clock drift during measurement using them.
 Also, the resolution of the timestamp was not enough for a high-speed motion of the sensor.</p>
 
-<p>urg_stamped estimates sub-millisecond timestamp with clock drift compensation.
-The estimation is structured by following threefold:
-- Observe sensor internal timestamp by using sensor state command that sometimes responds immediately.
-- Observe data packet arrival time that is correlated to the true measurement time.
-- Fuse accurate but low-resolution timestamp and noisy but high-resolution arrival time by the complementary filter.</p>
+<p>So, urg_stamped estimates sub-millisecond by the following algorithm:</p>
+
+<ul>
+<li>Determine sensor internal clock state (clock offset and gain) using TM command
+
+<ul>
+<li>1. Observe sub-millisecond clock offset by finding increment of millisecond resolution sensor timestamp</li>
+<li>2. Observe clock gain from multiple observations of the clock offset</li>
+</ul>
+</li>
+<li>Determine scan origin time and interval
+
+<ul>
+<li>UTM: (UTM sends scan data right after the scan is finished)</li>
+<li>1. Observe scan timing based on scan data arrival time</li>
+<li>UST: (UST sends scan data on the next 1ms frame after the scan is finished)</li>
+<li>1. Find sensor scan timestamp jitter</li>
+<li>2. Observe scan origin time and scan interval using scan timestamp jitter</li>
+</ul>
+</li>
+<li>Calculate sub-millisecond scan timestamp based on the observed scan origin time and scan interval</li>
+</ul>
 
 <h2 id="usages">Usages</h2>
 
@@ -1586,7 +1679,7 @@ The estimation is structured by following threefold:
 
 <ul>
 <li>
-<strong>scan</strong> (sensor_msgs::LaserScan)</li>
+<strong>scan</strong> (<code>sensor_msgs::LaserScan</code>)</li>
 </ul>
 
 <h3 id="parameters">Parameters</h3>
@@ -1610,13 +1703,9 @@ The estimation is structured by following threefold:
 
 <ul>
 <li>
-<strong>sync_interval_min</strong> (double): minimum interval to try observing sensor internal timestamp in seconds</li>
+<strong>clock_estim_interval</strong> (double): sensor internal clock state estimation interval in seconds (dropping several scans during estimation)</li>
 <li>
-<strong>sync_interval_max</strong> (double): maximum interval to try observing sensor internal timestamp in seconds</li>
-<li>
-<strong>delay_estim_interval</strong> (double): communication delay estimation interval in seconds (dropping 2 or 3 scans during delay estimation)</li>
-<li>
-<strong>disable_on_scan_sync</strong> (bool): disable on-scan time synchronization for models like UST-05LX</li>
+<strong>fallback_on_continuous_scan_drop</strong> (int): fallback to naive 1ms accuracy timestamp if failed to estimate sub-millisecond timestamp more than this value</li>
 </ul>
 
 <h2 id="known-limitations">Known Limitations</h2>
@@ -1642,12 +1731,18 @@ The accuracy of the timestamp affects offset and precision of the timestamp affe
 
 <h3 id="results">Results</h3>
 
+<blockquote>
+<p>[!NOTE]<br>
+Following results are based on the previous algorithm (urg_stamped&lt;0.2.0).
+They will be updated later.</p>
+</blockquote>
+
 <p>The image below shows point cloud with 1 rad/s of the turntable which can be assumed as a reference.
 (decay time of the point cloud: 10 seconds)</p>
 
-<p><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_1radps.png" alt="urg_stamped 1 rad/s"></p>
+<p><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_1radps.png" alt="urg\_stamped 1 rad/s"></p>
 
-<p>urg_node has large error even if calibrate_time and synchronize_time options are enabled (captioned as urg_node (sync)).
+<p>urg_node has large error even if calibrate_time and synchronize_time options are enabled (captioned as <code>urg_node (sync)</code>).
 urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 
 <table>
@@ -1661,18 +1756,18 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
 <tbody>
 <tr>
 <td>urg_stamped</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_10radps.png" alt="urg_stamped 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_20radps.png" alt="urg_stamped 20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_10radps.png" alt="urg\_stamped 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_stamped_20radps.png" alt="urg\_stamped 20 rad/s"></td>
 </tr>
 <tr>
 <td>urg_node</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_10radps.png" alt="urg_node 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_20radps.png" alt="urg_node 20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_10radps.png" alt="urg\_node 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_20radps.png" alt="urg\_node 20 rad/s"></td>
 </tr>
 <tr>
 <td>urg_node<br>(sync)</td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_10radps.png" alt="urg_node sync 10 rad/s"></td>
-<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_20radps.png" alt="urg_node sync_20 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_10radps.png" alt="urg\_node sync 10 rad/s"></td>
+<td><img src="https://raw.githubusercontent.com/seqsense/urg_stamped/master/doc/images/urg_node_sync_20radps.png" alt="urg\_node sync\_20 rad/s"></td>
 </tr>
 </tbody>
 </table>
@@ -1727,7 +1822,7 @@ urg_stamped has better timestamp characteristics comparing with urg_node.</p>
             <span class="username">ros-infrastructure/rosindex</span>
           </a>
           |
-          <em>generated on 2024-05-30</em>
+          <em>generated on 2024-08-03</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
