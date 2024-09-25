@@ -878,109 +878,80 @@ Click to show more build history.">
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="nav_core2">nav_core2</h1>
-
 <p>A replacement interface for <a href="https://github.com/ros-planning/navigation/tree/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core">nav_core</a> that defines basic two dimensional planner interfaces.</p>
 
-<p>There were a few key reasons for creating new interfaces rather than extending the old ones.
- * Use <code>nav_2d_msgs</code> to eliminate unused data fields
- * Use a new <code>Costmap</code> interface as a plugin rather that forcing all implementations of the interfaces to use <code>costmap_2d::Costmap2DROS</code>.
- * Provide more data in the interfaces for easier testing.
- * Use Exceptions rather than booleans to provide more information about the types of errors encountered.</p>
+<p>There were a few key reasons for creating new interfaces rather than extending the old ones.</p>
+<ul>
+  <li>Use <code class="language-plaintext highlighter-rouge">nav_2d_msgs</code> to eliminate unused data fields</li>
+  <li>Use a new <code class="language-plaintext highlighter-rouge">Costmap</code> interface as a plugin rather that forcing all implementations of the interfaces to use <code class="language-plaintext highlighter-rouge">costmap_2d::Costmap2DROS</code>.</li>
+  <li>Provide more data in the interfaces for easier testing.</li>
+  <li>Use Exceptions rather than booleans to provide more information about the types of errors encountered.</li>
+</ul>
 
-<h2 id="costmap"><code>Costmap</code></h2>
+<h2 id="costmap"><code class="language-plaintext highlighter-rouge">Costmap</code></h2>
+<p><code class="language-plaintext highlighter-rouge">costmap_2d::Costmap2DROS</code> has been a vital part of the navigation stack for years, but it was not without its flaws.</p>
+<ul>
+  <li>Initialization required a transform be available from the global frame to the base frame, which was later used to move rolling costmaps around (and a few other things). This made doing simple testing of any planner or other <code class="language-plaintext highlighter-rouge">Costmap2DROS</code>-based behavior annoying, because transforms had to be set up, often outside of the immediate code that was being tested.</li>
+  <li>Initialization also started an update thread, which is also not always needed in testing.</li>
+  <li>Using <code class="language-plaintext highlighter-rouge">Costmap2DROS</code> locked users into a layered costmap based approach, which made some tasks much easier, but didn’t give users the freedom to change the implementation.</li>
+</ul>
 
-<p><code>costmap_2d::Costmap2DROS</code> has been a vital part of the navigation stack for years, but it was not without its flaws.
- * Initialization required a transform be available from the global frame to the base frame, which was later used to move rolling costmaps around (and a few other things). This made doing simple testing of any planner or other <code>Costmap2DROS</code>-based behavior annoying, because transforms had to be set up, often outside of the immediate code that was being tested.
- * Initialization also started an update thread, which is also not always needed in testing.
- * Using <code>Costmap2DROS</code> locked users into a layered costmap based approach, which made some tasks much easier, but didn't give users the freedom to change the implementation.</p>
+<p>The <a href="https://github.com/locusrobotics/robot_navigation/tree/noetic/nav_core2/include/nav_core2/costmap.h"><code class="language-plaintext highlighter-rouge">nav_core2::Costmap</code></a> interface extends the <code class="language-plaintext highlighter-rouge">nav_grid::NavGrid&lt;unsigned char&gt;</code> for abstracting away the data storage and coordinate manipulation, and provides a few other key methods for costmap functioning such as</p>
+<ul>
+  <li>a mutex</li>
+  <li>a way to potentially track changes to the costmap</li>
+  <li>a public <code class="language-plaintext highlighter-rouge">update</code> method that can be called in whatever thread you please</li>
+</ul>
 
-<p>The <a href="https://github.com/locusrobotics/robot_navigation/tree/noetic/nav_core2/include/nav_core2/costmap.h"><code>nav_core2::Costmap</code></a> interface extends the <code>nav_grid::NavGrid&lt;unsigned char&gt;</code> for abstracting away the data storage and coordinate manipulation, and provides a few other key methods for costmap functioning such as
- * a mutex
- * a way to potentially track changes to the costmap
- * a public <code>update</code> method that can be called in whatever thread you please</p>
+<p>The <code class="language-plaintext highlighter-rouge">Costmap</code> can be loaded using <code class="language-plaintext highlighter-rouge">pluginlib</code>, allowing for arbitrary implementations of underlying update algorithms, include the layered costmap approach.</p>
 
-<p>The <code>Costmap</code> can be loaded using <code>pluginlib</code>, allowing for arbitrary implementations of underlying update algorithms, include the layered costmap approach.</p>
+<p>One basic implementation is provided in <a href="https://github.com/locusrobotics/robot_navigation/tree/noetic/nav_core2/include/nav_core2/basic_costmap.h"><code class="language-plaintext highlighter-rouge">BasicCostmap</code></a>. You can also use the <code class="language-plaintext highlighter-rouge">nav_core_adapter::CostmapAdapter</code> class which implements the <code class="language-plaintext highlighter-rouge">Costmap</code> interface while allowing you to still use <code class="language-plaintext highlighter-rouge">Costmap2DROS</code>.</p>
 
-<p>One basic implementation is provided in <a href="https://github.com/locusrobotics/robot_navigation/tree/noetic/nav_core2/include/nav_core2/basic_costmap.h"><code>BasicCostmap</code></a>. You can also use the <code>nav_core_adapter::CostmapAdapter</code> class which implements the <code>Costmap</code> interface while allowing you to still use <code>Costmap2DROS</code>.</p>
-
-<p>Note: One could also imagine the <code>Costmap</code> interface being templatized itself like <code>NavGrid</code> instead of forcing use of <code>unsigned char</code>. While this may be possible, it was decided that it was a bit ambitious and the use of templates would force all of the implementation into headers, and would ultimately obfuscate the operation of algorithms.</p>
+<p>Note: One could also imagine the <code class="language-plaintext highlighter-rouge">Costmap</code> interface being templatized itself like <code class="language-plaintext highlighter-rouge">NavGrid</code> instead of forcing use of <code class="language-plaintext highlighter-rouge">unsigned char</code>. While this may be possible, it was decided that it was a bit ambitious and the use of templates would force all of the implementation into headers, and would ultimately obfuscate the operation of algorithms.</p>
 
 <h2 id="global-planner">Global Planner</h2>
-
 <p>Let us compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_global_planner.h">nav_core::BaseGlobalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/noetic/nav_core2/include/nav_core2/global_planner.h">nav_core2/GlobalPlanner</a>.</p>
 
 <table>
-<thead>
-<tr>
-<th><code>nav_core</code></th>
-<th><code>nav_core2</code></th>
-<th>comments</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>void initialize(std::string, costmap_2d::Costmap2DROS*)</code></td>
-<td><code>void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
-<td>Uses modern pointers instead of raw pointers, and provides a TFListener</td>
-</tr>
-<tr>
-<td><code>bool makePlan(const geometry_msgs::PoseStamped&amp;, const geometry_msgs::PoseStamped&amp;, std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
-<td><code>nav_2d_msgs::Path2D makePlan(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
-<td>Uses exceptions for errors instead of returning a bool, which frees up the return for the actual path.</td>
-</tr>
-</tbody>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">nav_core</code></th>
+      <th><code class="language-plaintext highlighter-rouge">nav_core2</code></th>
+      <th>comments</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">void initialize(std::string, costmap_2d::Costmap2DROS*)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
+      <td>Uses modern pointers instead of raw pointers, and provides a TFListener</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">bool makePlan(const geometry_msgs::PoseStamped&amp;, const geometry_msgs::PoseStamped&amp;, std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">nav_2d_msgs::Path2D makePlan(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
+      <td>Uses exceptions for errors instead of returning a bool, which frees up the return for the actual path.</td>
+    </tr>
+  </tbody>
 </table>
 
 <h2 id="local-planner">Local Planner</h2>
+<p>Now let’s compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_local_planner.h">nav_core::BaseLocalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/noetic/nav_core2/include/nav_core2/local_planner.h">nav_core2/LocalPlanner</a>.</p>
 
-<p>Now let's compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_local_planner.h">nav_core::BaseLocalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/noetic/nav_core2/include/nav_core2/local_planner.h">nav_core2/LocalPlanner</a>.</p>
-
-<table>
-<thead>
-<tr>
-<th><code>nav_core</code></th>
-<th><code>nav_core2</code></th>
-<th>comments</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>void initialize(std::string, tf::TransformListener*, costmap_2d::Costmap2DROS*)</code></td>
-<td><code>void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
-<td>Uses modern pointers instead of raw pointers</td>
-</tr>
-<tr>
-<td>(no equivalent)</td>
-<td><code>void setGoalPose(const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
-<td>Explicitly set the new goal location, rather than using the last pose of the global plan`</td>
-</tr>
-<tr>
-<td><code>bool setPlan(const std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
-<td><code>setPlan(const nav_2d_msgs::Path2D&amp;)</code></td>
-<td></td>
-</tr>
-<tr>
-<td><code>bool computeVelocityCommands(geometry_msgs::Twist&amp;)</code></td>
-<td><code>nav_2d_msgs::Twist2DStamped computeVelocityCommands(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)</code></td>
-<td>Explicitly provides the current pose and velocity for more explicit data control and easier testing. Uses exceptions for errors instead of returning a bool, which frees up the return for the actual command.</td>
-</tr>
-<tr>
-<td><code>bool isGoalReached()</code></td>
-<td><code>bool isGoalReached(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)</code></td>
-<td>Explicitly provide the current pose and velocity for more explicit data control and easier testing.</td>
-</tr>
-</tbody>
-</table>
+<p>| <code class="language-plaintext highlighter-rouge">nav_core</code> | <code class="language-plaintext highlighter-rouge">nav_core2</code> | comments |
+|—|–|—|
+|<code class="language-plaintext highlighter-rouge">void initialize(std::string, tf::TransformListener*, costmap_2d::Costmap2DROS*)</code>|<code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code>|Uses modern pointers instead of raw pointers|
+|(no equivalent)|<code class="language-plaintext highlighter-rouge">void setGoalPose(const nav_2d_msgs::Pose2DStamped&amp;)</code>|Explicitly set the new goal location, rather than using the last pose of the global plan<code class="language-plaintext highlighter-rouge">
+|</code>bool setPlan(const std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)<code class="language-plaintext highlighter-rouge">|</code>setPlan(const nav_2d_msgs::Path2D&amp;)<code class="language-plaintext highlighter-rouge">||
+|</code>bool computeVelocityCommands(geometry_msgs::Twist&amp;)<code class="language-plaintext highlighter-rouge">|</code>nav_2d_msgs::Twist2DStamped computeVelocityCommands(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)<code class="language-plaintext highlighter-rouge">|Explicitly provides the current pose and velocity for more explicit data control and easier testing. Uses exceptions for errors instead of returning a bool, which frees up the return for the actual command.|
+|</code>bool isGoalReached()<code class="language-plaintext highlighter-rouge"> | </code>bool isGoalReached(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)` | Explicitly provide the current pose and velocity for more explicit data control and easier testing. |</p>
 
 <h2 id="exceptions">Exceptions</h2>
-
 <p>A hierarchical collection of <a href="https://github.com/locusrobotics/robot_navigation/tree/noetic/nav_core2/include/nav_core2/exceptions.h">exceptions</a> is provided to allow for reacting to navigation failures in a more robust and contextual way.
 <img src="https://raw.githubusercontent.com/locusrobotics/robot_navigation/noetic/nav_core2/doc/exceptions.png" alt="exception hierarchy tree">
-Each exception has a corresponding integer "result code" that can be used in ROS interfaces where passing the C++ object is infeasible. Note that due to the hierarchy, the result_code will be for the child-most exception. For example, if you throw a <code>StartBoundsException</code> which has a corresponding result code of <code>6</code>, it could also be seen as a <code>InvalidStartPoseException</code>, <code>GlobalPlannerException</code>, <code>PlannerException</code> or <code>NavCore2Exception</code>, all of which would also have the result code of <code>6</code>.</p>
+Each exception has a corresponding integer “result code” that can be used in ROS interfaces where passing the C++ object is infeasible. Note that due to the hierarchy, the result_code will be for the child-most exception. For example, if you throw a <code class="language-plaintext highlighter-rouge">StartBoundsException</code> which has a corresponding result code of <code class="language-plaintext highlighter-rouge">6</code>, it could also be seen as a <code class="language-plaintext highlighter-rouge">InvalidStartPoseException</code>, <code class="language-plaintext highlighter-rouge">GlobalPlannerException</code>, <code class="language-plaintext highlighter-rouge">PlannerException</code> or <code class="language-plaintext highlighter-rouge">NavCore2Exception</code>, all of which would also have the result code of <code class="language-plaintext highlighter-rouge">6</code>.</p>
 
 <h2 id="bounds">Bounds</h2>
-
-<p>For use in tracking <code>Costmap</code> changes and more, this package also provides an implementation of <a href="https://github.com/locusrobotics/robot_navigation/tree/noetic/nav_core2/include/nav_core2/bounds.h">bounding boxes</a>. These are represented with the ranges <code>[min_x, max_x]</code> and <code>[min_y, max_y]</code> (inclusive).</p>
+<p>For use in tracking <code class="language-plaintext highlighter-rouge">Costmap</code> changes and more, this package also provides an implementation of <a href="https://github.com/locusrobotics/robot_navigation/tree/noetic/nav_core2/include/nav_core2/bounds.h">bounding boxes</a>. These are represented with the ranges <code class="language-plaintext highlighter-rouge">[min_x, max_x]</code> and <code class="language-plaintext highlighter-rouge">[min_y, max_y]</code> (inclusive).</p>
 </div>
               </div>
             </div>
@@ -2033,109 +2004,80 @@ No test statistics available for this package.">
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="nav_core2">nav_core2</h1>
-
 <p>A replacement interface for <a href="https://github.com/ros-planning/navigation/tree/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core">nav_core</a> that defines basic two dimensional planner interfaces.</p>
 
-<p>There were a few key reasons for creating new interfaces rather than extending the old ones.
- * Use <code>nav_2d_msgs</code> to eliminate unused data fields
- * Use a new <code>Costmap</code> interface as a plugin rather that forcing all implementations of the interfaces to use <code>costmap_2d::Costmap2DROS</code>.
- * Provide more data in the interfaces for easier testing.
- * Use Exceptions rather than booleans to provide more information about the types of errors encountered.</p>
+<p>There were a few key reasons for creating new interfaces rather than extending the old ones.</p>
+<ul>
+  <li>Use <code class="language-plaintext highlighter-rouge">nav_2d_msgs</code> to eliminate unused data fields</li>
+  <li>Use a new <code class="language-plaintext highlighter-rouge">Costmap</code> interface as a plugin rather that forcing all implementations of the interfaces to use <code class="language-plaintext highlighter-rouge">costmap_2d::Costmap2DROS</code>.</li>
+  <li>Provide more data in the interfaces for easier testing.</li>
+  <li>Use Exceptions rather than booleans to provide more information about the types of errors encountered.</li>
+</ul>
 
-<h2 id="costmap"><code>Costmap</code></h2>
+<h2 id="costmap"><code class="language-plaintext highlighter-rouge">Costmap</code></h2>
+<p><code class="language-plaintext highlighter-rouge">costmap_2d::Costmap2DROS</code> has been a vital part of the navigation stack for years, but it was not without its flaws.</p>
+<ul>
+  <li>Initialization required a transform be available from the global frame to the base frame, which was later used to move rolling costmaps around (and a few other things). This made doing simple testing of any planner or other <code class="language-plaintext highlighter-rouge">Costmap2DROS</code>-based behavior annoying, because transforms had to be set up, often outside of the immediate code that was being tested.</li>
+  <li>Initialization also started an update thread, which is also not always needed in testing.</li>
+  <li>Using <code class="language-plaintext highlighter-rouge">Costmap2DROS</code> locked users into a layered costmap based approach, which made some tasks much easier, but didn’t give users the freedom to change the implementation.</li>
+</ul>
 
-<p><code>costmap_2d::Costmap2DROS</code> has been a vital part of the navigation stack for years, but it was not without its flaws.
- * Initialization required a transform be available from the global frame to the base frame, which was later used to move rolling costmaps around (and a few other things). This made doing simple testing of any planner or other <code>Costmap2DROS</code>-based behavior annoying, because transforms had to be set up, often outside of the immediate code that was being tested.
- * Initialization also started an update thread, which is also not always needed in testing.
- * Using <code>Costmap2DROS</code> locked users into a layered costmap based approach, which made some tasks much easier, but didn't give users the freedom to change the implementation.</p>
+<p>The <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/costmap.h"><code class="language-plaintext highlighter-rouge">nav_core2::Costmap</code></a> interface extends the <code class="language-plaintext highlighter-rouge">nav_grid::NavGrid&lt;unsigned char&gt;</code> for abstracting away the data storage and coordinate manipulation, and provides a few other key methods for costmap functioning such as</p>
+<ul>
+  <li>a mutex</li>
+  <li>a way to potentially track changes to the costmap</li>
+  <li>a public <code class="language-plaintext highlighter-rouge">update</code> method that can be called in whatever thread you please</li>
+</ul>
 
-<p>The <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/costmap.h"><code>nav_core2::Costmap</code></a> interface extends the <code>nav_grid::NavGrid&lt;unsigned char&gt;</code> for abstracting away the data storage and coordinate manipulation, and provides a few other key methods for costmap functioning such as
- * a mutex
- * a way to potentially track changes to the costmap
- * a public <code>update</code> method that can be called in whatever thread you please</p>
+<p>The <code class="language-plaintext highlighter-rouge">Costmap</code> can be loaded using <code class="language-plaintext highlighter-rouge">pluginlib</code>, allowing for arbitrary implementations of underlying update algorithms, include the layered costmap approach.</p>
 
-<p>The <code>Costmap</code> can be loaded using <code>pluginlib</code>, allowing for arbitrary implementations of underlying update algorithms, include the layered costmap approach.</p>
+<p>One basic implementation is provided in <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/basic_costmap.h"><code class="language-plaintext highlighter-rouge">BasicCostmap</code></a>. You can also use the <code class="language-plaintext highlighter-rouge">nav_core_adapter::CostmapAdapter</code> class which implements the <code class="language-plaintext highlighter-rouge">Costmap</code> interface while allowing you to still use <code class="language-plaintext highlighter-rouge">Costmap2DROS</code>.</p>
 
-<p>One basic implementation is provided in <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/basic_costmap.h"><code>BasicCostmap</code></a>. You can also use the <code>nav_core_adapter::CostmapAdapter</code> class which implements the <code>Costmap</code> interface while allowing you to still use <code>Costmap2DROS</code>.</p>
-
-<p>Note: One could also imagine the <code>Costmap</code> interface being templatized itself like <code>NavGrid</code> instead of forcing use of <code>unsigned char</code>. While this may be possible, it was decided that it was a bit ambitious and the use of templates would force all of the implementation into headers, and would ultimately obfuscate the operation of algorithms.</p>
+<p>Note: One could also imagine the <code class="language-plaintext highlighter-rouge">Costmap</code> interface being templatized itself like <code class="language-plaintext highlighter-rouge">NavGrid</code> instead of forcing use of <code class="language-plaintext highlighter-rouge">unsigned char</code>. While this may be possible, it was decided that it was a bit ambitious and the use of templates would force all of the implementation into headers, and would ultimately obfuscate the operation of algorithms.</p>
 
 <h2 id="global-planner">Global Planner</h2>
-
 <p>Let us compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_global_planner.h">nav_core::BaseGlobalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/global_planner.h">nav_core2/GlobalPlanner</a>.</p>
 
 <table>
-<thead>
-<tr>
-<th><code>nav_core</code></th>
-<th><code>nav_core2</code></th>
-<th>comments</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>void initialize(std::string, costmap_2d::Costmap2DROS*)</code></td>
-<td><code>void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
-<td>Uses modern pointers instead of raw pointers, and provides a TFListener</td>
-</tr>
-<tr>
-<td><code>bool makePlan(const geometry_msgs::PoseStamped&amp;, const geometry_msgs::PoseStamped&amp;, std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
-<td><code>nav_2d_msgs::Path2D makePlan(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
-<td>Uses exceptions for errors instead of returning a bool, which frees up the return for the actual path.</td>
-</tr>
-</tbody>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">nav_core</code></th>
+      <th><code class="language-plaintext highlighter-rouge">nav_core2</code></th>
+      <th>comments</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">void initialize(std::string, costmap_2d::Costmap2DROS*)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
+      <td>Uses modern pointers instead of raw pointers, and provides a TFListener</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">bool makePlan(const geometry_msgs::PoseStamped&amp;, const geometry_msgs::PoseStamped&amp;, std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">nav_2d_msgs::Path2D makePlan(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
+      <td>Uses exceptions for errors instead of returning a bool, which frees up the return for the actual path.</td>
+    </tr>
+  </tbody>
 </table>
 
 <h2 id="local-planner">Local Planner</h2>
+<p>Now let’s compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_local_planner.h">nav_core::BaseLocalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/local_planner.h">nav_core2/LocalPlanner</a>.</p>
 
-<p>Now let's compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_local_planner.h">nav_core::BaseLocalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/local_planner.h">nav_core2/LocalPlanner</a>.</p>
-
-<table>
-<thead>
-<tr>
-<th><code>nav_core</code></th>
-<th><code>nav_core2</code></th>
-<th>comments</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>void initialize(std::string, tf::TransformListener*, costmap_2d::Costmap2DROS*)</code></td>
-<td><code>void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
-<td>Uses modern pointers instead of raw pointers</td>
-</tr>
-<tr>
-<td>(no equivalent)</td>
-<td><code>void setGoalPose(const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
-<td>Explicitly set the new goal location, rather than using the last pose of the global plan`</td>
-</tr>
-<tr>
-<td><code>bool setPlan(const std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
-<td><code>setPlan(const nav_2d_msgs::Path2D&amp;)</code></td>
-<td></td>
-</tr>
-<tr>
-<td><code>bool computeVelocityCommands(geometry_msgs::Twist&amp;)</code></td>
-<td><code>nav_2d_msgs::Twist2DStamped computeVelocityCommands(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)</code></td>
-<td>Explicitly provides the current pose and velocity for more explicit data control and easier testing. Uses exceptions for errors instead of returning a bool, which frees up the return for the actual command.</td>
-</tr>
-<tr>
-<td><code>bool isGoalReached()</code></td>
-<td><code>bool isGoalReached(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)</code></td>
-<td>Explicitly provide the current pose and velocity for more explicit data control and easier testing.</td>
-</tr>
-</tbody>
-</table>
+<p>| <code class="language-plaintext highlighter-rouge">nav_core</code> | <code class="language-plaintext highlighter-rouge">nav_core2</code> | comments |
+|—|–|—|
+|<code class="language-plaintext highlighter-rouge">void initialize(std::string, tf::TransformListener*, costmap_2d::Costmap2DROS*)</code>|<code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code>|Uses modern pointers instead of raw pointers|
+|(no equivalent)|<code class="language-plaintext highlighter-rouge">void setGoalPose(const nav_2d_msgs::Pose2DStamped&amp;)</code>|Explicitly set the new goal location, rather than using the last pose of the global plan<code class="language-plaintext highlighter-rouge">
+|</code>bool setPlan(const std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)<code class="language-plaintext highlighter-rouge">|</code>setPlan(const nav_2d_msgs::Path2D&amp;)<code class="language-plaintext highlighter-rouge">||
+|</code>bool computeVelocityCommands(geometry_msgs::Twist&amp;)<code class="language-plaintext highlighter-rouge">|</code>nav_2d_msgs::Twist2DStamped computeVelocityCommands(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)<code class="language-plaintext highlighter-rouge">|Explicitly provides the current pose and velocity for more explicit data control and easier testing. Uses exceptions for errors instead of returning a bool, which frees up the return for the actual command.|
+|</code>bool isGoalReached()<code class="language-plaintext highlighter-rouge"> | </code>bool isGoalReached(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)` | Explicitly provide the current pose and velocity for more explicit data control and easier testing. |</p>
 
 <h2 id="exceptions">Exceptions</h2>
-
 <p>A hierarchical collection of <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/exceptions.h">exceptions</a> is provided to allow for reacting to navigation failures in a more robust and contextual way.
 <img src="https://raw.githubusercontent.com/locusrobotics/robot_navigation/master/nav_core2/doc/exceptions.png" alt="exception hierarchy tree">
-Each exception has a corresponding integer "result code" that can be used in ROS interfaces where passing the C++ object is infeasible. Note that due to the hierarchy, the result_code will be for the child-most exception. For example, if you throw a <code>StartBoundsException</code> which has a corresponding result code of <code>6</code>, it could also be seen as a <code>InvalidStartPoseException</code>, <code>GlobalPlannerException</code>, <code>PlannerException</code> or <code>NavCore2Exception</code>, all of which would also have the result code of <code>6</code>.</p>
+Each exception has a corresponding integer “result code” that can be used in ROS interfaces where passing the C++ object is infeasible. Note that due to the hierarchy, the result_code will be for the child-most exception. For example, if you throw a <code class="language-plaintext highlighter-rouge">StartBoundsException</code> which has a corresponding result code of <code class="language-plaintext highlighter-rouge">6</code>, it could also be seen as a <code class="language-plaintext highlighter-rouge">InvalidStartPoseException</code>, <code class="language-plaintext highlighter-rouge">GlobalPlannerException</code>, <code class="language-plaintext highlighter-rouge">PlannerException</code> or <code class="language-plaintext highlighter-rouge">NavCore2Exception</code>, all of which would also have the result code of <code class="language-plaintext highlighter-rouge">6</code>.</p>
 
 <h2 id="bounds">Bounds</h2>
-
-<p>For use in tracking <code>Costmap</code> changes and more, this package also provides an implementation of <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/bounds.h">bounding boxes</a>. These are represented with the ranges <code>[min_x, max_x]</code> and <code>[min_y, max_y]</code> (inclusive).</p>
+<p>For use in tracking <code class="language-plaintext highlighter-rouge">Costmap</code> changes and more, this package also provides an implementation of <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/bounds.h">bounding boxes</a>. These are represented with the ranges <code class="language-plaintext highlighter-rouge">[min_x, max_x]</code> and <code class="language-plaintext highlighter-rouge">[min_y, max_y]</code> (inclusive).</p>
 </div>
               </div>
             </div>
@@ -3126,109 +3068,80 @@ No test statistics available for this package.">
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="nav_core2">nav_core2</h1>
-
 <p>A replacement interface for <a href="https://github.com/ros-planning/navigation/tree/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core">nav_core</a> that defines basic two dimensional planner interfaces.</p>
 
-<p>There were a few key reasons for creating new interfaces rather than extending the old ones.
- * Use <code>nav_2d_msgs</code> to eliminate unused data fields
- * Use a new <code>Costmap</code> interface as a plugin rather that forcing all implementations of the interfaces to use <code>costmap_2d::Costmap2DROS</code>.
- * Provide more data in the interfaces for easier testing.
- * Use Exceptions rather than booleans to provide more information about the types of errors encountered.</p>
+<p>There were a few key reasons for creating new interfaces rather than extending the old ones.</p>
+<ul>
+  <li>Use <code class="language-plaintext highlighter-rouge">nav_2d_msgs</code> to eliminate unused data fields</li>
+  <li>Use a new <code class="language-plaintext highlighter-rouge">Costmap</code> interface as a plugin rather that forcing all implementations of the interfaces to use <code class="language-plaintext highlighter-rouge">costmap_2d::Costmap2DROS</code>.</li>
+  <li>Provide more data in the interfaces for easier testing.</li>
+  <li>Use Exceptions rather than booleans to provide more information about the types of errors encountered.</li>
+</ul>
 
-<h2 id="costmap"><code>Costmap</code></h2>
+<h2 id="costmap"><code class="language-plaintext highlighter-rouge">Costmap</code></h2>
+<p><code class="language-plaintext highlighter-rouge">costmap_2d::Costmap2DROS</code> has been a vital part of the navigation stack for years, but it was not without its flaws.</p>
+<ul>
+  <li>Initialization required a transform be available from the global frame to the base frame, which was later used to move rolling costmaps around (and a few other things). This made doing simple testing of any planner or other <code class="language-plaintext highlighter-rouge">Costmap2DROS</code>-based behavior annoying, because transforms had to be set up, often outside of the immediate code that was being tested.</li>
+  <li>Initialization also started an update thread, which is also not always needed in testing.</li>
+  <li>Using <code class="language-plaintext highlighter-rouge">Costmap2DROS</code> locked users into a layered costmap based approach, which made some tasks much easier, but didn’t give users the freedom to change the implementation.</li>
+</ul>
 
-<p><code>costmap_2d::Costmap2DROS</code> has been a vital part of the navigation stack for years, but it was not without its flaws.
- * Initialization required a transform be available from the global frame to the base frame, which was later used to move rolling costmaps around (and a few other things). This made doing simple testing of any planner or other <code>Costmap2DROS</code>-based behavior annoying, because transforms had to be set up, often outside of the immediate code that was being tested.
- * Initialization also started an update thread, which is also not always needed in testing.
- * Using <code>Costmap2DROS</code> locked users into a layered costmap based approach, which made some tasks much easier, but didn't give users the freedom to change the implementation.</p>
+<p>The <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/costmap.h"><code class="language-plaintext highlighter-rouge">nav_core2::Costmap</code></a> interface extends the <code class="language-plaintext highlighter-rouge">nav_grid::NavGrid&lt;unsigned char&gt;</code> for abstracting away the data storage and coordinate manipulation, and provides a few other key methods for costmap functioning such as</p>
+<ul>
+  <li>a mutex</li>
+  <li>a way to potentially track changes to the costmap</li>
+  <li>a public <code class="language-plaintext highlighter-rouge">update</code> method that can be called in whatever thread you please</li>
+</ul>
 
-<p>The <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/costmap.h"><code>nav_core2::Costmap</code></a> interface extends the <code>nav_grid::NavGrid&lt;unsigned char&gt;</code> for abstracting away the data storage and coordinate manipulation, and provides a few other key methods for costmap functioning such as
- * a mutex
- * a way to potentially track changes to the costmap
- * a public <code>update</code> method that can be called in whatever thread you please</p>
+<p>The <code class="language-plaintext highlighter-rouge">Costmap</code> can be loaded using <code class="language-plaintext highlighter-rouge">pluginlib</code>, allowing for arbitrary implementations of underlying update algorithms, include the layered costmap approach.</p>
 
-<p>The <code>Costmap</code> can be loaded using <code>pluginlib</code>, allowing for arbitrary implementations of underlying update algorithms, include the layered costmap approach.</p>
+<p>One basic implementation is provided in <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/basic_costmap.h"><code class="language-plaintext highlighter-rouge">BasicCostmap</code></a>. You can also use the <code class="language-plaintext highlighter-rouge">nav_core_adapter::CostmapAdapter</code> class which implements the <code class="language-plaintext highlighter-rouge">Costmap</code> interface while allowing you to still use <code class="language-plaintext highlighter-rouge">Costmap2DROS</code>.</p>
 
-<p>One basic implementation is provided in <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/basic_costmap.h"><code>BasicCostmap</code></a>. You can also use the <code>nav_core_adapter::CostmapAdapter</code> class which implements the <code>Costmap</code> interface while allowing you to still use <code>Costmap2DROS</code>.</p>
-
-<p>Note: One could also imagine the <code>Costmap</code> interface being templatized itself like <code>NavGrid</code> instead of forcing use of <code>unsigned char</code>. While this may be possible, it was decided that it was a bit ambitious and the use of templates would force all of the implementation into headers, and would ultimately obfuscate the operation of algorithms.</p>
+<p>Note: One could also imagine the <code class="language-plaintext highlighter-rouge">Costmap</code> interface being templatized itself like <code class="language-plaintext highlighter-rouge">NavGrid</code> instead of forcing use of <code class="language-plaintext highlighter-rouge">unsigned char</code>. While this may be possible, it was decided that it was a bit ambitious and the use of templates would force all of the implementation into headers, and would ultimately obfuscate the operation of algorithms.</p>
 
 <h2 id="global-planner">Global Planner</h2>
-
 <p>Let us compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_global_planner.h">nav_core::BaseGlobalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/global_planner.h">nav_core2/GlobalPlanner</a>.</p>
 
 <table>
-<thead>
-<tr>
-<th><code>nav_core</code></th>
-<th><code>nav_core2</code></th>
-<th>comments</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>void initialize(std::string, costmap_2d::Costmap2DROS*)</code></td>
-<td><code>void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
-<td>Uses modern pointers instead of raw pointers, and provides a TFListener</td>
-</tr>
-<tr>
-<td><code>bool makePlan(const geometry_msgs::PoseStamped&amp;, const geometry_msgs::PoseStamped&amp;, std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
-<td><code>nav_2d_msgs::Path2D makePlan(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
-<td>Uses exceptions for errors instead of returning a bool, which frees up the return for the actual path.</td>
-</tr>
-</tbody>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">nav_core</code></th>
+      <th><code class="language-plaintext highlighter-rouge">nav_core2</code></th>
+      <th>comments</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">void initialize(std::string, costmap_2d::Costmap2DROS*)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
+      <td>Uses modern pointers instead of raw pointers, and provides a TFListener</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">bool makePlan(const geometry_msgs::PoseStamped&amp;, const geometry_msgs::PoseStamped&amp;, std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">nav_2d_msgs::Path2D makePlan(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
+      <td>Uses exceptions for errors instead of returning a bool, which frees up the return for the actual path.</td>
+    </tr>
+  </tbody>
 </table>
 
 <h2 id="local-planner">Local Planner</h2>
+<p>Now let’s compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_local_planner.h">nav_core::BaseLocalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/local_planner.h">nav_core2/LocalPlanner</a>.</p>
 
-<p>Now let's compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_local_planner.h">nav_core::BaseLocalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/local_planner.h">nav_core2/LocalPlanner</a>.</p>
-
-<table>
-<thead>
-<tr>
-<th><code>nav_core</code></th>
-<th><code>nav_core2</code></th>
-<th>comments</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>void initialize(std::string, tf::TransformListener*, costmap_2d::Costmap2DROS*)</code></td>
-<td><code>void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
-<td>Uses modern pointers instead of raw pointers</td>
-</tr>
-<tr>
-<td>(no equivalent)</td>
-<td><code>void setGoalPose(const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
-<td>Explicitly set the new goal location, rather than using the last pose of the global plan`</td>
-</tr>
-<tr>
-<td><code>bool setPlan(const std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
-<td><code>setPlan(const nav_2d_msgs::Path2D&amp;)</code></td>
-<td></td>
-</tr>
-<tr>
-<td><code>bool computeVelocityCommands(geometry_msgs::Twist&amp;)</code></td>
-<td><code>nav_2d_msgs::Twist2DStamped computeVelocityCommands(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)</code></td>
-<td>Explicitly provides the current pose and velocity for more explicit data control and easier testing. Uses exceptions for errors instead of returning a bool, which frees up the return for the actual command.</td>
-</tr>
-<tr>
-<td><code>bool isGoalReached()</code></td>
-<td><code>bool isGoalReached(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)</code></td>
-<td>Explicitly provide the current pose and velocity for more explicit data control and easier testing.</td>
-</tr>
-</tbody>
-</table>
+<p>| <code class="language-plaintext highlighter-rouge">nav_core</code> | <code class="language-plaintext highlighter-rouge">nav_core2</code> | comments |
+|—|–|—|
+|<code class="language-plaintext highlighter-rouge">void initialize(std::string, tf::TransformListener*, costmap_2d::Costmap2DROS*)</code>|<code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code>|Uses modern pointers instead of raw pointers|
+|(no equivalent)|<code class="language-plaintext highlighter-rouge">void setGoalPose(const nav_2d_msgs::Pose2DStamped&amp;)</code>|Explicitly set the new goal location, rather than using the last pose of the global plan<code class="language-plaintext highlighter-rouge">
+|</code>bool setPlan(const std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)<code class="language-plaintext highlighter-rouge">|</code>setPlan(const nav_2d_msgs::Path2D&amp;)<code class="language-plaintext highlighter-rouge">||
+|</code>bool computeVelocityCommands(geometry_msgs::Twist&amp;)<code class="language-plaintext highlighter-rouge">|</code>nav_2d_msgs::Twist2DStamped computeVelocityCommands(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)<code class="language-plaintext highlighter-rouge">|Explicitly provides the current pose and velocity for more explicit data control and easier testing. Uses exceptions for errors instead of returning a bool, which frees up the return for the actual command.|
+|</code>bool isGoalReached()<code class="language-plaintext highlighter-rouge"> | </code>bool isGoalReached(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)` | Explicitly provide the current pose and velocity for more explicit data control and easier testing. |</p>
 
 <h2 id="exceptions">Exceptions</h2>
-
 <p>A hierarchical collection of <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/exceptions.h">exceptions</a> is provided to allow for reacting to navigation failures in a more robust and contextual way.
 <img src="https://raw.githubusercontent.com/locusrobotics/robot_navigation/master/nav_core2/doc/exceptions.png" alt="exception hierarchy tree">
-Each exception has a corresponding integer "result code" that can be used in ROS interfaces where passing the C++ object is infeasible. Note that due to the hierarchy, the result_code will be for the child-most exception. For example, if you throw a <code>StartBoundsException</code> which has a corresponding result code of <code>6</code>, it could also be seen as a <code>InvalidStartPoseException</code>, <code>GlobalPlannerException</code>, <code>PlannerException</code> or <code>NavCore2Exception</code>, all of which would also have the result code of <code>6</code>.</p>
+Each exception has a corresponding integer “result code” that can be used in ROS interfaces where passing the C++ object is infeasible. Note that due to the hierarchy, the result_code will be for the child-most exception. For example, if you throw a <code class="language-plaintext highlighter-rouge">StartBoundsException</code> which has a corresponding result code of <code class="language-plaintext highlighter-rouge">6</code>, it could also be seen as a <code class="language-plaintext highlighter-rouge">InvalidStartPoseException</code>, <code class="language-plaintext highlighter-rouge">GlobalPlannerException</code>, <code class="language-plaintext highlighter-rouge">PlannerException</code> or <code class="language-plaintext highlighter-rouge">NavCore2Exception</code>, all of which would also have the result code of <code class="language-plaintext highlighter-rouge">6</code>.</p>
 
 <h2 id="bounds">Bounds</h2>
-
-<p>For use in tracking <code>Costmap</code> changes and more, this package also provides an implementation of <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/bounds.h">bounding boxes</a>. These are represented with the ranges <code>[min_x, max_x]</code> and <code>[min_y, max_y]</code> (inclusive).</p>
+<p>For use in tracking <code class="language-plaintext highlighter-rouge">Costmap</code> changes and more, this package also provides an implementation of <a href="https://github.com/locusrobotics/robot_navigation/tree/master/nav_core2/include/nav_core2/bounds.h">bounding boxes</a>. These are represented with the ranges <code class="language-plaintext highlighter-rouge">[min_x, max_x]</code> and <code class="language-plaintext highlighter-rouge">[min_y, max_y]</code> (inclusive).</p>
 </div>
               </div>
             </div>
@@ -4259,109 +4172,80 @@ No test statistics available for this package.">
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="nav_core2">nav_core2</h1>
-
 <p>A replacement interface for <a href="https://github.com/ros-planning/navigation/tree/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core">nav_core</a> that defines basic two dimensional planner interfaces.</p>
 
-<p>There were a few key reasons for creating new interfaces rather than extending the old ones.
- * Use <code>nav_2d_msgs</code> to eliminate unused data fields
- * Use a new <code>Costmap</code> interface as a plugin rather that forcing all implementations of the interfaces to use <code>costmap_2d::Costmap2DROS</code>.
- * Provide more data in the interfaces for easier testing.
- * Use Exceptions rather than booleans to provide more information about the types of errors encountered.</p>
+<p>There were a few key reasons for creating new interfaces rather than extending the old ones.</p>
+<ul>
+  <li>Use <code class="language-plaintext highlighter-rouge">nav_2d_msgs</code> to eliminate unused data fields</li>
+  <li>Use a new <code class="language-plaintext highlighter-rouge">Costmap</code> interface as a plugin rather that forcing all implementations of the interfaces to use <code class="language-plaintext highlighter-rouge">costmap_2d::Costmap2DROS</code>.</li>
+  <li>Provide more data in the interfaces for easier testing.</li>
+  <li>Use Exceptions rather than booleans to provide more information about the types of errors encountered.</li>
+</ul>
 
-<h2 id="costmap"><code>Costmap</code></h2>
+<h2 id="costmap"><code class="language-plaintext highlighter-rouge">Costmap</code></h2>
+<p><code class="language-plaintext highlighter-rouge">costmap_2d::Costmap2DROS</code> has been a vital part of the navigation stack for years, but it was not without its flaws.</p>
+<ul>
+  <li>Initialization required a transform be available from the global frame to the base frame, which was later used to move rolling costmaps around (and a few other things). This made doing simple testing of any planner or other <code class="language-plaintext highlighter-rouge">Costmap2DROS</code>-based behavior annoying, because transforms had to be set up, often outside of the immediate code that was being tested.</li>
+  <li>Initialization also started an update thread, which is also not always needed in testing.</li>
+  <li>Using <code class="language-plaintext highlighter-rouge">Costmap2DROS</code> locked users into a layered costmap based approach, which made some tasks much easier, but didn’t give users the freedom to change the implementation.</li>
+</ul>
 
-<p><code>costmap_2d::Costmap2DROS</code> has been a vital part of the navigation stack for years, but it was not without its flaws.
- * Initialization required a transform be available from the global frame to the base frame, which was later used to move rolling costmaps around (and a few other things). This made doing simple testing of any planner or other <code>Costmap2DROS</code>-based behavior annoying, because transforms had to be set up, often outside of the immediate code that was being tested.
- * Initialization also started an update thread, which is also not always needed in testing.
- * Using <code>Costmap2DROS</code> locked users into a layered costmap based approach, which made some tasks much easier, but didn't give users the freedom to change the implementation.</p>
+<p>The <a href="https://github.com/locusrobotics/robot_navigation/tree/kinetic/nav_core2/include/nav_core2/costmap.h"><code class="language-plaintext highlighter-rouge">nav_core2::Costmap</code></a> interface extends the <code class="language-plaintext highlighter-rouge">nav_grid::NavGrid&lt;unsigned char&gt;</code> for abstracting away the data storage and coordinate manipulation, and provides a few other key methods for costmap functioning such as</p>
+<ul>
+  <li>a mutex</li>
+  <li>a way to potentially track changes to the costmap</li>
+  <li>a public <code class="language-plaintext highlighter-rouge">update</code> method that can be called in whatever thread you please</li>
+</ul>
 
-<p>The <a href="https://github.com/locusrobotics/robot_navigation/tree/kinetic/nav_core2/include/nav_core2/costmap.h"><code>nav_core2::Costmap</code></a> interface extends the <code>nav_grid::NavGrid&lt;unsigned char&gt;</code> for abstracting away the data storage and coordinate manipulation, and provides a few other key methods for costmap functioning such as
- * a mutex
- * a way to potentially track changes to the costmap
- * a public <code>update</code> method that can be called in whatever thread you please</p>
+<p>The <code class="language-plaintext highlighter-rouge">Costmap</code> can be loaded using <code class="language-plaintext highlighter-rouge">pluginlib</code>, allowing for arbitrary implementations of underlying update algorithms, include the layered costmap approach.</p>
 
-<p>The <code>Costmap</code> can be loaded using <code>pluginlib</code>, allowing for arbitrary implementations of underlying update algorithms, include the layered costmap approach.</p>
+<p>One basic implementation is provided in <a href="https://github.com/locusrobotics/robot_navigation/tree/kinetic/nav_core2/include/nav_core2/basic_costmap.h"><code class="language-plaintext highlighter-rouge">BasicCostmap</code></a>. You can also use the <code class="language-plaintext highlighter-rouge">nav_core_adapter::CostmapAdapter</code> class which implements the <code class="language-plaintext highlighter-rouge">Costmap</code> interface while allowing you to still use <code class="language-plaintext highlighter-rouge">Costmap2DROS</code>.</p>
 
-<p>One basic implementation is provided in <a href="https://github.com/locusrobotics/robot_navigation/tree/kinetic/nav_core2/include/nav_core2/basic_costmap.h"><code>BasicCostmap</code></a>. You can also use the <code>nav_core_adapter::CostmapAdapter</code> class which implements the <code>Costmap</code> interface while allowing you to still use <code>Costmap2DROS</code>.</p>
-
-<p>Note: One could also imagine the <code>Costmap</code> interface being templatized itself like <code>NavGrid</code> instead of forcing use of <code>unsigned char</code>. While this may be possible, it was decided that it was a bit ambitious and the use of templates would force all of the implementation into headers, and would ultimately obfuscate the operation of algorithms.</p>
+<p>Note: One could also imagine the <code class="language-plaintext highlighter-rouge">Costmap</code> interface being templatized itself like <code class="language-plaintext highlighter-rouge">NavGrid</code> instead of forcing use of <code class="language-plaintext highlighter-rouge">unsigned char</code>. While this may be possible, it was decided that it was a bit ambitious and the use of templates would force all of the implementation into headers, and would ultimately obfuscate the operation of algorithms.</p>
 
 <h2 id="global-planner">Global Planner</h2>
-
 <p>Let us compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_global_planner.h">nav_core::BaseGlobalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/kinetic/nav_core2/include/nav_core2/global_planner.h">nav_core2/GlobalPlanner</a>.</p>
 
 <table>
-<thead>
-<tr>
-<th><code>nav_core</code></th>
-<th><code>nav_core2</code></th>
-<th>comments</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>void initialize(std::string, costmap_2d::Costmap2DROS*)</code></td>
-<td><code>void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
-<td>Uses modern pointers instead of raw pointers, and provides a TFListener</td>
-</tr>
-<tr>
-<td><code>bool makePlan(const geometry_msgs::PoseStamped&amp;, const geometry_msgs::PoseStamped&amp;, std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
-<td><code>nav_2d_msgs::Path2D makePlan(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
-<td>Uses exceptions for errors instead of returning a bool, which frees up the return for the actual path.</td>
-</tr>
-</tbody>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">nav_core</code></th>
+      <th><code class="language-plaintext highlighter-rouge">nav_core2</code></th>
+      <th>comments</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">void initialize(std::string, costmap_2d::Costmap2DROS*)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
+      <td>Uses modern pointers instead of raw pointers, and provides a TFListener</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">bool makePlan(const geometry_msgs::PoseStamped&amp;, const geometry_msgs::PoseStamped&amp;, std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">nav_2d_msgs::Path2D makePlan(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
+      <td>Uses exceptions for errors instead of returning a bool, which frees up the return for the actual path.</td>
+    </tr>
+  </tbody>
 </table>
 
 <h2 id="local-planner">Local Planner</h2>
+<p>Now let’s compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_local_planner.h">nav_core::BaseLocalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/kinetic/nav_core2/include/nav_core2/local_planner.h">nav_core2/LocalPlanner</a>.</p>
 
-<p>Now let's compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_local_planner.h">nav_core::BaseLocalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/kinetic/nav_core2/include/nav_core2/local_planner.h">nav_core2/LocalPlanner</a>.</p>
-
-<table>
-<thead>
-<tr>
-<th><code>nav_core</code></th>
-<th><code>nav_core2</code></th>
-<th>comments</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>void initialize(std::string, tf::TransformListener*, costmap_2d::Costmap2DROS*)</code></td>
-<td><code>void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
-<td>Uses modern pointers instead of raw pointers</td>
-</tr>
-<tr>
-<td>(no equivalent)</td>
-<td><code>void setGoalPose(const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
-<td>Explicitly set the new goal location, rather than using the last pose of the global plan`</td>
-</tr>
-<tr>
-<td><code>bool setPlan(const std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
-<td><code>setPlan(const nav_2d_msgs::Path2D&amp;)</code></td>
-<td></td>
-</tr>
-<tr>
-<td><code>bool computeVelocityCommands(geometry_msgs::Twist&amp;)</code></td>
-<td><code>nav_2d_msgs::Twist2DStamped computeVelocityCommands(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)</code></td>
-<td>Explicitly provides the current pose and velocity for more explicit data control and easier testing. Uses exceptions for errors instead of returning a bool, which frees up the return for the actual command.</td>
-</tr>
-<tr>
-<td><code>bool isGoalReached()</code></td>
-<td><code>bool isGoalReached(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)</code></td>
-<td>Explicitly provide the current pose and velocity for more explicit data control and easier testing.</td>
-</tr>
-</tbody>
-</table>
+<p>| <code class="language-plaintext highlighter-rouge">nav_core</code> | <code class="language-plaintext highlighter-rouge">nav_core2</code> | comments |
+|—|–|—|
+|<code class="language-plaintext highlighter-rouge">void initialize(std::string, tf::TransformListener*, costmap_2d::Costmap2DROS*)</code>|<code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code>|Uses modern pointers instead of raw pointers|
+|(no equivalent)|<code class="language-plaintext highlighter-rouge">void setGoalPose(const nav_2d_msgs::Pose2DStamped&amp;)</code>|Explicitly set the new goal location, rather than using the last pose of the global plan<code class="language-plaintext highlighter-rouge">
+|</code>bool setPlan(const std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)<code class="language-plaintext highlighter-rouge">|</code>setPlan(const nav_2d_msgs::Path2D&amp;)<code class="language-plaintext highlighter-rouge">||
+|</code>bool computeVelocityCommands(geometry_msgs::Twist&amp;)<code class="language-plaintext highlighter-rouge">|</code>nav_2d_msgs::Twist2DStamped computeVelocityCommands(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)<code class="language-plaintext highlighter-rouge">|Explicitly provides the current pose and velocity for more explicit data control and easier testing. Uses exceptions for errors instead of returning a bool, which frees up the return for the actual command.|
+|</code>bool isGoalReached()<code class="language-plaintext highlighter-rouge"> | </code>bool isGoalReached(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)` | Explicitly provide the current pose and velocity for more explicit data control and easier testing. |</p>
 
 <h2 id="exceptions">Exceptions</h2>
-
 <p>A hierarchical collection of <a href="https://github.com/locusrobotics/robot_navigation/tree/kinetic/nav_core2/include/nav_core2/exceptions.h">exceptions</a> is provided to allow for reacting to navigation failures in a more robust and contextual way.
 <img src="https://raw.githubusercontent.com/locusrobotics/robot_navigation/kinetic/nav_core2/doc/exceptions.png" alt="exception hierarchy tree">
-Each exception has a corresponding integer "result code" that can be used in ROS interfaces where passing the C++ object is infeasible. Note that due to the hierarchy, the result_code will be for the child-most exception. For example, if you throw a <code>StartBoundsException</code> which has a corresponding result code of <code>6</code>, it could also be seen as a <code>InvalidStartPoseException</code>, <code>GlobalPlannerException</code>, <code>PlannerException</code> or <code>NavCore2Exception</code>, all of which would also have the result code of <code>6</code>.</p>
+Each exception has a corresponding integer “result code” that can be used in ROS interfaces where passing the C++ object is infeasible. Note that due to the hierarchy, the result_code will be for the child-most exception. For example, if you throw a <code class="language-plaintext highlighter-rouge">StartBoundsException</code> which has a corresponding result code of <code class="language-plaintext highlighter-rouge">6</code>, it could also be seen as a <code class="language-plaintext highlighter-rouge">InvalidStartPoseException</code>, <code class="language-plaintext highlighter-rouge">GlobalPlannerException</code>, <code class="language-plaintext highlighter-rouge">PlannerException</code> or <code class="language-plaintext highlighter-rouge">NavCore2Exception</code>, all of which would also have the result code of <code class="language-plaintext highlighter-rouge">6</code>.</p>
 
 <h2 id="bounds">Bounds</h2>
-
-<p>For use in tracking <code>Costmap</code> changes and more, this package also provides an implementation of <a href="https://github.com/locusrobotics/robot_navigation/tree/kinetic/nav_core2/include/nav_core2/bounds.h">bounding boxes</a>. These are represented with the ranges <code>[min_x, max_x]</code> and <code>[min_y, max_y]</code> (inclusive).</p>
+<p>For use in tracking <code class="language-plaintext highlighter-rouge">Costmap</code> changes and more, this package also provides an implementation of <a href="https://github.com/locusrobotics/robot_navigation/tree/kinetic/nav_core2/include/nav_core2/bounds.h">bounding boxes</a>. These are represented with the ranges <code class="language-plaintext highlighter-rouge">[min_x, max_x]</code> and <code class="language-plaintext highlighter-rouge">[min_y, max_y]</code> (inclusive).</p>
 </div>
               </div>
             </div>
@@ -5464,109 +5348,80 @@ Click to show more build history.">
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="nav_core2">nav_core2</h1>
-
 <p>A replacement interface for <a href="https://github.com/ros-planning/navigation/tree/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core">nav_core</a> that defines basic two dimensional planner interfaces.</p>
 
-<p>There were a few key reasons for creating new interfaces rather than extending the old ones.
- * Use <code>nav_2d_msgs</code> to eliminate unused data fields
- * Use a new <code>Costmap</code> interface as a plugin rather that forcing all implementations of the interfaces to use <code>costmap_2d::Costmap2DROS</code>.
- * Provide more data in the interfaces for easier testing.
- * Use Exceptions rather than booleans to provide more information about the types of errors encountered.</p>
+<p>There were a few key reasons for creating new interfaces rather than extending the old ones.</p>
+<ul>
+  <li>Use <code class="language-plaintext highlighter-rouge">nav_2d_msgs</code> to eliminate unused data fields</li>
+  <li>Use a new <code class="language-plaintext highlighter-rouge">Costmap</code> interface as a plugin rather that forcing all implementations of the interfaces to use <code class="language-plaintext highlighter-rouge">costmap_2d::Costmap2DROS</code>.</li>
+  <li>Provide more data in the interfaces for easier testing.</li>
+  <li>Use Exceptions rather than booleans to provide more information about the types of errors encountered.</li>
+</ul>
 
-<h2 id="costmap"><code>Costmap</code></h2>
+<h2 id="costmap"><code class="language-plaintext highlighter-rouge">Costmap</code></h2>
+<p><code class="language-plaintext highlighter-rouge">costmap_2d::Costmap2DROS</code> has been a vital part of the navigation stack for years, but it was not without its flaws.</p>
+<ul>
+  <li>Initialization required a transform be available from the global frame to the base frame, which was later used to move rolling costmaps around (and a few other things). This made doing simple testing of any planner or other <code class="language-plaintext highlighter-rouge">Costmap2DROS</code>-based behavior annoying, because transforms had to be set up, often outside of the immediate code that was being tested.</li>
+  <li>Initialization also started an update thread, which is also not always needed in testing.</li>
+  <li>Using <code class="language-plaintext highlighter-rouge">Costmap2DROS</code> locked users into a layered costmap based approach, which made some tasks much easier, but didn’t give users the freedom to change the implementation.</li>
+</ul>
 
-<p><code>costmap_2d::Costmap2DROS</code> has been a vital part of the navigation stack for years, but it was not without its flaws.
- * Initialization required a transform be available from the global frame to the base frame, which was later used to move rolling costmaps around (and a few other things). This made doing simple testing of any planner or other <code>Costmap2DROS</code>-based behavior annoying, because transforms had to be set up, often outside of the immediate code that was being tested.
- * Initialization also started an update thread, which is also not always needed in testing.
- * Using <code>Costmap2DROS</code> locked users into a layered costmap based approach, which made some tasks much easier, but didn't give users the freedom to change the implementation.</p>
+<p>The <a href="https://github.com/locusrobotics/robot_navigation/tree/melodic/nav_core2/include/nav_core2/costmap.h"><code class="language-plaintext highlighter-rouge">nav_core2::Costmap</code></a> interface extends the <code class="language-plaintext highlighter-rouge">nav_grid::NavGrid&lt;unsigned char&gt;</code> for abstracting away the data storage and coordinate manipulation, and provides a few other key methods for costmap functioning such as</p>
+<ul>
+  <li>a mutex</li>
+  <li>a way to potentially track changes to the costmap</li>
+  <li>a public <code class="language-plaintext highlighter-rouge">update</code> method that can be called in whatever thread you please</li>
+</ul>
 
-<p>The <a href="https://github.com/locusrobotics/robot_navigation/tree/melodic/nav_core2/include/nav_core2/costmap.h"><code>nav_core2::Costmap</code></a> interface extends the <code>nav_grid::NavGrid&lt;unsigned char&gt;</code> for abstracting away the data storage and coordinate manipulation, and provides a few other key methods for costmap functioning such as
- * a mutex
- * a way to potentially track changes to the costmap
- * a public <code>update</code> method that can be called in whatever thread you please</p>
+<p>The <code class="language-plaintext highlighter-rouge">Costmap</code> can be loaded using <code class="language-plaintext highlighter-rouge">pluginlib</code>, allowing for arbitrary implementations of underlying update algorithms, include the layered costmap approach.</p>
 
-<p>The <code>Costmap</code> can be loaded using <code>pluginlib</code>, allowing for arbitrary implementations of underlying update algorithms, include the layered costmap approach.</p>
+<p>One basic implementation is provided in <a href="https://github.com/locusrobotics/robot_navigation/tree/melodic/nav_core2/include/nav_core2/basic_costmap.h"><code class="language-plaintext highlighter-rouge">BasicCostmap</code></a>. You can also use the <code class="language-plaintext highlighter-rouge">nav_core_adapter::CostmapAdapter</code> class which implements the <code class="language-plaintext highlighter-rouge">Costmap</code> interface while allowing you to still use <code class="language-plaintext highlighter-rouge">Costmap2DROS</code>.</p>
 
-<p>One basic implementation is provided in <a href="https://github.com/locusrobotics/robot_navigation/tree/melodic/nav_core2/include/nav_core2/basic_costmap.h"><code>BasicCostmap</code></a>. You can also use the <code>nav_core_adapter::CostmapAdapter</code> class which implements the <code>Costmap</code> interface while allowing you to still use <code>Costmap2DROS</code>.</p>
-
-<p>Note: One could also imagine the <code>Costmap</code> interface being templatized itself like <code>NavGrid</code> instead of forcing use of <code>unsigned char</code>. While this may be possible, it was decided that it was a bit ambitious and the use of templates would force all of the implementation into headers, and would ultimately obfuscate the operation of algorithms.</p>
+<p>Note: One could also imagine the <code class="language-plaintext highlighter-rouge">Costmap</code> interface being templatized itself like <code class="language-plaintext highlighter-rouge">NavGrid</code> instead of forcing use of <code class="language-plaintext highlighter-rouge">unsigned char</code>. While this may be possible, it was decided that it was a bit ambitious and the use of templates would force all of the implementation into headers, and would ultimately obfuscate the operation of algorithms.</p>
 
 <h2 id="global-planner">Global Planner</h2>
-
 <p>Let us compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_global_planner.h">nav_core::BaseGlobalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/melodic/nav_core2/include/nav_core2/global_planner.h">nav_core2/GlobalPlanner</a>.</p>
 
 <table>
-<thead>
-<tr>
-<th><code>nav_core</code></th>
-<th><code>nav_core2</code></th>
-<th>comments</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>void initialize(std::string, costmap_2d::Costmap2DROS*)</code></td>
-<td><code>void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
-<td>Uses modern pointers instead of raw pointers, and provides a TFListener</td>
-</tr>
-<tr>
-<td><code>bool makePlan(const geometry_msgs::PoseStamped&amp;, const geometry_msgs::PoseStamped&amp;, std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
-<td><code>nav_2d_msgs::Path2D makePlan(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
-<td>Uses exceptions for errors instead of returning a bool, which frees up the return for the actual path.</td>
-</tr>
-</tbody>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">nav_core</code></th>
+      <th><code class="language-plaintext highlighter-rouge">nav_core2</code></th>
+      <th>comments</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">void initialize(std::string, costmap_2d::Costmap2DROS*)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
+      <td>Uses modern pointers instead of raw pointers, and provides a TFListener</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">bool makePlan(const geometry_msgs::PoseStamped&amp;, const geometry_msgs::PoseStamped&amp;, std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">nav_2d_msgs::Path2D makePlan(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
+      <td>Uses exceptions for errors instead of returning a bool, which frees up the return for the actual path.</td>
+    </tr>
+  </tbody>
 </table>
 
 <h2 id="local-planner">Local Planner</h2>
+<p>Now let’s compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_local_planner.h">nav_core::BaseLocalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/melodic/nav_core2/include/nav_core2/local_planner.h">nav_core2/LocalPlanner</a>.</p>
 
-<p>Now let's compare the old <a href="https://github.com/ros-planning/navigation/blob/a2837b5a9dc6dd4b4da176fca7d899d6a3722bf8/nav_core/include/nav_core/base_local_planner.h">nav_core::BaseLocalPlanner</a> to the new <a href="https://github.com/locusrobotics/robot_navigation/tree/melodic/nav_core2/include/nav_core2/local_planner.h">nav_core2/LocalPlanner</a>.</p>
-
-<table>
-<thead>
-<tr>
-<th><code>nav_core</code></th>
-<th><code>nav_core2</code></th>
-<th>comments</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>void initialize(std::string, tf::TransformListener*, costmap_2d::Costmap2DROS*)</code></td>
-<td><code>void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code></td>
-<td>Uses modern pointers instead of raw pointers</td>
-</tr>
-<tr>
-<td>(no equivalent)</td>
-<td><code>void setGoalPose(const nav_2d_msgs::Pose2DStamped&amp;)</code></td>
-<td>Explicitly set the new goal location, rather than using the last pose of the global plan`</td>
-</tr>
-<tr>
-<td><code>bool setPlan(const std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)</code></td>
-<td><code>setPlan(const nav_2d_msgs::Path2D&amp;)</code></td>
-<td></td>
-</tr>
-<tr>
-<td><code>bool computeVelocityCommands(geometry_msgs::Twist&amp;)</code></td>
-<td><code>nav_2d_msgs::Twist2DStamped computeVelocityCommands(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)</code></td>
-<td>Explicitly provides the current pose and velocity for more explicit data control and easier testing. Uses exceptions for errors instead of returning a bool, which frees up the return for the actual command.</td>
-</tr>
-<tr>
-<td><code>bool isGoalReached()</code></td>
-<td><code>bool isGoalReached(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)</code></td>
-<td>Explicitly provide the current pose and velocity for more explicit data control and easier testing.</td>
-</tr>
-</tbody>
-</table>
+<p>| <code class="language-plaintext highlighter-rouge">nav_core</code> | <code class="language-plaintext highlighter-rouge">nav_core2</code> | comments |
+|—|–|—|
+|<code class="language-plaintext highlighter-rouge">void initialize(std::string, tf::TransformListener*, costmap_2d::Costmap2DROS*)</code>|<code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; parent, const std::string&amp;, TFListenerPtr, Costmap::Ptr)</code>|Uses modern pointers instead of raw pointers|
+|(no equivalent)|<code class="language-plaintext highlighter-rouge">void setGoalPose(const nav_2d_msgs::Pose2DStamped&amp;)</code>|Explicitly set the new goal location, rather than using the last pose of the global plan<code class="language-plaintext highlighter-rouge">
+|</code>bool setPlan(const std::vector&lt;geometry_msgs::PoseStamped&gt;&amp;)<code class="language-plaintext highlighter-rouge">|</code>setPlan(const nav_2d_msgs::Path2D&amp;)<code class="language-plaintext highlighter-rouge">||
+|</code>bool computeVelocityCommands(geometry_msgs::Twist&amp;)<code class="language-plaintext highlighter-rouge">|</code>nav_2d_msgs::Twist2DStamped computeVelocityCommands(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)<code class="language-plaintext highlighter-rouge">|Explicitly provides the current pose and velocity for more explicit data control and easier testing. Uses exceptions for errors instead of returning a bool, which frees up the return for the actual command.|
+|</code>bool isGoalReached()<code class="language-plaintext highlighter-rouge"> | </code>bool isGoalReached(const nav_2d_msgs::Pose2DStamped&amp;, const nav_2d_msgs::Twist2D&amp;)` | Explicitly provide the current pose and velocity for more explicit data control and easier testing. |</p>
 
 <h2 id="exceptions">Exceptions</h2>
-
 <p>A hierarchical collection of <a href="https://github.com/locusrobotics/robot_navigation/tree/melodic/nav_core2/include/nav_core2/exceptions.h">exceptions</a> is provided to allow for reacting to navigation failures in a more robust and contextual way.
 <img src="https://raw.githubusercontent.com/locusrobotics/robot_navigation/melodic/nav_core2/doc/exceptions.png" alt="exception hierarchy tree">
-Each exception has a corresponding integer "result code" that can be used in ROS interfaces where passing the C++ object is infeasible. Note that due to the hierarchy, the result_code will be for the child-most exception. For example, if you throw a <code>StartBoundsException</code> which has a corresponding result code of <code>6</code>, it could also be seen as a <code>InvalidStartPoseException</code>, <code>GlobalPlannerException</code>, <code>PlannerException</code> or <code>NavCore2Exception</code>, all of which would also have the result code of <code>6</code>.</p>
+Each exception has a corresponding integer “result code” that can be used in ROS interfaces where passing the C++ object is infeasible. Note that due to the hierarchy, the result_code will be for the child-most exception. For example, if you throw a <code class="language-plaintext highlighter-rouge">StartBoundsException</code> which has a corresponding result code of <code class="language-plaintext highlighter-rouge">6</code>, it could also be seen as a <code class="language-plaintext highlighter-rouge">InvalidStartPoseException</code>, <code class="language-plaintext highlighter-rouge">GlobalPlannerException</code>, <code class="language-plaintext highlighter-rouge">PlannerException</code> or <code class="language-plaintext highlighter-rouge">NavCore2Exception</code>, all of which would also have the result code of <code class="language-plaintext highlighter-rouge">6</code>.</p>
 
 <h2 id="bounds">Bounds</h2>
-
-<p>For use in tracking <code>Costmap</code> changes and more, this package also provides an implementation of <a href="https://github.com/locusrobotics/robot_navigation/tree/melodic/nav_core2/include/nav_core2/bounds.h">bounding boxes</a>. These are represented with the ranges <code>[min_x, max_x]</code> and <code>[min_y, max_y]</code> (inclusive).</p>
+<p>For use in tracking <code class="language-plaintext highlighter-rouge">Costmap</code> changes and more, this package also provides an implementation of <a href="https://github.com/locusrobotics/robot_navigation/tree/melodic/nav_core2/include/nav_core2/bounds.h">bounding boxes</a>. These are represented with the ranges <code class="language-plaintext highlighter-rouge">[min_x, max_x]</code> and <code class="language-plaintext highlighter-rouge">[min_y, max_y]</code> (inclusive).</p>
 </div>
               </div>
             </div>
@@ -6378,7 +6233,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure/rosindex</span>
           </a>
           |
-          <em>generated on 2024-09-09</em>
+          <em>generated on 2024-09-25</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">

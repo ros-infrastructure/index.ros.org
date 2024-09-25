@@ -881,97 +881,110 @@ Click to show more build history.">
 <h1 id="dwb_local_planner">dwb_local_planner</h1>
 
 <blockquote>
-<p>I suppose it is tempting, if the only tool you have is a hammer, to treat everything as if it were a nail.
- - Abraham Maslow</p>
-
-<p>I love/hate pluginlib.
- - David Lu!!</p>
+  <p>I suppose it is tempting, if the only tool you have is a hammer, to treat everything as if it were a nail.</p>
+  <ul>
+    <li>Abraham Maslow</li>
+  </ul>
 </blockquote>
 
-<p>This local planner implementation rewrites and extends the functionality of <code>dwa_local_planner</code>, thus it is logically called <code>dwb_local_planner</code>. The goal is to make as many parts of the functionality as possible customizable, either through pluginlib or directly extending the implementing classes.</p>
+<blockquote>
+  <p>I love/hate pluginlib.</p>
+  <ul>
+    <li>David Lu!!</li>
+  </ul>
+</blockquote>
+
+<p>This local planner implementation rewrites and extends the functionality of <code class="language-plaintext highlighter-rouge">dwa_local_planner</code>, thus it is logically called <code class="language-plaintext highlighter-rouge">dwb_local_planner</code>. The goal is to make as many parts of the functionality as possible customizable, either through pluginlib or directly extending the implementing classes.</p>
 
 <p>The goal of a local planner is to take the global plan and local costmap and produce the command velocities that will presumably move the robot to the goal. Both dwa and dwb do this via sampling, i.e. generating plausible velocity commands and evaluating them on various metrics and selecting the one with the best score, until the robot reaches its goal.</p>
 
-<p>The form of the evaluation is critical. Let's say we are evaluating a given command to see if it collides with any obstacles in the costmap. The key question is where the robot will drive using the command. For this, you need to know the position and velocity of the robot, plus you will need to consider the kinematics of the robot. To this end, we do not evaluate the velocities in isolation, but instead score the trajectory which contains not only the velocity, but an array of some number of sample poses that we anticipate the robot to drive along.</p>
+<p>The form of the evaluation is critical. Let’s say we are evaluating a given command to see if it collides with any obstacles in the costmap. The key question is where the robot will drive using the command. For this, you need to know the position and velocity of the robot, plus you will need to consider the kinematics of the robot. To this end, we do not evaluate the velocities in isolation, but instead score the trajectory which contains not only the velocity, but an array of some number of sample poses that we anticipate the robot to drive along.</p>
 
 <h2 id="data-structures">Data Structures</h2>
-
-<p>The navigation stack is only capable of navigation in 2.5 dimensions (i.e. x, y and theta), thus most of the interfaces deal with <code>geometry_msgs/Pose2D</code> and <code>nav_2d_msgs/Twist2D</code> rather than the more general <code>Pose</code> and <code>Twist</code>.</p>
+<p>The navigation stack is only capable of navigation in 2.5 dimensions (i.e. x, y and theta), thus most of the interfaces deal with <code class="language-plaintext highlighter-rouge">geometry_msgs/Pose2D</code> and <code class="language-plaintext highlighter-rouge">nav_2d_msgs/Twist2D</code> rather than the more general <code class="language-plaintext highlighter-rouge">Pose</code> and <code class="language-plaintext highlighter-rouge">Twist</code>.</p>
 
 <h2 id="code-structure">Code Structure</h2>
-
 <h3 id="twist-generator">Twist Generator</h3>
-
 <p>The first component is the twist generator, which is responsible for determining which velocity commands are evaluating and creating trajectories from them. The interface for generating the commands is iterator-based.</p>
-<div class="highlight"><pre><code class="language-" data-lang="">void startNewIteration(const nav_2d_msgs::Twist2D&amp; current_velocity)
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>void startNewIteration(const nav_2d_msgs::Twist2D&amp; current_velocity)
 bool hasMoreTwists()
 bool nextTwist(nav_2d_msgs::Twist2D&amp; twist)
 
-</code></pre></div>
+</code></pre></div></div>
 <p>For debugging purposes, there is also a ROS service interface for the twist generator.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/GenerateTwists.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/GenerateTwists.srv
 nav_2d_msgs/Twist2D current_vel
 ---
 nav_2d_msgs/Twist2D[] twists
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>The second half is for generating the trajectory, which creates a Trajectory2D.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/msg/Trajectory2D.msg
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/msg/Trajectory2D.msg
 nav_2d_msgs/Twist2D velocity
 duration duration
 geometry_msgs/Pose2D[] poses
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>Code API:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">bool generateTrajectory(const geometry_msgs::Pose2D&amp; start_pose, const nav_2d_msgs::Twist2D&amp; start_vel,
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>bool generateTrajectory(const geometry_msgs::Pose2D&amp; start_pose, const nav_2d_msgs::Twist2D&amp; start_vel,
                         const nav_2d_msgs::Twist2D&amp; cmd_vel,
                         dwb_msgs::Trajectory2D&amp; traj)
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>This also has a ROS service interface.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/GenerateTrajectory.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/GenerateTrajectory.srv
 geometry_msgs/Pose2D start_pose
 nav_2d_msgs/Twist2D start_vel
 nav_2d_msgs/Twist2D cmd_vel
 ---
 dwb_msgs/Trajectory2D traj
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>How precisely DWB performs these tasks is relegated to a plugin.</p>
 
 <h2 id="goal-checker">Goal Checker</h2>
-
 <p>Are we there yet? Another plugin determines whether the robot has reached its goal. This allows for variation in combining how accurate the xy position has to be with the rotation, and whether the robot has stopped completely.</p>
 
 <p>Code API:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">virtual bool isGoalReached(const geometry_msgs::Pose2D&amp; query_pose, const geometry_msgs::Pose2D&amp; goal_pose,
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>virtual bool isGoalReached(const geometry_msgs::Pose2D&amp; query_pose, const geometry_msgs::Pose2D&amp; goal_pose,
                            const nav_2d_msgs::Twist2D&amp; velocity)
 
-</code></pre></div>
-<h2 id="trajectory-critics">Trajectory Critics</h2>
+</code></pre></div></div>
 
-<p><a href="https://www.youtube.com/watch?v=X6I_dKUYyI4">Critics</a> like to give things scores. Once we know we're not a the goal and have a bunch of candidate trajectories, we evaluate them based on a collections of TrajectoryCritics. Here's the life-cycle.</p>
+<h2 id="trajectory-critics">Trajectory Critics</h2>
+<p><a href="https://www.youtube.com/watch?v=X6I_dKUYyI4">Critics</a> like to give things scores. Once we know we’re not a the goal and have a bunch of candidate trajectories, we evaluate them based on a collections of TrajectoryCritics. Here’s the life-cycle.</p>
 
 <ul>
-<li>
-<code>void initialize(const ros::NodeHandle&amp; planner_nh, std::string name, nav_core2::Costmap::Ptr costmap)</code> - called once on startup, and then calls <code>onInit</code>
+  <li>
+<code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; planner_nh, std::string name, nav_core2::Costmap::Ptr costmap)</code> - called once on startup, and then calls <code class="language-plaintext highlighter-rouge">onInit</code>
 </li>
-<li>
-<code>void onInit()</code> - May be overwritten to load parameters as needed.</li>
-<li>
-<code>void reset()</code> - called at the beginning of every new navigation, i.e. when we get a new global goal via <code>setGoalPose</code>.</li>
-<li>
-<code>bool prepare(const geometry_msgs::Pose2D&amp; pose, const nav_2d_msgs::Twist2D&amp; vel, const geometry_msgs::Pose2D&amp; goal, const nav_2d_msgs::Path2D&amp; global_plan)</code> - called once per iteration of the planner, prior to the evaluation of all the trajectories</li>
-<li>
-<code>double scoreTrajectory(const dwb_msgs::Trajectory2D&amp; traj)</code> - called once per trajectory</li>
-<li>
-<code>void debrief(const nav_2d_msgs::Twist2D&amp; cmd_vel)</code> - called after all the trajectories to notify what trajectory was chosen.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void onInit()</code> - May be overwritten to load parameters as needed.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void reset()</code> - called at the beginning of every new navigation, i.e. when we get a new global goal via <code class="language-plaintext highlighter-rouge">setGoalPose</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">bool prepare(const geometry_msgs::Pose2D&amp; pose, const nav_2d_msgs::Twist2D&amp; vel, const geometry_msgs::Pose2D&amp; goal, const nav_2d_msgs::Path2D&amp; global_plan)</code> - called once per iteration of the planner, prior to the evaluation of all the trajectories</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">double scoreTrajectory(const dwb_msgs::Trajectory2D&amp; traj)</code> - called once per trajectory</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void debrief(const nav_2d_msgs::Twist2D&amp; cmd_vel)</code> - called after all the trajectories to notify what trajectory was chosen.</li>
 </ul>
 
-<p>Each critic will provide a <code>double</code> score and has an associated scale. The score used for the trajectory as a whole will be the sum of all the critic scores multiplied by their respective scales.</p>
+<p>Each critic will provide a <code class="language-plaintext highlighter-rouge">double</code> score and has an associated scale. The score used for the trajectory as a whole will be the sum of all the critic scores multiplied by their respective scales.</p>
 
 <p>There is also a ROS service interface associated with the scoring trajectories.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/DebugLocalPlan.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/DebugLocalPlan.srv
 nav_2d_msgs/Pose2DStamped pose
 nav_2d_msgs/Twist2D velocity
 nav_2d_msgs/Path2D global_plan
@@ -988,7 +1001,7 @@ LocalPlanEvaluation results
     uint16 best_index
     uint16 worst_index
 
-</code></pre></div>
+</code></pre></div></div>
 </div>
               </div>
             </div>
@@ -2134,97 +2147,110 @@ No test statistics available for this package.">
 <h1 id="dwb_local_planner">dwb_local_planner</h1>
 
 <blockquote>
-<p>I suppose it is tempting, if the only tool you have is a hammer, to treat everything as if it were a nail.
- - Abraham Maslow</p>
-
-<p>I love/hate pluginlib.
- - David Lu!!</p>
+  <p>I suppose it is tempting, if the only tool you have is a hammer, to treat everything as if it were a nail.</p>
+  <ul>
+    <li>Abraham Maslow</li>
+  </ul>
 </blockquote>
 
-<p>This local planner implementation rewrites and extends the functionality of <code>dwa_local_planner</code>, thus it is logically called <code>dwb_local_planner</code>. The goal is to make as many parts of the functionality as possible customizable, either through pluginlib or directly extending the implementing classes.</p>
+<blockquote>
+  <p>I love/hate pluginlib.</p>
+  <ul>
+    <li>David Lu!!</li>
+  </ul>
+</blockquote>
+
+<p>This local planner implementation rewrites and extends the functionality of <code class="language-plaintext highlighter-rouge">dwa_local_planner</code>, thus it is logically called <code class="language-plaintext highlighter-rouge">dwb_local_planner</code>. The goal is to make as many parts of the functionality as possible customizable, either through pluginlib or directly extending the implementing classes.</p>
 
 <p>The goal of a local planner is to take the global plan and local costmap and produce the command velocities that will presumably move the robot to the goal. Both dwa and dwb do this via sampling, i.e. generating plausible velocity commands and evaluating them on various metrics and selecting the one with the best score, until the robot reaches its goal.</p>
 
-<p>The form of the evaluation is critical. Let's say we are evaluating a given command to see if it collides with any obstacles in the costmap. The key question is where the robot will drive using the command. For this, you need to know the position and velocity of the robot, plus you will need to consider the kinematics of the robot. To this end, we do not evaluate the velocities in isolation, but instead score the trajectory which contains not only the velocity, but an array of some number of sample poses that we anticipate the robot to drive along.</p>
+<p>The form of the evaluation is critical. Let’s say we are evaluating a given command to see if it collides with any obstacles in the costmap. The key question is where the robot will drive using the command. For this, you need to know the position and velocity of the robot, plus you will need to consider the kinematics of the robot. To this end, we do not evaluate the velocities in isolation, but instead score the trajectory which contains not only the velocity, but an array of some number of sample poses that we anticipate the robot to drive along.</p>
 
 <h2 id="data-structures">Data Structures</h2>
-
-<p>The navigation stack is only capable of navigation in 2.5 dimensions (i.e. x, y and theta), thus most of the interfaces deal with <code>geometry_msgs/Pose2D</code> and <code>nav_2d_msgs/Twist2D</code> rather than the more general <code>Pose</code> and <code>Twist</code>.</p>
+<p>The navigation stack is only capable of navigation in 2.5 dimensions (i.e. x, y and theta), thus most of the interfaces deal with <code class="language-plaintext highlighter-rouge">geometry_msgs/Pose2D</code> and <code class="language-plaintext highlighter-rouge">nav_2d_msgs/Twist2D</code> rather than the more general <code class="language-plaintext highlighter-rouge">Pose</code> and <code class="language-plaintext highlighter-rouge">Twist</code>.</p>
 
 <h2 id="code-structure">Code Structure</h2>
-
 <h3 id="twist-generator">Twist Generator</h3>
-
 <p>The first component is the twist generator, which is responsible for determining which velocity commands are evaluating and creating trajectories from them. The interface for generating the commands is iterator-based.</p>
-<div class="highlight"><pre><code class="language-" data-lang="">void startNewIteration(const nav_2d_msgs::Twist2D&amp; current_velocity)
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>void startNewIteration(const nav_2d_msgs::Twist2D&amp; current_velocity)
 bool hasMoreTwists()
 bool nextTwist(nav_2d_msgs::Twist2D&amp; twist)
 
-</code></pre></div>
+</code></pre></div></div>
 <p>For debugging purposes, there is also a ROS service interface for the twist generator.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/GenerateTwists.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/GenerateTwists.srv
 nav_2d_msgs/Twist2D current_vel
 ---
 nav_2d_msgs/Twist2D[] twists
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>The second half is for generating the trajectory, which creates a Trajectory2D.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/msg/Trajectory2D.msg
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/msg/Trajectory2D.msg
 nav_2d_msgs/Twist2D velocity
 duration duration
 geometry_msgs/Pose2D[] poses
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>Code API:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">bool generateTrajectory(const geometry_msgs::Pose2D&amp; start_pose, const nav_2d_msgs::Twist2D&amp; start_vel,
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>bool generateTrajectory(const geometry_msgs::Pose2D&amp; start_pose, const nav_2d_msgs::Twist2D&amp; start_vel,
                         const nav_2d_msgs::Twist2D&amp; cmd_vel,
                         dwb_msgs::Trajectory2D&amp; traj)
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>This also has a ROS service interface.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/GenerateTrajectory.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/GenerateTrajectory.srv
 geometry_msgs/Pose2D start_pose
 nav_2d_msgs/Twist2D start_vel
 nav_2d_msgs/Twist2D cmd_vel
 ---
 dwb_msgs/Trajectory2D traj
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>How precisely DWB performs these tasks is relegated to a plugin.</p>
 
 <h2 id="goal-checker">Goal Checker</h2>
-
 <p>Are we there yet? Another plugin determines whether the robot has reached its goal. This allows for variation in combining how accurate the xy position has to be with the rotation, and whether the robot has stopped completely.</p>
 
 <p>Code API:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">virtual bool isGoalReached(const geometry_msgs::Pose2D&amp; query_pose, const geometry_msgs::Pose2D&amp; goal_pose,
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>virtual bool isGoalReached(const geometry_msgs::Pose2D&amp; query_pose, const geometry_msgs::Pose2D&amp; goal_pose,
                            const nav_2d_msgs::Twist2D&amp; velocity)
 
-</code></pre></div>
-<h2 id="trajectory-critics">Trajectory Critics</h2>
+</code></pre></div></div>
 
-<p><a href="https://www.youtube.com/watch?v=X6I_dKUYyI4">Critics</a> like to give things scores. Once we know we're not a the goal and have a bunch of candidate trajectories, we evaluate them based on a collections of TrajectoryCritics. Here's the life-cycle.</p>
+<h2 id="trajectory-critics">Trajectory Critics</h2>
+<p><a href="https://www.youtube.com/watch?v=X6I_dKUYyI4">Critics</a> like to give things scores. Once we know we’re not a the goal and have a bunch of candidate trajectories, we evaluate them based on a collections of TrajectoryCritics. Here’s the life-cycle.</p>
 
 <ul>
-<li>
-<code>void initialize(const ros::NodeHandle&amp; planner_nh, std::string name, nav_core2::Costmap::Ptr costmap)</code> - called once on startup, and then calls <code>onInit</code>
+  <li>
+<code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; planner_nh, std::string name, nav_core2::Costmap::Ptr costmap)</code> - called once on startup, and then calls <code class="language-plaintext highlighter-rouge">onInit</code>
 </li>
-<li>
-<code>void onInit()</code> - May be overwritten to load parameters as needed.</li>
-<li>
-<code>void reset()</code> - called at the beginning of every new navigation, i.e. when we get a new global goal via <code>setGoalPose</code>.</li>
-<li>
-<code>bool prepare(const geometry_msgs::Pose2D&amp; pose, const nav_2d_msgs::Twist2D&amp; vel, const geometry_msgs::Pose2D&amp; goal, const nav_2d_msgs::Path2D&amp; global_plan)</code> - called once per iteration of the planner, prior to the evaluation of all the trajectories</li>
-<li>
-<code>double scoreTrajectory(const dwb_msgs::Trajectory2D&amp; traj)</code> - called once per trajectory</li>
-<li>
-<code>void debrief(const nav_2d_msgs::Twist2D&amp; cmd_vel)</code> - called after all the trajectories to notify what trajectory was chosen.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void onInit()</code> - May be overwritten to load parameters as needed.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void reset()</code> - called at the beginning of every new navigation, i.e. when we get a new global goal via <code class="language-plaintext highlighter-rouge">setGoalPose</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">bool prepare(const geometry_msgs::Pose2D&amp; pose, const nav_2d_msgs::Twist2D&amp; vel, const geometry_msgs::Pose2D&amp; goal, const nav_2d_msgs::Path2D&amp; global_plan)</code> - called once per iteration of the planner, prior to the evaluation of all the trajectories</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">double scoreTrajectory(const dwb_msgs::Trajectory2D&amp; traj)</code> - called once per trajectory</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void debrief(const nav_2d_msgs::Twist2D&amp; cmd_vel)</code> - called after all the trajectories to notify what trajectory was chosen.</li>
 </ul>
 
-<p>Each critic will provide a <code>double</code> score and has an associated scale. The score used for the trajectory as a whole will be the sum of all the critic scores multiplied by their respective scales.</p>
+<p>Each critic will provide a <code class="language-plaintext highlighter-rouge">double</code> score and has an associated scale. The score used for the trajectory as a whole will be the sum of all the critic scores multiplied by their respective scales.</p>
 
 <p>There is also a ROS service interface associated with the scoring trajectories.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/DebugLocalPlan.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/DebugLocalPlan.srv
 nav_2d_msgs/Pose2DStamped pose
 nav_2d_msgs/Twist2D velocity
 nav_2d_msgs/Path2D global_plan
@@ -2241,7 +2267,7 @@ LocalPlanEvaluation results
     uint16 best_index
     uint16 worst_index
 
-</code></pre></div>
+</code></pre></div></div>
 </div>
               </div>
             </div>
@@ -3339,97 +3365,110 @@ No test statistics available for this package.">
 <h1 id="dwb_local_planner">dwb_local_planner</h1>
 
 <blockquote>
-<p>I suppose it is tempting, if the only tool you have is a hammer, to treat everything as if it were a nail.
- - Abraham Maslow</p>
-
-<p>I love/hate pluginlib.
- - David Lu!!</p>
+  <p>I suppose it is tempting, if the only tool you have is a hammer, to treat everything as if it were a nail.</p>
+  <ul>
+    <li>Abraham Maslow</li>
+  </ul>
 </blockquote>
 
-<p>This local planner implementation rewrites and extends the functionality of <code>dwa_local_planner</code>, thus it is logically called <code>dwb_local_planner</code>. The goal is to make as many parts of the functionality as possible customizable, either through pluginlib or directly extending the implementing classes.</p>
+<blockquote>
+  <p>I love/hate pluginlib.</p>
+  <ul>
+    <li>David Lu!!</li>
+  </ul>
+</blockquote>
+
+<p>This local planner implementation rewrites and extends the functionality of <code class="language-plaintext highlighter-rouge">dwa_local_planner</code>, thus it is logically called <code class="language-plaintext highlighter-rouge">dwb_local_planner</code>. The goal is to make as many parts of the functionality as possible customizable, either through pluginlib or directly extending the implementing classes.</p>
 
 <p>The goal of a local planner is to take the global plan and local costmap and produce the command velocities that will presumably move the robot to the goal. Both dwa and dwb do this via sampling, i.e. generating plausible velocity commands and evaluating them on various metrics and selecting the one with the best score, until the robot reaches its goal.</p>
 
-<p>The form of the evaluation is critical. Let's say we are evaluating a given command to see if it collides with any obstacles in the costmap. The key question is where the robot will drive using the command. For this, you need to know the position and velocity of the robot, plus you will need to consider the kinematics of the robot. To this end, we do not evaluate the velocities in isolation, but instead score the trajectory which contains not only the velocity, but an array of some number of sample poses that we anticipate the robot to drive along.</p>
+<p>The form of the evaluation is critical. Let’s say we are evaluating a given command to see if it collides with any obstacles in the costmap. The key question is where the robot will drive using the command. For this, you need to know the position and velocity of the robot, plus you will need to consider the kinematics of the robot. To this end, we do not evaluate the velocities in isolation, but instead score the trajectory which contains not only the velocity, but an array of some number of sample poses that we anticipate the robot to drive along.</p>
 
 <h2 id="data-structures">Data Structures</h2>
-
-<p>The navigation stack is only capable of navigation in 2.5 dimensions (i.e. x, y and theta), thus most of the interfaces deal with <code>geometry_msgs/Pose2D</code> and <code>nav_2d_msgs/Twist2D</code> rather than the more general <code>Pose</code> and <code>Twist</code>.</p>
+<p>The navigation stack is only capable of navigation in 2.5 dimensions (i.e. x, y and theta), thus most of the interfaces deal with <code class="language-plaintext highlighter-rouge">geometry_msgs/Pose2D</code> and <code class="language-plaintext highlighter-rouge">nav_2d_msgs/Twist2D</code> rather than the more general <code class="language-plaintext highlighter-rouge">Pose</code> and <code class="language-plaintext highlighter-rouge">Twist</code>.</p>
 
 <h2 id="code-structure">Code Structure</h2>
-
 <h3 id="twist-generator">Twist Generator</h3>
-
 <p>The first component is the twist generator, which is responsible for determining which velocity commands are evaluating and creating trajectories from them. The interface for generating the commands is iterator-based.</p>
-<div class="highlight"><pre><code class="language-" data-lang="">void startNewIteration(const nav_2d_msgs::Twist2D&amp; current_velocity)
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>void startNewIteration(const nav_2d_msgs::Twist2D&amp; current_velocity)
 bool hasMoreTwists()
 bool nextTwist(nav_2d_msgs::Twist2D&amp; twist)
 
-</code></pre></div>
+</code></pre></div></div>
 <p>For debugging purposes, there is also a ROS service interface for the twist generator.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/GenerateTwists.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/GenerateTwists.srv
 nav_2d_msgs/Twist2D current_vel
 ---
 nav_2d_msgs/Twist2D[] twists
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>The second half is for generating the trajectory, which creates a Trajectory2D.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/msg/Trajectory2D.msg
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/msg/Trajectory2D.msg
 nav_2d_msgs/Twist2D velocity
 duration duration
 geometry_msgs/Pose2D[] poses
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>Code API:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">bool generateTrajectory(const geometry_msgs::Pose2D&amp; start_pose, const nav_2d_msgs::Twist2D&amp; start_vel,
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>bool generateTrajectory(const geometry_msgs::Pose2D&amp; start_pose, const nav_2d_msgs::Twist2D&amp; start_vel,
                         const nav_2d_msgs::Twist2D&amp; cmd_vel,
                         dwb_msgs::Trajectory2D&amp; traj)
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>This also has a ROS service interface.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/GenerateTrajectory.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/GenerateTrajectory.srv
 geometry_msgs/Pose2D start_pose
 nav_2d_msgs/Twist2D start_vel
 nav_2d_msgs/Twist2D cmd_vel
 ---
 dwb_msgs/Trajectory2D traj
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>How precisely DWB performs these tasks is relegated to a plugin.</p>
 
 <h2 id="goal-checker">Goal Checker</h2>
-
 <p>Are we there yet? Another plugin determines whether the robot has reached its goal. This allows for variation in combining how accurate the xy position has to be with the rotation, and whether the robot has stopped completely.</p>
 
 <p>Code API:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">virtual bool isGoalReached(const geometry_msgs::Pose2D&amp; query_pose, const geometry_msgs::Pose2D&amp; goal_pose,
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>virtual bool isGoalReached(const geometry_msgs::Pose2D&amp; query_pose, const geometry_msgs::Pose2D&amp; goal_pose,
                            const nav_2d_msgs::Twist2D&amp; velocity)
 
-</code></pre></div>
-<h2 id="trajectory-critics">Trajectory Critics</h2>
+</code></pre></div></div>
 
-<p><a href="https://www.youtube.com/watch?v=X6I_dKUYyI4">Critics</a> like to give things scores. Once we know we're not a the goal and have a bunch of candidate trajectories, we evaluate them based on a collections of TrajectoryCritics. Here's the life-cycle.</p>
+<h2 id="trajectory-critics">Trajectory Critics</h2>
+<p><a href="https://www.youtube.com/watch?v=X6I_dKUYyI4">Critics</a> like to give things scores. Once we know we’re not a the goal and have a bunch of candidate trajectories, we evaluate them based on a collections of TrajectoryCritics. Here’s the life-cycle.</p>
 
 <ul>
-<li>
-<code>void initialize(const ros::NodeHandle&amp; planner_nh, std::string name, nav_core2::Costmap::Ptr costmap)</code> - called once on startup, and then calls <code>onInit</code>
+  <li>
+<code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; planner_nh, std::string name, nav_core2::Costmap::Ptr costmap)</code> - called once on startup, and then calls <code class="language-plaintext highlighter-rouge">onInit</code>
 </li>
-<li>
-<code>void onInit()</code> - May be overwritten to load parameters as needed.</li>
-<li>
-<code>void reset()</code> - called at the beginning of every new navigation, i.e. when we get a new global goal via <code>setGoalPose</code>.</li>
-<li>
-<code>bool prepare(const geometry_msgs::Pose2D&amp; pose, const nav_2d_msgs::Twist2D&amp; vel, const geometry_msgs::Pose2D&amp; goal, const nav_2d_msgs::Path2D&amp; global_plan)</code> - called once per iteration of the planner, prior to the evaluation of all the trajectories</li>
-<li>
-<code>double scoreTrajectory(const dwb_msgs::Trajectory2D&amp; traj)</code> - called once per trajectory</li>
-<li>
-<code>void debrief(const nav_2d_msgs::Twist2D&amp; cmd_vel)</code> - called after all the trajectories to notify what trajectory was chosen.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void onInit()</code> - May be overwritten to load parameters as needed.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void reset()</code> - called at the beginning of every new navigation, i.e. when we get a new global goal via <code class="language-plaintext highlighter-rouge">setGoalPose</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">bool prepare(const geometry_msgs::Pose2D&amp; pose, const nav_2d_msgs::Twist2D&amp; vel, const geometry_msgs::Pose2D&amp; goal, const nav_2d_msgs::Path2D&amp; global_plan)</code> - called once per iteration of the planner, prior to the evaluation of all the trajectories</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">double scoreTrajectory(const dwb_msgs::Trajectory2D&amp; traj)</code> - called once per trajectory</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void debrief(const nav_2d_msgs::Twist2D&amp; cmd_vel)</code> - called after all the trajectories to notify what trajectory was chosen.</li>
 </ul>
 
-<p>Each critic will provide a <code>double</code> score and has an associated scale. The score used for the trajectory as a whole will be the sum of all the critic scores multiplied by their respective scales.</p>
+<p>Each critic will provide a <code class="language-plaintext highlighter-rouge">double</code> score and has an associated scale. The score used for the trajectory as a whole will be the sum of all the critic scores multiplied by their respective scales.</p>
 
 <p>There is also a ROS service interface associated with the scoring trajectories.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/DebugLocalPlan.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/DebugLocalPlan.srv
 nav_2d_msgs/Pose2DStamped pose
 nav_2d_msgs/Twist2D velocity
 nav_2d_msgs/Path2D global_plan
@@ -3446,7 +3485,7 @@ LocalPlanEvaluation results
     uint16 best_index
     uint16 worst_index
 
-</code></pre></div>
+</code></pre></div></div>
 </div>
               </div>
             </div>
@@ -4584,97 +4623,110 @@ No test statistics available for this package.">
 <h1 id="dwb_local_planner">dwb_local_planner</h1>
 
 <blockquote>
-<p>I suppose it is tempting, if the only tool you have is a hammer, to treat everything as if it were a nail.
- - Abraham Maslow</p>
-
-<p>I love/hate pluginlib.
- - David Lu!!</p>
+  <p>I suppose it is tempting, if the only tool you have is a hammer, to treat everything as if it were a nail.</p>
+  <ul>
+    <li>Abraham Maslow</li>
+  </ul>
 </blockquote>
 
-<p>This local planner implementation rewrites and extends the functionality of <code>dwa_local_planner</code>, thus it is logically called <code>dwb_local_planner</code>. The goal is to make as many parts of the functionality as possible customizable, either through pluginlib or directly extending the implementing classes.</p>
+<blockquote>
+  <p>I love/hate pluginlib.</p>
+  <ul>
+    <li>David Lu!!</li>
+  </ul>
+</blockquote>
+
+<p>This local planner implementation rewrites and extends the functionality of <code class="language-plaintext highlighter-rouge">dwa_local_planner</code>, thus it is logically called <code class="language-plaintext highlighter-rouge">dwb_local_planner</code>. The goal is to make as many parts of the functionality as possible customizable, either through pluginlib or directly extending the implementing classes.</p>
 
 <p>The goal of a local planner is to take the global plan and local costmap and produce the command velocities that will presumably move the robot to the goal. Both dwa and dwb do this via sampling, i.e. generating plausible velocity commands and evaluating them on various metrics and selecting the one with the best score, until the robot reaches its goal.</p>
 
-<p>The form of the evaluation is critical. Let's say we are evaluating a given command to see if it collides with any obstacles in the costmap. The key question is where the robot will drive using the command. For this, you need to know the position and velocity of the robot, plus you will need to consider the kinematics of the robot. To this end, we do not evaluate the velocities in isolation, but instead score the trajectory which contains not only the velocity, but an array of some number of sample poses that we anticipate the robot to drive along.</p>
+<p>The form of the evaluation is critical. Let’s say we are evaluating a given command to see if it collides with any obstacles in the costmap. The key question is where the robot will drive using the command. For this, you need to know the position and velocity of the robot, plus you will need to consider the kinematics of the robot. To this end, we do not evaluate the velocities in isolation, but instead score the trajectory which contains not only the velocity, but an array of some number of sample poses that we anticipate the robot to drive along.</p>
 
 <h2 id="data-structures">Data Structures</h2>
-
-<p>The navigation stack is only capable of navigation in 2.5 dimensions (i.e. x, y and theta), thus most of the interfaces deal with <code>geometry_msgs/Pose2D</code> and <code>nav_2d_msgs/Twist2D</code> rather than the more general <code>Pose</code> and <code>Twist</code>.</p>
+<p>The navigation stack is only capable of navigation in 2.5 dimensions (i.e. x, y and theta), thus most of the interfaces deal with <code class="language-plaintext highlighter-rouge">geometry_msgs/Pose2D</code> and <code class="language-plaintext highlighter-rouge">nav_2d_msgs/Twist2D</code> rather than the more general <code class="language-plaintext highlighter-rouge">Pose</code> and <code class="language-plaintext highlighter-rouge">Twist</code>.</p>
 
 <h2 id="code-structure">Code Structure</h2>
-
 <h3 id="twist-generator">Twist Generator</h3>
-
 <p>The first component is the twist generator, which is responsible for determining which velocity commands are evaluating and creating trajectories from them. The interface for generating the commands is iterator-based.</p>
-<div class="highlight"><pre><code class="language-" data-lang="">void startNewIteration(const nav_2d_msgs::Twist2D&amp; current_velocity)
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>void startNewIteration(const nav_2d_msgs::Twist2D&amp; current_velocity)
 bool hasMoreTwists()
 bool nextTwist(nav_2d_msgs::Twist2D&amp; twist)
 
-</code></pre></div>
+</code></pre></div></div>
 <p>For debugging purposes, there is also a ROS service interface for the twist generator.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/GenerateTwists.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/GenerateTwists.srv
 nav_2d_msgs/Twist2D current_vel
 ---
 nav_2d_msgs/Twist2D[] twists
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>The second half is for generating the trajectory, which creates a Trajectory2D.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/msg/Trajectory2D.msg
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/msg/Trajectory2D.msg
 nav_2d_msgs/Twist2D velocity
 duration duration
 geometry_msgs/Pose2D[] poses
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>Code API:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">bool generateTrajectory(const geometry_msgs::Pose2D&amp; start_pose, const nav_2d_msgs::Twist2D&amp; start_vel,
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>bool generateTrajectory(const geometry_msgs::Pose2D&amp; start_pose, const nav_2d_msgs::Twist2D&amp; start_vel,
                         const nav_2d_msgs::Twist2D&amp; cmd_vel,
                         dwb_msgs::Trajectory2D&amp; traj)
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>This also has a ROS service interface.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/GenerateTrajectory.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/GenerateTrajectory.srv
 geometry_msgs/Pose2D start_pose
 nav_2d_msgs/Twist2D start_vel
 nav_2d_msgs/Twist2D cmd_vel
 ---
 dwb_msgs/Trajectory2D traj
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>How precisely DWB performs these tasks is relegated to a plugin.</p>
 
 <h2 id="goal-checker">Goal Checker</h2>
-
 <p>Are we there yet? Another plugin determines whether the robot has reached its goal. This allows for variation in combining how accurate the xy position has to be with the rotation, and whether the robot has stopped completely.</p>
 
 <p>Code API:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">virtual bool isGoalReached(const geometry_msgs::Pose2D&amp; query_pose, const geometry_msgs::Pose2D&amp; goal_pose,
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>virtual bool isGoalReached(const geometry_msgs::Pose2D&amp; query_pose, const geometry_msgs::Pose2D&amp; goal_pose,
                            const nav_2d_msgs::Twist2D&amp; velocity)
 
-</code></pre></div>
-<h2 id="trajectory-critics">Trajectory Critics</h2>
+</code></pre></div></div>
 
-<p><a href="https://www.youtube.com/watch?v=X6I_dKUYyI4">Critics</a> like to give things scores. Once we know we're not a the goal and have a bunch of candidate trajectories, we evaluate them based on a collections of TrajectoryCritics. Here's the life-cycle.</p>
+<h2 id="trajectory-critics">Trajectory Critics</h2>
+<p><a href="https://www.youtube.com/watch?v=X6I_dKUYyI4">Critics</a> like to give things scores. Once we know we’re not a the goal and have a bunch of candidate trajectories, we evaluate them based on a collections of TrajectoryCritics. Here’s the life-cycle.</p>
 
 <ul>
-<li>
-<code>void initialize(const ros::NodeHandle&amp; planner_nh, std::string name, nav_core2::Costmap::Ptr costmap)</code> - called once on startup, and then calls <code>onInit</code>
+  <li>
+<code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; planner_nh, std::string name, nav_core2::Costmap::Ptr costmap)</code> - called once on startup, and then calls <code class="language-plaintext highlighter-rouge">onInit</code>
 </li>
-<li>
-<code>void onInit()</code> - May be overwritten to load parameters as needed.</li>
-<li>
-<code>void reset()</code> - called at the beginning of every new navigation, i.e. when we get a new global goal via <code>setGoalPose</code>.</li>
-<li>
-<code>bool prepare(const geometry_msgs::Pose2D&amp; pose, const nav_2d_msgs::Twist2D&amp; vel, const geometry_msgs::Pose2D&amp; goal, const nav_2d_msgs::Path2D&amp; global_plan)</code> - called once per iteration of the planner, prior to the evaluation of all the trajectories</li>
-<li>
-<code>double scoreTrajectory(const dwb_msgs::Trajectory2D&amp; traj)</code> - called once per trajectory</li>
-<li>
-<code>void debrief(const nav_2d_msgs::Twist2D&amp; cmd_vel)</code> - called after all the trajectories to notify what trajectory was chosen.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void onInit()</code> - May be overwritten to load parameters as needed.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void reset()</code> - called at the beginning of every new navigation, i.e. when we get a new global goal via <code class="language-plaintext highlighter-rouge">setGoalPose</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">bool prepare(const geometry_msgs::Pose2D&amp; pose, const nav_2d_msgs::Twist2D&amp; vel, const geometry_msgs::Pose2D&amp; goal, const nav_2d_msgs::Path2D&amp; global_plan)</code> - called once per iteration of the planner, prior to the evaluation of all the trajectories</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">double scoreTrajectory(const dwb_msgs::Trajectory2D&amp; traj)</code> - called once per trajectory</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void debrief(const nav_2d_msgs::Twist2D&amp; cmd_vel)</code> - called after all the trajectories to notify what trajectory was chosen.</li>
 </ul>
 
-<p>Each critic will provide a <code>double</code> score and has an associated scale. The score used for the trajectory as a whole will be the sum of all the critic scores multiplied by their respective scales.</p>
+<p>Each critic will provide a <code class="language-plaintext highlighter-rouge">double</code> score and has an associated scale. The score used for the trajectory as a whole will be the sum of all the critic scores multiplied by their respective scales.</p>
 
 <p>There is also a ROS service interface associated with the scoring trajectories.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/DebugLocalPlan.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/DebugLocalPlan.srv
 nav_2d_msgs/Pose2DStamped pose
 nav_2d_msgs/Twist2D velocity
 nav_2d_msgs/Path2D global_plan
@@ -4691,7 +4743,7 @@ LocalPlanEvaluation results
     uint16 best_index
     uint16 worst_index
 
-</code></pre></div>
+</code></pre></div></div>
 </div>
               </div>
             </div>
@@ -5887,97 +5939,110 @@ Click to show more build history.">
 <h1 id="dwb_local_planner">dwb_local_planner</h1>
 
 <blockquote>
-<p>I suppose it is tempting, if the only tool you have is a hammer, to treat everything as if it were a nail.
- - Abraham Maslow</p>
-
-<p>I love/hate pluginlib.
- - David Lu!!</p>
+  <p>I suppose it is tempting, if the only tool you have is a hammer, to treat everything as if it were a nail.</p>
+  <ul>
+    <li>Abraham Maslow</li>
+  </ul>
 </blockquote>
 
-<p>This local planner implementation rewrites and extends the functionality of <code>dwa_local_planner</code>, thus it is logically called <code>dwb_local_planner</code>. The goal is to make as many parts of the functionality as possible customizable, either through pluginlib or directly extending the implementing classes.</p>
+<blockquote>
+  <p>I love/hate pluginlib.</p>
+  <ul>
+    <li>David Lu!!</li>
+  </ul>
+</blockquote>
+
+<p>This local planner implementation rewrites and extends the functionality of <code class="language-plaintext highlighter-rouge">dwa_local_planner</code>, thus it is logically called <code class="language-plaintext highlighter-rouge">dwb_local_planner</code>. The goal is to make as many parts of the functionality as possible customizable, either through pluginlib or directly extending the implementing classes.</p>
 
 <p>The goal of a local planner is to take the global plan and local costmap and produce the command velocities that will presumably move the robot to the goal. Both dwa and dwb do this via sampling, i.e. generating plausible velocity commands and evaluating them on various metrics and selecting the one with the best score, until the robot reaches its goal.</p>
 
-<p>The form of the evaluation is critical. Let's say we are evaluating a given command to see if it collides with any obstacles in the costmap. The key question is where the robot will drive using the command. For this, you need to know the position and velocity of the robot, plus you will need to consider the kinematics of the robot. To this end, we do not evaluate the velocities in isolation, but instead score the trajectory which contains not only the velocity, but an array of some number of sample poses that we anticipate the robot to drive along.</p>
+<p>The form of the evaluation is critical. Let’s say we are evaluating a given command to see if it collides with any obstacles in the costmap. The key question is where the robot will drive using the command. For this, you need to know the position and velocity of the robot, plus you will need to consider the kinematics of the robot. To this end, we do not evaluate the velocities in isolation, but instead score the trajectory which contains not only the velocity, but an array of some number of sample poses that we anticipate the robot to drive along.</p>
 
 <h2 id="data-structures">Data Structures</h2>
-
-<p>The navigation stack is only capable of navigation in 2.5 dimensions (i.e. x, y and theta), thus most of the interfaces deal with <code>geometry_msgs/Pose2D</code> and <code>nav_2d_msgs/Twist2D</code> rather than the more general <code>Pose</code> and <code>Twist</code>.</p>
+<p>The navigation stack is only capable of navigation in 2.5 dimensions (i.e. x, y and theta), thus most of the interfaces deal with <code class="language-plaintext highlighter-rouge">geometry_msgs/Pose2D</code> and <code class="language-plaintext highlighter-rouge">nav_2d_msgs/Twist2D</code> rather than the more general <code class="language-plaintext highlighter-rouge">Pose</code> and <code class="language-plaintext highlighter-rouge">Twist</code>.</p>
 
 <h2 id="code-structure">Code Structure</h2>
-
 <h3 id="twist-generator">Twist Generator</h3>
-
 <p>The first component is the twist generator, which is responsible for determining which velocity commands are evaluating and creating trajectories from them. The interface for generating the commands is iterator-based.</p>
-<div class="highlight"><pre><code class="language-" data-lang="">void startNewIteration(const nav_2d_msgs::Twist2D&amp; current_velocity)
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>void startNewIteration(const nav_2d_msgs::Twist2D&amp; current_velocity)
 bool hasMoreTwists()
 bool nextTwist(nav_2d_msgs::Twist2D&amp; twist)
 
-</code></pre></div>
+</code></pre></div></div>
 <p>For debugging purposes, there is also a ROS service interface for the twist generator.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/GenerateTwists.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/GenerateTwists.srv
 nav_2d_msgs/Twist2D current_vel
 ---
 nav_2d_msgs/Twist2D[] twists
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>The second half is for generating the trajectory, which creates a Trajectory2D.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/msg/Trajectory2D.msg
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/msg/Trajectory2D.msg
 nav_2d_msgs/Twist2D velocity
 duration duration
 geometry_msgs/Pose2D[] poses
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>Code API:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">bool generateTrajectory(const geometry_msgs::Pose2D&amp; start_pose, const nav_2d_msgs::Twist2D&amp; start_vel,
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>bool generateTrajectory(const geometry_msgs::Pose2D&amp; start_pose, const nav_2d_msgs::Twist2D&amp; start_vel,
                         const nav_2d_msgs::Twist2D&amp; cmd_vel,
                         dwb_msgs::Trajectory2D&amp; traj)
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>This also has a ROS service interface.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/GenerateTrajectory.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/GenerateTrajectory.srv
 geometry_msgs/Pose2D start_pose
 nav_2d_msgs/Twist2D start_vel
 nav_2d_msgs/Twist2D cmd_vel
 ---
 dwb_msgs/Trajectory2D traj
 
-</code></pre></div>
+</code></pre></div></div>
+
 <p>How precisely DWB performs these tasks is relegated to a plugin.</p>
 
 <h2 id="goal-checker">Goal Checker</h2>
-
 <p>Are we there yet? Another plugin determines whether the robot has reached its goal. This allows for variation in combining how accurate the xy position has to be with the rotation, and whether the robot has stopped completely.</p>
 
 <p>Code API:</p>
-<div class="highlight"><pre><code class="language-" data-lang="">virtual bool isGoalReached(const geometry_msgs::Pose2D&amp; query_pose, const geometry_msgs::Pose2D&amp; goal_pose,
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>virtual bool isGoalReached(const geometry_msgs::Pose2D&amp; query_pose, const geometry_msgs::Pose2D&amp; goal_pose,
                            const nav_2d_msgs::Twist2D&amp; velocity)
 
-</code></pre></div>
-<h2 id="trajectory-critics">Trajectory Critics</h2>
+</code></pre></div></div>
 
-<p><a href="https://www.youtube.com/watch?v=X6I_dKUYyI4">Critics</a> like to give things scores. Once we know we're not a the goal and have a bunch of candidate trajectories, we evaluate them based on a collections of TrajectoryCritics. Here's the life-cycle.</p>
+<h2 id="trajectory-critics">Trajectory Critics</h2>
+<p><a href="https://www.youtube.com/watch?v=X6I_dKUYyI4">Critics</a> like to give things scores. Once we know we’re not a the goal and have a bunch of candidate trajectories, we evaluate them based on a collections of TrajectoryCritics. Here’s the life-cycle.</p>
 
 <ul>
-<li>
-<code>void initialize(const ros::NodeHandle&amp; planner_nh, std::string name, nav_core2::Costmap::Ptr costmap)</code> - called once on startup, and then calls <code>onInit</code>
+  <li>
+<code class="language-plaintext highlighter-rouge">void initialize(const ros::NodeHandle&amp; planner_nh, std::string name, nav_core2::Costmap::Ptr costmap)</code> - called once on startup, and then calls <code class="language-plaintext highlighter-rouge">onInit</code>
 </li>
-<li>
-<code>void onInit()</code> - May be overwritten to load parameters as needed.</li>
-<li>
-<code>void reset()</code> - called at the beginning of every new navigation, i.e. when we get a new global goal via <code>setGoalPose</code>.</li>
-<li>
-<code>bool prepare(const geometry_msgs::Pose2D&amp; pose, const nav_2d_msgs::Twist2D&amp; vel, const geometry_msgs::Pose2D&amp; goal, const nav_2d_msgs::Path2D&amp; global_plan)</code> - called once per iteration of the planner, prior to the evaluation of all the trajectories</li>
-<li>
-<code>double scoreTrajectory(const dwb_msgs::Trajectory2D&amp; traj)</code> - called once per trajectory</li>
-<li>
-<code>void debrief(const nav_2d_msgs::Twist2D&amp; cmd_vel)</code> - called after all the trajectories to notify what trajectory was chosen.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void onInit()</code> - May be overwritten to load parameters as needed.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void reset()</code> - called at the beginning of every new navigation, i.e. when we get a new global goal via <code class="language-plaintext highlighter-rouge">setGoalPose</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">bool prepare(const geometry_msgs::Pose2D&amp; pose, const nav_2d_msgs::Twist2D&amp; vel, const geometry_msgs::Pose2D&amp; goal, const nav_2d_msgs::Path2D&amp; global_plan)</code> - called once per iteration of the planner, prior to the evaluation of all the trajectories</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">double scoreTrajectory(const dwb_msgs::Trajectory2D&amp; traj)</code> - called once per trajectory</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">void debrief(const nav_2d_msgs::Twist2D&amp; cmd_vel)</code> - called after all the trajectories to notify what trajectory was chosen.</li>
 </ul>
 
-<p>Each critic will provide a <code>double</code> score and has an associated scale. The score used for the trajectory as a whole will be the sum of all the critic scores multiplied by their respective scales.</p>
+<p>Each critic will provide a <code class="language-plaintext highlighter-rouge">double</code> score and has an associated scale. The score used for the trajectory as a whole will be the sum of all the critic scores multiplied by their respective scales.</p>
 
 <p>There is also a ROS service interface associated with the scoring trajectories.</p>
-<div class="highlight"><pre><code class="language-" data-lang=""># dwb_msgs/srv/DebugLocalPlan.srv
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># dwb_msgs/srv/DebugLocalPlan.srv
 nav_2d_msgs/Pose2DStamped pose
 nav_2d_msgs/Twist2D velocity
 nav_2d_msgs/Path2D global_plan
@@ -5994,7 +6059,7 @@ LocalPlanEvaluation results
     uint16 best_index
     uint16 worst_index
 
-</code></pre></div>
+</code></pre></div></div>
 </div>
               </div>
             </div>
@@ -6893,7 +6958,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure/rosindex</span>
           </a>
           |
-          <em>generated on 2024-09-09</em>
+          <em>generated on 2024-09-25</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">

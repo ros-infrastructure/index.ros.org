@@ -892,10 +892,10 @@ navigation2
                     <div class="rendered-markdown">
 <h1 id="velocity-smoother">Velocity Smoother</h1>
 
-<p>The <code>nav2_velocity_smoother</code> is a package containing a lifecycle-component node for smoothing velocities sent by Nav2 to robot controllers.
-The aim of this package is to implement velocity, acceleration, and deadband smoothing from Nav2 to reduce wear-and-tear on robot motors and hardware controllers by smoothing out the accelerations/jerky movements that might be present with some local trajectory planners' control efforts.</p>
+<p>The <code class="language-plaintext highlighter-rouge">nav2_velocity_smoother</code> is a package containing a lifecycle-component node for smoothing velocities sent by Nav2 to robot controllers.
+The aim of this package is to implement velocity, acceleration, and deadband smoothing from Nav2 to reduce wear-and-tear on robot motors and hardware controllers by smoothing out the accelerations/jerky movements that might be present with some local trajectory planners’ control efforts.</p>
 
-<p>It supports differential drive and omnidirectional robot platforms primarily, but is applicable to ackermann as well with some interpretations of <code>Twist</code>. It was built by <a href="https://www.linkedin.com/in/steve-macenski-41a985101/">Steve Macenski</a> while at <a href="https://www.sra.samsung.com/">Samsung Research</a>. </p>
+<p>It supports differential drive and omnidirectional robot platforms primarily, but is applicable to ackermann as well with some interpretations of <code class="language-plaintext highlighter-rouge">Twist</code>. It was built by <a href="https://www.linkedin.com/in/steve-macenski-41a985101/">Steve Macenski</a> while at <a href="https://www.sra.samsung.com/">Samsung Research</a>.</p>
 
 <p>See its <a href="https://navigation.ros.org/configuration/packages/configuring-velocity-smoother.html">Configuration Guide Page</a> for additional parameter descriptions.</p>
 
@@ -904,93 +904,97 @@ The aim of this package is to implement velocity, acceleration, and deadband smo
 <p>This package was created to do the following:</p>
 
 <ul>
-<li>Limit velocity commands by kinematic constraints, including velocity and acceleration</li>
-<li>Limit velocities based on deadband regions</li>
-<li>Stop sending velocities after a given timeout duration of no new commands (due to stopped navigation)</li>
-<li>Send a zero-velocity command at velocity timeout to stop the robot, in case not properly handled</li>
-<li>Support Omni and differential drive robots (e.g. X, Y, Theta)</li>
-<li>Smooth velocities proportionally in the same direction as commanded, whenever possible within kinematic limits</li>
-<li>Provide open loop and closed loop options</li>
-<li>Component nodes for use in single-process systems and stand-alone node format</li>
-<li>Dynamically reconfigurable parameters</li>
+  <li>Limit velocity commands by kinematic constraints, including velocity and acceleration</li>
+  <li>Limit velocities based on deadband regions</li>
+  <li>Stop sending velocities after a given timeout duration of no new commands (due to stopped navigation)</li>
+  <li>Send a zero-velocity command at velocity timeout to stop the robot, in case not properly handled</li>
+  <li>Support Omni and differential drive robots (e.g. X, Y, Theta)</li>
+  <li>Smooth velocities proportionally in the same direction as commanded, whenever possible within kinematic limits</li>
+  <li>Provide open loop and closed loop options</li>
+  <li>Component nodes for use in single-process systems and stand-alone node format</li>
+  <li>Dynamically reconfigurable parameters</li>
 </ul>
 
 <h2 id="design">Design</h2>
 
 <p>This is a lifecycle-component node, using the lifecycle manager for state management and composition for process management.
-It is designed to take in a command from Nav2's controller server and smooth it for use on robot hardware controllers.
-Thusly, it takes in a command via the <code>cmd_vel</code> topic and produces a smoothed output on <code>smoothed_cmd_vel</code>.</p>
+It is designed to take in a command from Nav2’s controller server and smooth it for use on robot hardware controllers.
+Thusly, it takes in a command via the <code class="language-plaintext highlighter-rouge">cmd_vel</code> topic and produces a smoothed output on <code class="language-plaintext highlighter-rouge">smoothed_cmd_vel</code>.</p>
 
 <p>The node is designed on a regular timer running at a configurable rate.
-This is in contrast to simply computing a smoothed velocity command in the callback of each <code>cmd_vel</code> input from Nav2.
-This allows us to interpolate commands at a higher frequency than Nav2's local trajectory planners can provide.
+This is in contrast to simply computing a smoothed velocity command in the callback of each <code class="language-plaintext highlighter-rouge">cmd_vel</code> input from Nav2.
+This allows us to interpolate commands at a higher frequency than Nav2’s local trajectory planners can provide.
 For example, if a local trajectory planner is running at 20hz, the velocity smoother can run at 100hz to provide approximately 5 messages to a robot controller which will be smoothed by kinematic limits at each timestep.
 This provides a more regular stream of commands to a robot base and interpolates commands between the current velocity and the desired velocity more finely for smoother acceleration / motion profiles.
 While this is not required, it is a nice design feature.
-It is possible to also simply run the smoother at <code>cmd_vel</code> rate to smooth velocities alone without interpolation.</p>
+It is possible to also simply run the smoother at <code class="language-plaintext highlighter-rouge">cmd_vel</code> rate to smooth velocities alone without interpolation.</p>
 
 <p>There are two primary operation modes: open and closed loop.
 In open-loop, the node assumes that the robot was able to achieve the velocity send to it in the last command which was smoothed (which should be a good assumption if acceleration limits are set properly).
-This is useful when robot odometry is not particularly accurate or has significant latency relative to <code>smoothing_frequency</code> so there isn't a delay in the feedback loop.
-In closed-loop, the node will read from the odometry topic and apply a smoother over it to obtain the robot's current speed.
-This will be used to determine the robot's current velocity and therefore achievable velocity targets by the velocity, acceleration, and deadband constraints using live data.</p>
+This is useful when robot odometry is not particularly accurate or has significant latency relative to <code class="language-plaintext highlighter-rouge">smoothing_frequency</code> so there isn’t a delay in the feedback loop.
+In closed-loop, the node will read from the odometry topic and apply a smoother over it to obtain the robot’s current speed.
+This will be used to determine the robot’s current velocity and therefore achievable velocity targets by the velocity, acceleration, and deadband constraints using live data.</p>
 
 <h2 id="parameters">Parameters</h2>
 
-<p>See inline description of parameters in the <code>VelocitySmoother</code>.</p>
-<div class="highlight"><pre><code class="language-" data-lang="">velocity_smoother:
-  ros__parameters:
-    smoothing_frequency: 20.0  # Rate to run smoother
-    scale_velocities: false  # scale velocities proportionally if any axis is outside of acceleration range to follow same vector, if possible
-    feedback: "OPEN_LOOP"  # Type of feedback for current speed. Open loop uses the last smoothed output. Closed loop uses robot odometry
-    max_velocity: [0.5, 0.0, 2.5]  # Maximum velocities, ordered [Vx, Vy, Vw]
-    min_velocity: [-0.5, 0.0, -2.5]  # Minimum velocities, ordered [Vx, Vy, Vw]
-    deadband_velocity: [0.0, 0.0, 0.0]  # A deadband of velocities below which they should be zero-ed out for sending to the robot base controller, ordered [Vx, Vy, Vw]
-    velocity_timeout: 1.0  # Time (s) after which if no new velocity commands are received to zero out and stop
-    max_accel: [2.5, 0.0, 3.2]  # Maximum acceleration, ordered [Ax, Ay, Aw]
-    max_decel: [-2.5, 0.0, -3.2]  # Maximum deceleration, ordered [Ax, Ay, Aw]
-    odom_topic: "odom"  # Topic of odometry to use for estimating current velocities
-    odom_duration: 0.1  # Period of time (s) to sample odometry information in for velocity estimation
+<p>See inline description of parameters in the <code class="language-plaintext highlighter-rouge">VelocitySmoother</code>.</p>
 
-</code></pre></div>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>velocity_smoother:
+  ros__parameters:
+  	smoothing_frequency: 20.0  # Rate to run smoother
+  	scale_velocities: false  # scale velocities proportionally if any axis is outside of acceleration range to follow same vector, if possible
+  	feedback: "OPEN_LOOP"  # Type of feedback for current speed. Open loop uses the last smoothed output. Closed loop uses robot odometry
+  	max_velocity: [0.5, 0.0, 2.5]  # Maximum velocities, ordered [Vx, Vy, Vw]
+   	min_velocity: [-0.5, 0.0, -2.5]  # Minimum velocities, ordered [Vx, Vy, Vw]
+   	deadband_velocity: [0.0, 0.0, 0.0]  # A deadband of velocities below which they should be zero-ed out for sending to the robot base controller, ordered [Vx, Vy, Vw]
+   	velocity_timeout: 1.0  # Time (s) after which if no new velocity commands are received to zero out and stop
+   	max_accel: [2.5, 0.0, 3.2]  # Maximum acceleration, ordered [Ax, Ay, Aw]
+   	max_decel: [-2.5, 0.0, -3.2]  # Maximum deceleration, ordered [Ax, Ay, Aw]
+   	odom_topic: "odom"  # Topic of odometry to use for estimating current velocities
+   	odom_duration: 0.1  # Period of time (s) to sample odometry information in for velocity estimation
+
+</code></pre></div></div>
+
 <h2 id="topics">Topics</h2>
 
 <table>
-<thead>
-<tr>
-<th>Topic</th>
-<th>Type</th>
-<th>Use</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>smoothed_cmd_vel</td>
-<td>geometry_msgs/Twist</td>
-<td>Publish smoothed velocities</td>
-</tr>
-<tr>
-<td>cmd_vel</td>
-<td>geometry_msgs/Twist</td>
-<td>Subscribe to input velocities</td>
-</tr>
-</tbody>
+  <thead>
+    <tr>
+      <th>Topic</th>
+      <th>Type</th>
+      <th>Use</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>smoothed_cmd_vel</td>
+      <td>geometry_msgs/Twist</td>
+      <td>Publish smoothed velocities</td>
+    </tr>
+    <tr>
+      <td>cmd_vel</td>
+      <td>geometry_msgs/Twist</td>
+      <td>Subscribe to input velocities</td>
+    </tr>
+  </tbody>
 </table>
 
 <h2 id="install">Install</h2>
-<div class="highlight"><pre><code class="language-" data-lang="">sudo apt-get install ros-&lt;ros2-distro&gt;-nav2-velocity-smoother
 
-</code></pre></div>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>sudo apt-get install ros-&lt;ros2-distro&gt;-nav2-velocity-smoother
+
+</code></pre></div></div>
+
 <h2 id="etc-important-side-notes">Etc (Important Side Notes)</h2>
 
-<p>Typically: if you have low rate odometry, you should use open-loop mode or set the smoothing frequency relatively similar to that of your <code>cmd_vel</code> topic. If you have high rate odometry, you can use closed-loop mode with a higher smoothing frequency since you'll have more up to date information to smooth based off of. Do not exceed the smoothing frequency to your odometry frequency in closed loop mode. Also consider the <code>odom_duration</code> to use relative to your odometry publication rate and noise characteristics.
-If the smoothing frequency out paces odometry or poorly selected <code>odom_duration</code>s are used, the robot can oscillate and/or accelerate slowly due to latency in closed loop mode.</p>
+<p>Typically: if you have low rate odometry, you should use open-loop mode or set the smoothing frequency relatively similar to that of your <code class="language-plaintext highlighter-rouge">cmd_vel</code> topic. If you have high rate odometry, you can use closed-loop mode with a higher smoothing frequency since you’ll have more up to date information to smooth based off of. Do not exceed the smoothing frequency to your odometry frequency in closed loop mode. Also consider the <code class="language-plaintext highlighter-rouge">odom_duration</code> to use relative to your odometry publication rate and noise characteristics.
+If the smoothing frequency out paces odometry or poorly selected <code class="language-plaintext highlighter-rouge">odom_duration</code>s are used, the robot can oscillate and/or accelerate slowly due to latency in closed loop mode.</p>
 
 <p>When in doubt, open-loop is a reasonable choice for most users.</p>
 
-<p>The minimum and maximum velocities for rotation (e.g. <code>Vw</code>) represent left and right turns. While we make it possible to specify these separately, most users would be wise to set these values the same (but signed) for rotation. Additionally, the parameters are signed, so it is important to specify maximum deceleration with negative signs to represent deceleration. Minimum velocities with negatives when moving backward, so backward movement can be restricted by setting this to <code>0</code>.</p>
+<p>The minimum and maximum velocities for rotation (e.g. <code class="language-plaintext highlighter-rouge">Vw</code>) represent left and right turns. While we make it possible to specify these separately, most users would be wise to set these values the same (but signed) for rotation. Additionally, the parameters are signed, so it is important to specify maximum deceleration with negative signs to represent deceleration. Minimum velocities with negatives when moving backward, so backward movement can be restricted by setting this to <code class="language-plaintext highlighter-rouge">0</code>.</p>
 
-<p>Deadband velocities are minimum thresholds, below which we set its value to <code>0</code>. This can be useful when your robot's breaking torque from stand still is non-trivial so sending very small values will pull high amounts of current.</p>
+<p>Deadband velocities are minimum thresholds, below which we set its value to <code class="language-plaintext highlighter-rouge">0</code>. This can be useful when your robot’s breaking torque from stand still is non-trivial so sending very small values will pull high amounts of current.</p>
 </div>
               </div>
             </div>
@@ -1991,10 +1995,10 @@ navigation2
                     <div class="rendered-markdown">
 <h1 id="velocity-smoother">Velocity Smoother</h1>
 
-<p>The <code>nav2_velocity_smoother</code> is a package containing a lifecycle-component node for smoothing velocities sent by Nav2 to robot controllers.
-The aim of this package is to implement velocity, acceleration, and deadband smoothing from Nav2 to reduce wear-and-tear on robot motors and hardware controllers by smoothing out the accelerations/jerky movements that might be present with some local trajectory planners' control efforts.</p>
+<p>The <code class="language-plaintext highlighter-rouge">nav2_velocity_smoother</code> is a package containing a lifecycle-component node for smoothing velocities sent by Nav2 to robot controllers.
+The aim of this package is to implement velocity, acceleration, and deadband smoothing from Nav2 to reduce wear-and-tear on robot motors and hardware controllers by smoothing out the accelerations/jerky movements that might be present with some local trajectory planners’ control efforts.</p>
 
-<p>It supports differential drive and omnidirectional robot platforms primarily, but is applicable to ackermann as well with some interpretations of <code>Twist</code>. It was built by <a href="https://www.linkedin.com/in/steve-macenski-41a985101/">Steve Macenski</a> while at <a href="https://www.sra.samsung.com/">Samsung Research</a>. </p>
+<p>It supports differential drive and omnidirectional robot platforms primarily, but is applicable to ackermann as well with some interpretations of <code class="language-plaintext highlighter-rouge">Twist</code>. It was built by <a href="https://www.linkedin.com/in/steve-macenski-41a985101/">Steve Macenski</a> while at <a href="https://www.sra.samsung.com/">Samsung Research</a>.</p>
 
 <p>See its <a href="https://navigation.ros.org/configuration/packages/configuring-velocity-smoother.html">Configuration Guide Page</a> for additional parameter descriptions.</p>
 
@@ -2003,93 +2007,97 @@ The aim of this package is to implement velocity, acceleration, and deadband smo
 <p>This package was created to do the following:</p>
 
 <ul>
-<li>Limit velocity commands by kinematic constraints, including velocity and acceleration</li>
-<li>Limit velocities based on deadband regions</li>
-<li>Stop sending velocities after a given timeout duration of no new commands (due to stopped navigation)</li>
-<li>Send a zero-velocity command at velocity timeout to stop the robot, in case not properly handled</li>
-<li>Support Omni and differential drive robots (e.g. X, Y, Theta)</li>
-<li>Smooth velocities proportionally in the same direction as commanded, whenever possible within kinematic limits</li>
-<li>Provide open loop and closed loop options</li>
-<li>Component nodes for use in single-process systems and stand-alone node format</li>
-<li>Dynamically reconfigurable parameters</li>
+  <li>Limit velocity commands by kinematic constraints, including velocity and acceleration</li>
+  <li>Limit velocities based on deadband regions</li>
+  <li>Stop sending velocities after a given timeout duration of no new commands (due to stopped navigation)</li>
+  <li>Send a zero-velocity command at velocity timeout to stop the robot, in case not properly handled</li>
+  <li>Support Omni and differential drive robots (e.g. X, Y, Theta)</li>
+  <li>Smooth velocities proportionally in the same direction as commanded, whenever possible within kinematic limits</li>
+  <li>Provide open loop and closed loop options</li>
+  <li>Component nodes for use in single-process systems and stand-alone node format</li>
+  <li>Dynamically reconfigurable parameters</li>
 </ul>
 
 <h2 id="design">Design</h2>
 
 <p>This is a lifecycle-component node, using the lifecycle manager for state management and composition for process management.
-It is designed to take in a command from Nav2's controller server and smooth it for use on robot hardware controllers.
-Thusly, it takes in a command via the <code>cmd_vel</code> topic and produces a smoothed output on <code>smoothed_cmd_vel</code>.</p>
+It is designed to take in a command from Nav2’s controller server and smooth it for use on robot hardware controllers.
+Thusly, it takes in a command via the <code class="language-plaintext highlighter-rouge">cmd_vel</code> topic and produces a smoothed output on <code class="language-plaintext highlighter-rouge">smoothed_cmd_vel</code>.</p>
 
 <p>The node is designed on a regular timer running at a configurable rate.
-This is in contrast to simply computing a smoothed velocity command in the callback of each <code>cmd_vel</code> input from Nav2.
-This allows us to interpolate commands at a higher frequency than Nav2's local trajectory planners can provide.
+This is in contrast to simply computing a smoothed velocity command in the callback of each <code class="language-plaintext highlighter-rouge">cmd_vel</code> input from Nav2.
+This allows us to interpolate commands at a higher frequency than Nav2’s local trajectory planners can provide.
 For example, if a local trajectory planner is running at 20hz, the velocity smoother can run at 100hz to provide approximately 5 messages to a robot controller which will be smoothed by kinematic limits at each timestep.
 This provides a more regular stream of commands to a robot base and interpolates commands between the current velocity and the desired velocity more finely for smoother acceleration / motion profiles.
 While this is not required, it is a nice design feature.
-It is possible to also simply run the smoother at <code>cmd_vel</code> rate to smooth velocities alone without interpolation.</p>
+It is possible to also simply run the smoother at <code class="language-plaintext highlighter-rouge">cmd_vel</code> rate to smooth velocities alone without interpolation.</p>
 
 <p>There are two primary operation modes: open and closed loop.
 In open-loop, the node assumes that the robot was able to achieve the velocity send to it in the last command which was smoothed (which should be a good assumption if acceleration limits are set properly).
-This is useful when robot odometry is not particularly accurate or has significant latency relative to <code>smoothing_frequency</code> so there isn't a delay in the feedback loop.
-In closed-loop, the node will read from the odometry topic and apply a smoother over it to obtain the robot's current speed.
-This will be used to determine the robot's current velocity and therefore achievable velocity targets by the velocity, acceleration, and deadband constraints using live data.</p>
+This is useful when robot odometry is not particularly accurate or has significant latency relative to <code class="language-plaintext highlighter-rouge">smoothing_frequency</code> so there isn’t a delay in the feedback loop.
+In closed-loop, the node will read from the odometry topic and apply a smoother over it to obtain the robot’s current speed.
+This will be used to determine the robot’s current velocity and therefore achievable velocity targets by the velocity, acceleration, and deadband constraints using live data.</p>
 
 <h2 id="parameters">Parameters</h2>
 
-<p>See inline description of parameters in the <code>VelocitySmoother</code>.</p>
-<div class="highlight"><pre><code class="language-" data-lang="">velocity_smoother:
-  ros__parameters:
-    smoothing_frequency: 20.0  # Rate to run smoother
-    scale_velocities: false  # scale velocities proportionally if any axis is outside of acceleration range to follow same vector, if possible
-    feedback: "OPEN_LOOP"  # Type of feedback for current speed. Open loop uses the last smoothed output. Closed loop uses robot odometry
-    max_velocity: [0.5, 0.0, 2.5]  # Maximum velocities, ordered [Vx, Vy, Vw]
-    min_velocity: [-0.5, 0.0, -2.5]  # Minimum velocities, ordered [Vx, Vy, Vw]
-    deadband_velocity: [0.0, 0.0, 0.0]  # A deadband of velocities below which they should be zero-ed out for sending to the robot base controller, ordered [Vx, Vy, Vw]
-    velocity_timeout: 1.0  # Time (s) after which if no new velocity commands are received to zero out and stop
-    max_accel: [2.5, 0.0, 3.2]  # Maximum acceleration, ordered [Ax, Ay, Aw]
-    max_decel: [-2.5, 0.0, -3.2]  # Maximum deceleration, ordered [Ax, Ay, Aw]
-    odom_topic: "odom"  # Topic of odometry to use for estimating current velocities
-    odom_duration: 0.1  # Period of time (s) to sample odometry information in for velocity estimation
+<p>See inline description of parameters in the <code class="language-plaintext highlighter-rouge">VelocitySmoother</code>.</p>
 
-</code></pre></div>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>velocity_smoother:
+  ros__parameters:
+  	smoothing_frequency: 20.0  # Rate to run smoother
+  	scale_velocities: false  # scale velocities proportionally if any axis is outside of acceleration range to follow same vector, if possible
+  	feedback: "OPEN_LOOP"  # Type of feedback for current speed. Open loop uses the last smoothed output. Closed loop uses robot odometry
+  	max_velocity: [0.5, 0.0, 2.5]  # Maximum velocities, ordered [Vx, Vy, Vw]
+   	min_velocity: [-0.5, 0.0, -2.5]  # Minimum velocities, ordered [Vx, Vy, Vw]
+   	deadband_velocity: [0.0, 0.0, 0.0]  # A deadband of velocities below which they should be zero-ed out for sending to the robot base controller, ordered [Vx, Vy, Vw]
+   	velocity_timeout: 1.0  # Time (s) after which if no new velocity commands are received to zero out and stop
+   	max_accel: [2.5, 0.0, 3.2]  # Maximum acceleration, ordered [Ax, Ay, Aw]
+   	max_decel: [-2.5, 0.0, -3.2]  # Maximum deceleration, ordered [Ax, Ay, Aw]
+   	odom_topic: "odom"  # Topic of odometry to use for estimating current velocities
+   	odom_duration: 0.1  # Period of time (s) to sample odometry information in for velocity estimation
+
+</code></pre></div></div>
+
 <h2 id="topics">Topics</h2>
 
 <table>
-<thead>
-<tr>
-<th>Topic</th>
-<th>Type</th>
-<th>Use</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>smoothed_cmd_vel</td>
-<td>geometry_msgs/Twist</td>
-<td>Publish smoothed velocities</td>
-</tr>
-<tr>
-<td>cmd_vel</td>
-<td>geometry_msgs/Twist</td>
-<td>Subscribe to input velocities</td>
-</tr>
-</tbody>
+  <thead>
+    <tr>
+      <th>Topic</th>
+      <th>Type</th>
+      <th>Use</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>smoothed_cmd_vel</td>
+      <td>geometry_msgs/Twist</td>
+      <td>Publish smoothed velocities</td>
+    </tr>
+    <tr>
+      <td>cmd_vel</td>
+      <td>geometry_msgs/Twist</td>
+      <td>Subscribe to input velocities</td>
+    </tr>
+  </tbody>
 </table>
 
 <h2 id="install">Install</h2>
-<div class="highlight"><pre><code class="language-" data-lang="">sudo apt-get install ros-&lt;ros2-distro&gt;-nav2-velocity-smoother
 
-</code></pre></div>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>sudo apt-get install ros-&lt;ros2-distro&gt;-nav2-velocity-smoother
+
+</code></pre></div></div>
+
 <h2 id="etc-important-side-notes">Etc (Important Side Notes)</h2>
 
-<p>Typically: if you have low rate odometry, you should use open-loop mode or set the smoothing frequency relatively similar to that of your <code>cmd_vel</code> topic. If you have high rate odometry, you can use closed-loop mode with a higher smoothing frequency since you'll have more up to date information to smooth based off of. Do not exceed the smoothing frequency to your odometry frequency in closed loop mode. Also consider the <code>odom_duration</code> to use relative to your odometry publication rate and noise characteristics.
-If the smoothing frequency out paces odometry or poorly selected <code>odom_duration</code>s are used, the robot can oscillate and/or accelerate slowly due to latency in closed loop mode.</p>
+<p>Typically: if you have low rate odometry, you should use open-loop mode or set the smoothing frequency relatively similar to that of your <code class="language-plaintext highlighter-rouge">cmd_vel</code> topic. If you have high rate odometry, you can use closed-loop mode with a higher smoothing frequency since you’ll have more up to date information to smooth based off of. Do not exceed the smoothing frequency to your odometry frequency in closed loop mode. Also consider the <code class="language-plaintext highlighter-rouge">odom_duration</code> to use relative to your odometry publication rate and noise characteristics.
+If the smoothing frequency out paces odometry or poorly selected <code class="language-plaintext highlighter-rouge">odom_duration</code>s are used, the robot can oscillate and/or accelerate slowly due to latency in closed loop mode.</p>
 
 <p>When in doubt, open-loop is a reasonable choice for most users.</p>
 
-<p>The minimum and maximum velocities for rotation (e.g. <code>Vw</code>) represent left and right turns. While we make it possible to specify these separately, most users would be wise to set these values the same (but signed) for rotation. Additionally, the parameters are signed, so it is important to specify maximum deceleration with negative signs to represent deceleration. Minimum velocities with negatives when moving backward, so backward movement can be restricted by setting this to <code>0</code>.</p>
+<p>The minimum and maximum velocities for rotation (e.g. <code class="language-plaintext highlighter-rouge">Vw</code>) represent left and right turns. While we make it possible to specify these separately, most users would be wise to set these values the same (but signed) for rotation. Additionally, the parameters are signed, so it is important to specify maximum deceleration with negative signs to represent deceleration. Minimum velocities with negatives when moving backward, so backward movement can be restricted by setting this to <code class="language-plaintext highlighter-rouge">0</code>.</p>
 
-<p>Deadband velocities are minimum thresholds, below which we set its value to <code>0</code>. This can be useful when your robot's breaking torque from stand still is non-trivial so sending very small values will pull high amounts of current.</p>
+<p>Deadband velocities are minimum thresholds, below which we set its value to <code class="language-plaintext highlighter-rouge">0</code>. This can be useful when your robot’s breaking torque from stand still is non-trivial so sending very small values will pull high amounts of current.</p>
 </div>
               </div>
             </div>
@@ -3130,10 +3138,10 @@ navigation2
                     <div class="rendered-markdown">
 <h1 id="velocity-smoother">Velocity Smoother</h1>
 
-<p>The <code>nav2_velocity_smoother</code> is a package containing a lifecycle-component node for smoothing velocities sent by Nav2 to robot controllers.
-The aim of this package is to implement velocity, acceleration, and deadband smoothing from Nav2 to reduce wear-and-tear on robot motors and hardware controllers by smoothing out the accelerations/jerky movements that might be present with some local trajectory planners' control efforts.</p>
+<p>The <code class="language-plaintext highlighter-rouge">nav2_velocity_smoother</code> is a package containing a lifecycle-component node for smoothing velocities sent by Nav2 to robot controllers.
+The aim of this package is to implement velocity, acceleration, and deadband smoothing from Nav2 to reduce wear-and-tear on robot motors and hardware controllers by smoothing out the accelerations/jerky movements that might be present with some local trajectory planners’ control efforts.</p>
 
-<p>It supports differential drive and omnidirectional robot platforms primarily, but is applicable to ackermann as well with some interpretations of <code>Twist</code>. It was built by <a href="https://www.linkedin.com/in/steve-macenski-41a985101/">Steve Macenski</a> while at <a href="https://www.sra.samsung.com/">Samsung Research</a>. </p>
+<p>It supports differential drive and omnidirectional robot platforms primarily, but is applicable to ackermann as well with some interpretations of <code class="language-plaintext highlighter-rouge">Twist</code>. It was built by <a href="https://www.linkedin.com/in/steve-macenski-41a985101/">Steve Macenski</a> while at <a href="https://www.sra.samsung.com/">Samsung Research</a>.</p>
 
 <p>See its <a href="https://docs.nav2.org/configuration/packages/configuring-velocity-smoother.html">Configuration Guide Page</a> for additional parameter descriptions.</p>
 
@@ -3142,96 +3150,100 @@ The aim of this package is to implement velocity, acceleration, and deadband smo
 <p>This package was created to do the following:</p>
 
 <ul>
-<li>Limit velocity commands by kinematic constraints, including velocity and acceleration</li>
-<li>Limit velocities based on deadband regions</li>
-<li>Stop sending velocities after a given timeout duration of no new commands (due to stopped navigation)</li>
-<li>Send a zero-velocity command at velocity timeout to stop the robot, in case not properly handled</li>
-<li>Support Omni and differential drive robots (e.g. X, Y, Theta)</li>
-<li>Smooth velocities proportionally in the same direction as commanded, whenever possible within kinematic limits</li>
-<li>Provide open loop and closed loop options</li>
-<li>Component nodes for use in single-process systems and stand-alone node format</li>
-<li>Dynamically reconfigurable parameters</li>
+  <li>Limit velocity commands by kinematic constraints, including velocity and acceleration</li>
+  <li>Limit velocities based on deadband regions</li>
+  <li>Stop sending velocities after a given timeout duration of no new commands (due to stopped navigation)</li>
+  <li>Send a zero-velocity command at velocity timeout to stop the robot, in case not properly handled</li>
+  <li>Support Omni and differential drive robots (e.g. X, Y, Theta)</li>
+  <li>Smooth velocities proportionally in the same direction as commanded, whenever possible within kinematic limits</li>
+  <li>Provide open loop and closed loop options</li>
+  <li>Component nodes for use in single-process systems and stand-alone node format</li>
+  <li>Dynamically reconfigurable parameters</li>
 </ul>
 
 <h2 id="design">Design</h2>
 
 <p>This is a lifecycle-component node, using the lifecycle manager for state management and composition for process management.
-It is designed to take in a command from Nav2's controller server and smooth it for use on robot hardware controllers.
-Thusly, it takes in a command via the <code>cmd_vel</code> topic and produces a smoothed output on <code>smoothed_cmd_vel</code>.</p>
+It is designed to take in a command from Nav2’s controller server and smooth it for use on robot hardware controllers.
+Thusly, it takes in a command via the <code class="language-plaintext highlighter-rouge">cmd_vel</code> topic and produces a smoothed output on <code class="language-plaintext highlighter-rouge">smoothed_cmd_vel</code>.</p>
 
 <p>The node is designed on a regular timer running at a configurable rate.
-This is in contrast to simply computing a smoothed velocity command in the callback of each <code>cmd_vel</code> input from Nav2.
-This allows us to interpolate commands at a higher frequency than Nav2's local trajectory planners can provide.
+This is in contrast to simply computing a smoothed velocity command in the callback of each <code class="language-plaintext highlighter-rouge">cmd_vel</code> input from Nav2.
+This allows us to interpolate commands at a higher frequency than Nav2’s local trajectory planners can provide.
 For example, if a local trajectory planner is running at 20hz, the velocity smoother can run at 100hz to provide approximately 5 messages to a robot controller which will be smoothed by kinematic limits at each timestep.
 This provides a more regular stream of commands to a robot base and interpolates commands between the current velocity and the desired velocity more finely for smoother acceleration / motion profiles.
 While this is not required, it is a nice design feature.
-It is possible to also simply run the smoother at <code>cmd_vel</code> rate to smooth velocities alone without interpolation.</p>
+It is possible to also simply run the smoother at <code class="language-plaintext highlighter-rouge">cmd_vel</code> rate to smooth velocities alone without interpolation.</p>
 
 <p>There are two primary operation modes: open and closed loop.
 In open-loop, the node assumes that the robot was able to achieve the velocity send to it in the last command which was smoothed (which should be a good assumption if acceleration limits are set properly).
-This is useful when robot odometry is not particularly accurate or has significant latency relative to <code>smoothing_frequency</code> so there isn't a delay in the feedback loop.
-In closed-loop, the node will read from the odometry topic and apply a smoother over it to obtain the robot's current speed.
-This will be used to determine the robot's current velocity and therefore achievable velocity targets by the velocity, acceleration, and deadband constraints using live data.</p>
+This is useful when robot odometry is not particularly accurate or has significant latency relative to <code class="language-plaintext highlighter-rouge">smoothing_frequency</code> so there isn’t a delay in the feedback loop.
+In closed-loop, the node will read from the odometry topic and apply a smoother over it to obtain the robot’s current speed.
+This will be used to determine the robot’s current velocity and therefore achievable velocity targets by the velocity, acceleration, and deadband constraints using live data.</p>
 
 <h2 id="parameters">Parameters</h2>
 
-<p>See inline description of parameters in the <code>VelocitySmoother</code>.</p>
-<div class="highlight"><pre><code class="language-" data-lang="">velocity_smoother:
-  ros__parameters:
-    smoothing_frequency: 20.0  # Rate to run smoother
-    scale_velocities: false  # scale velocities proportionally if any axis is outside of acceleration range to follow same vector, if possible
-    feedback: "OPEN_LOOP"  # Type of feedback for current speed. Open loop uses the last smoothed output. Closed loop uses robot odometry
-    max_velocity: [0.5, 0.0, 2.5]  # Maximum velocities, ordered [Vx, Vy, Vw]
-    min_velocity: [-0.5, 0.0, -2.5]  # Minimum velocities, ordered [Vx, Vy, Vw]
-    deadband_velocity: [0.0, 0.0, 0.0]  # A deadband of velocities below which they should be zero-ed out for sending to the robot base controller, ordered [Vx, Vy, Vw]
-    velocity_timeout: 1.0  # Time (s) after which if no new velocity commands are received to zero out and stop
-    max_accel: [2.5, 0.0, 3.2]  # Maximum acceleration, ordered [Ax, Ay, Aw]
-    max_decel: [-2.5, 0.0, -3.2]  # Maximum deceleration, ordered [Ax, Ay, Aw]
-    odom_topic: "odom"  # Topic of odometry to use for estimating current velocities
-    odom_duration: 0.1  # Period of time (s) to sample odometry information in for velocity estimation
-    enable_stamped_cmd_vel: false # Whether to stamp the velocity. True uses TwistStamped. False uses Twist
+<p>See inline description of parameters in the <code class="language-plaintext highlighter-rouge">VelocitySmoother</code>.</p>
 
-</code></pre></div>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>velocity_smoother:
+  ros__parameters:
+  	smoothing_frequency: 20.0  # Rate to run smoother
+  	scale_velocities: false  # scale velocities proportionally if any axis is outside of acceleration range to follow same vector, if possible
+  	feedback: "OPEN_LOOP"  # Type of feedback for current speed. Open loop uses the last smoothed output. Closed loop uses robot odometry
+  	max_velocity: [0.5, 0.0, 2.5]  # Maximum velocities, ordered [Vx, Vy, Vw]
+   	min_velocity: [-0.5, 0.0, -2.5]  # Minimum velocities, ordered [Vx, Vy, Vw]
+   	deadband_velocity: [0.0, 0.0, 0.0]  # A deadband of velocities below which they should be zero-ed out for sending to the robot base controller, ordered [Vx, Vy, Vw]
+   	velocity_timeout: 1.0  # Time (s) after which if no new velocity commands are received to zero out and stop
+   	max_accel: [2.5, 0.0, 3.2]  # Maximum acceleration, ordered [Ax, Ay, Aw]
+   	max_decel: [-2.5, 0.0, -3.2]  # Maximum deceleration, ordered [Ax, Ay, Aw]
+   	odom_topic: "odom"  # Topic of odometry to use for estimating current velocities
+   	odom_duration: 0.1  # Period of time (s) to sample odometry information in for velocity estimation
+	enable_stamped_cmd_vel: false # Whether to stamp the velocity. True uses TwistStamped. False uses Twist
+
+</code></pre></div></div>
+
 <h2 id="topics">Topics</h2>
 
 <table>
-<thead>
-<tr>
-<th>Topic</th>
-<th>Type</th>
-<th>Use</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>smoothed_cmd_vel</td>
-<td>geometry_msgs/Twist or  geometry_msgs/TwistStamped</td>
-<td>Publish smoothed velocities</td>
-</tr>
-<tr>
-<td>cmd_vel</td>
-<td>geometry_msgs/Twist or  geometry_msgs/TwistStamped</td>
-<td>Subscribe to input velocities</td>
-</tr>
-</tbody>
+  <thead>
+    <tr>
+      <th>Topic</th>
+      <th>Type</th>
+      <th>Use</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>smoothed_cmd_vel</td>
+      <td>geometry_msgs/Twist or  geometry_msgs/TwistStamped</td>
+      <td>Publish smoothed velocities</td>
+    </tr>
+    <tr>
+      <td>cmd_vel</td>
+      <td>geometry_msgs/Twist or  geometry_msgs/TwistStamped</td>
+      <td>Subscribe to input velocities</td>
+    </tr>
+  </tbody>
 </table>
 
 <h2 id="install">Install</h2>
-<div class="highlight"><pre><code class="language-" data-lang="">sudo apt-get install ros-&lt;ros2-distro&gt;-nav2-velocity-smoother
 
-</code></pre></div>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>sudo apt-get install ros-&lt;ros2-distro&gt;-nav2-velocity-smoother
+
+</code></pre></div></div>
+
 <h2 id="etc-important-side-notes">Etc (Important Side Notes)</h2>
 
-<p>Typically: if you have low rate odometry, you should use open-loop mode or set the smoothing frequency relatively similar to that of your <code>cmd_vel</code> topic. If you have high rate odometry, you can use closed-loop mode with a higher smoothing frequency since you'll have more up to date information to smooth based off of. Do not exceed the smoothing frequency to your odometry frequency in closed loop mode. Also consider the <code>odom_duration</code> to use relative to your odometry publication rate and noise characteristics.
-If the smoothing frequency out paces odometry or poorly selected <code>odom_duration</code>s are used, the robot can oscillate and/or accelerate slowly due to latency in closed loop mode.</p>
+<p>Typically: if you have low rate odometry, you should use open-loop mode or set the smoothing frequency relatively similar to that of your <code class="language-plaintext highlighter-rouge">cmd_vel</code> topic. If you have high rate odometry, you can use closed-loop mode with a higher smoothing frequency since you’ll have more up to date information to smooth based off of. Do not exceed the smoothing frequency to your odometry frequency in closed loop mode. Also consider the <code class="language-plaintext highlighter-rouge">odom_duration</code> to use relative to your odometry publication rate and noise characteristics.
+If the smoothing frequency out paces odometry or poorly selected <code class="language-plaintext highlighter-rouge">odom_duration</code>s are used, the robot can oscillate and/or accelerate slowly due to latency in closed loop mode.</p>
 
 <p>When in doubt, open-loop is a reasonable choice for most users.</p>
 
-<p>The minimum and maximum velocities for rotation (e.g. <code>Vw</code>) represent left and right turns. While we make it possible to specify these separately, most users would be wise to set these values the same (but signed) for rotation. Additionally, the parameters are signed, so it is important to specify maximum deceleration with negative signs to represent deceleration. Minimum velocities with negatives when moving backward, so backward movement can be restricted by setting this to <code>0</code>.</p>
+<p>The minimum and maximum velocities for rotation (e.g. <code class="language-plaintext highlighter-rouge">Vw</code>) represent left and right turns. While we make it possible to specify these separately, most users would be wise to set these values the same (but signed) for rotation. Additionally, the parameters are signed, so it is important to specify maximum deceleration with negative signs to represent deceleration. Minimum velocities with negatives when moving backward, so backward movement can be restricted by setting this to <code class="language-plaintext highlighter-rouge">0</code>.</p>
 
-<p>Deadband velocities are minimum thresholds, below which we set its value to <code>0</code>. This can be useful when your robot's breaking torque from stand still is non-trivial so sending very small values will pull high amounts of current.</p>
+<p>Deadband velocities are minimum thresholds, below which we set its value to <code class="language-plaintext highlighter-rouge">0</code>. This can be useful when your robot’s breaking torque from stand still is non-trivial so sending very small values will pull high amounts of current.</p>
 
-<p>The <code>VelocitySmoother</code> node makes use of a <a href="https://github.com/ros-planning/navigation2/tree/jazzy/nav2_velocity_smoother/../nav2_util/README.md#twist-publisher-and-twist-subscriber-for-commanded-velocities">nav2_util::TwistSubscriber</a>.</p>
+<p>The <code class="language-plaintext highlighter-rouge">VelocitySmoother</code> node makes use of a <a href="https://github.com/ros-planning/navigation2/tree/jazzy/nav2_velocity_smoother/../nav2_util/README.md#twist-publisher-and-twist-subscriber-for-commanded-velocities">nav2_util::TwistSubscriber</a>.</p>
 </div>
               </div>
             </div>
@@ -4032,7 +4044,7 @@ jQuery(function() {
             <span class="username">ros-infrastructure/rosindex</span>
           </a>
           |
-          <em>generated on 2024-09-24</em>
+          <em>generated on 2024-09-25</em>
         
         </div>
         <div class="col-sm-8 col-md-8 text-right">
