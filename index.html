@@ -63,7 +63,7 @@
               <a href="/?search_packages=true" class="btn btn-default" role="button">Package List</a>
             </div>
             <div class="btn-group" role="group">
-              <a href="/repos" class="btn btn-default" role="button">Repository List</a>
+              <a href="/?search_repos=true" class="btn btn-default" role="button">Repository List</a>
             </div>
             <div class="btn-group" role="group">
               <a href="/search_deps" class="btn btn-default" role="button">System Dependencies</a>
@@ -75,7 +75,7 @@
             </button>
             <ul class="dropdown-menu" aria-labelledby="hLabel">
               <li><a href="/?search_packages=true">Package List</a></li>
-              <li><a href="/repos">Repository List</a></li>
+              <li><a href="/?search_repos=true">Repository List</a></li>
               <li><a href="/search_deps">System Dependencies</a></li>
             </ul>
           </div>
@@ -144,7 +144,7 @@
       </ol>
       <ol class="breadcrumb showAsSearch" style="display:none">
         <li><a href="/">Home</a></li>
-        <li class="active">Package List</li>
+        <li id="breadcrumb-name" class="active">Package List</li>
       </ol>
     </div>
     <div class="row" style="height:var(--distro-height);">
@@ -248,7 +248,7 @@
                 <input id="search-query" type="text" class="form-control"
                         autocomplete="off" placeholder="Search packages">
                 <span class="input-group-btn">
-                  <button id="search-button" title="Search packages" class="btn btn-default">
+                  <button id="search-button" class="btn btn-default">
                     <span class="glyphicon glyphicon-search"></span>
                   </button>
                 </span>
@@ -263,7 +263,7 @@
                 <span class="hidden-xs">Showing </span>
                 <span id="table-filtered-count">0</span> of
                 <span id="table-unfiltered-count">0</span>
-                <span class="hidden-xs"> packages</span>
+                <span id="filtered-type" class="hidden-xs"> packages</span>
               </p>
             </div>
             <div class="col-xs-2 text-right" style="line-height:35px">
@@ -327,6 +327,8 @@
 
 <!-- See https://github.com/olifolkerd/tabulator/issues/4419 for issue with Tabulator post-5.6.0 -->
 <link href="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.0/dist/css/tabulator.min.css" rel="stylesheet">
+<link href=css/search_packages.css rel="stylesheet">
+
 <!-- <script src=/js/tabulator.js></script> -->
 <script src=/js/distro_switch.js></script>
 <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
@@ -338,7 +340,9 @@
   var gTable = null;
   var gDistro = "humble";
   var gQuery = null;
-  const DEFAULT_SORT = [{column:"url", dir:"asc"}];
+  var gRepoCount = null;
+  const PACKAGE_SORT = [{column:"url", dir:"asc"}];
+  const REPO_SORT = [{column: "repo", dir:"asc"}];
   const SCORE_SORT = [{column:"score", dir:"desc"}];
 
   function setHome() {
@@ -393,7 +397,12 @@
   }
 
   function getIsSearch() {
-    return new URL(window.location.toString()).searchParams.has('search_packages');
+    parms = new URL(window.location.toString()).searchParams;
+    return (parms.has('search_packages') || parms.has('search_repos'));
+  }
+
+  function getIsRepos() {
+    return new URL(window.location.toString()).searchParams.has('search_repos');
   }
 
   function setWindowSearchQuery(query) {
@@ -437,15 +446,21 @@
 
   function updateDataScore(data, searchHash) {
     // Update table data score with results from a search.
+    // Returns array of repo names that the search hit.
+    var reposSet = new Set();
+    // Tabulator filters don't like empty arrays.
+    reposSet.add('__dummy__');
     for (const dataValue of data) {
       const ref = dataValue['id'].toString();
       if (searchHash && ref in searchHash) {
+        reposSet.add(dataValue['repo']);
         dataValue['score'] = searchHash[ref];
       }
       else {
         dataValue['score'] = 0.0;
       }
     }
+    return Array.from(reposSet);
   }
 
   function makeTable(distro, data, searchArray) {
@@ -454,15 +469,52 @@
     const STAR = "\u2605";
     const LEFT_ARROW = "\u2B05";
     const RIGHT_ARROW = "\u27A1";
+    const isRepos = getIsRepos();
 
-    const tableSort = searchArray ? SCORE_SORT : DEFAULT_SORT;
+    const tableSort = searchArray ? SCORE_SORT : (isRepos ? REPO_SORT : PACKAGE_SORT);
     if (searchArray) {
-      var tableFilter = [{field: 'id', type: 'in', value: searchArray}];
+      if (isRepos) {
+        var tableFilter = [{field: 'repo', type: 'in', value: searchArray}];
+      } else {
+        var tableFilter = [{field: 'id', type: 'in', value: searchArray}];
+      }
     } else {
       var tableFilter = [];
     }
 
-    const table = new Tabulator("#packages-table", {
+    dateColumn =
+      { title:CALENDAR, field: "last_commit_time", width:80, headerHozAlign:"center",
+        headerTooltip:"last commit date", sorter:"date", sorterParams:{format:"yyyy-MM-dd"}
+      };
+    repoColumn =
+      { title:"Repo", field:"repo", width:100,
+        formatter:"link", formatterParams:{labelField:"repo", url:(cell) => {
+          return `/r/${cell.getValue()}/#${distro}`}}
+      };
+
+    tableColumns = [ //Define Table Columns
+      { title:"Package", field:"url", width:200,
+        formatter:"link", formatterParams:{labelField:"package", urlPrefix:""}},
+      { title:"Description", field:"description", minWidth:isRepos ? 160: 300},
+      { title:STAR, field:"released", width:40, formatter:"tickCross", headerTooltip:"release status", hozAlign:"center",
+        formatterParams: {allowTruthy: true, allowEmpty: true}},
+      { title:LEFT_ARROW, field:"pkg_deps", width:40, headerTooltip:"package dependency count"},
+      { title:RIGHT_ARROW, field:"dependants", width:40, headerTooltip:"package used by count"},
+      { title:"Authors", field:"authors", width:120},
+      { title:"Maintainers", field:"maintainers", width:120},
+      { title:"Org", field:"org", width:100},
+      { title:"score", field:"score", width:60, sorter:"number", visible:false},
+    ];
+
+    if (isRepos) {
+      $("#filtered-type").text(' repos');
+      tableColumns = [dateColumn, repoColumn].concat(tableColumns);
+    } else {
+      $("#filtered-type").text(' packages');
+      tableColumns = tableColumns.concat([repoColumn, dateColumn]);
+    }
+
+    tableOptions = {
       columnDefaults:{ tooltip:true },
       maxHeight:"100%",
       data:data, //assign data to table
@@ -470,36 +522,51 @@
       rowHeight:30, // Workaround for https://github.com/olifolkerd/tabulator/issues/4419
       initialSort: tableSort,
       initialFilter: tableFilter,
-      columns:[ //Define Table Columns
-        { title:"Name", field:"url", width:200,
-          formatter:"link", formatterParams:{labelField:"name", urlPrefix:""}},
-        { title:"Description", field:"description", minWidth:300},
-        { title:STAR, field:"released", width:40, formatter:"tickCross", headerTooltip:"release status", hozAlign:"center",
-          formatterParams: {allowTruthy: true, allowEmpty: true}},
-        { title:CALENDAR, field: "last_commit_time", width:80, headerHozAlign:"center", headerTooltip:"last commit date",
-          sorter:"date", sorterParams:{format:"yyyy-MM-dd"}},
-        { title:LEFT_ARROW, field:"pkg_deps", width:40, headerTooltip:"package dependency count"},
-        { title:RIGHT_ARROW, field:"dependants", width:40, headerTooltip:"package used by count"},
-        { title:"Authors", field:"authors", width:120},
-        { title:"Maintainers", field:"maintainers", width:120},
-        { title:"Repo", field:"repo_name", width:100,
-          formatter:"link", formatterParams:{labelField:"repo_name", url:(cell) => {
-            return `/r/${cell.getValue()}/#${distro}`}}},
-        { title:"Org", field:"org", width:100},
-        { title:"score", field:"score", width:60, sorter:"number", visible:false},
-      ],
-      });
-      return table;
+      columns:tableColumns,
+    };
+
+    if (isRepos) {
+      tableOptions['groupBy'] = 'repo';
+      tableOptions['groupStartOpen'] = true;
+      tableOptions['groupToggleElement'] = false;  // Always show packages.
+      tableOptions['groupHeader'] = (value, count, data, group) => {
+        header = 
+          `<span style='color:#d00;'>${data[0]['last_commit_time']}</span>` +
+          `<span style='margin-left:11px;'><a href="/r/${value}/#${distro}">${value}</span>`;
+        return header;
+      }
     }
+    return new Tabulator("#packages-table", tableOptions);
+  }
 
   function makeBuiltTable(distro, data, searchArray) {
     // Returns a promise resolving to a built Tabulator table.
     var table = makeTable(distro, data, searchArray);
+    if (!gRepoCount) {
+      const reposSet = new Set();
+      for (const dataItem of data) {
+        reposSet.add(dataItem['repo']);
+      }
+      gRepoCount = reposSet.size;
+      console.log(`gRepoCount is ${gRepoCount}`)
+    }
     var tablePromise = new Promise((resolve, reject) => {
       table.on("dataFiltered", (filters, rows) => {
-        console.log(`Table filtered: total: ${table.getDataCount()} rowCount: ${rows.length}`);
-        $("#table-filtered-count").text(rows.length);
-        $("#table-unfiltered-count").text(table.getDataCount());
+        if (getIsRepos()) {
+          const rowsData = rows.map(row => row.getData());
+          var totalLength = gRepoCount;
+          const reposSet = new Set();
+          for (const row of rowsData) {
+            reposSet.add(row['repo']);
+          }
+          var hitsLength = reposSet.size;
+        } else {
+          var totalLength = table.getDataCount();
+          var hitsLength = rows.length;
+        }
+        console.log(`Table filtered: total: ${totalLength} rowCount: ${hitsLength}`);
+        $("#table-filtered-count").text(hitsLength);
+        $("#table-unfiltered-count").text(totalLength);
       });
       table.on("tableBuilt", () => {
         console.log('tableBuilt');
@@ -513,26 +580,49 @@
     // Returns a promise that displays a Tabulator table.
     console.log(`showTable distro=${distro} query=${query}`);
     gQuery = query;
+    const isRepos = getIsRepos();
+    if (distro != gDistro) {
+      // Some of the table links depend on distro. Let's just rebuild the whole thing.
+      if (gTable) {
+        gTable.destroy();
+      }
+      gTable = null;
+      gRepoCount = null;
+    }
     gDistro = distro;
+    var title = isRepos ? 'Search repos' : 'Search packages';
+    var breadcrumb = isRepos ? 'Repo list' : 'Package List';
+    $('#search-query').attr('placeholder', title);
+    $('#breadcrumb-name').text(breadcrumb);
+
     var searchPromise = getSearchHash(distro, query);
     return Promise.all([getData(distro), searchPromise]).then(values => {
       var data = values[0];
       var searchHash = values[1];
-      var searchArray = searchHash ? Object.keys(searchHash).map(ref => parseInt(ref)) : null;
-      updateDataScore(data, searchHash);
+      var reposArray = updateDataScore(data, searchHash);
+      if (isRepos) {
+        var searchArray = searchHash ? reposArray : null;
+      } else {
+        var searchArray = searchHash ? Object.keys(searchHash).map(ref => parseInt(ref)) : null;
+      }
+      var filteredLength = isRepos ? reposArray.length : data.length;
       if (!searchArray) {
-        console.log(`showTable sets count to ${data.length}`);
-        $("#table-filtered-count").text(data.length);
-        $("#table-unfiltered-count").text(data.length);
+        console.log(`showTable sets count to ${filteredLength}`);
+        $("#table-filtered-count").text(filteredLength);
+        $("#table-unfiltered-count").text(filteredLength);
       }
 
       if (gTable) {
         if (searchArray) {
-          gTable.setFilter('id', 'in', searchArray);
+          if (isRepos) {
+            gTable.setFilter('repo', 'in', searchArray);
+          } else {
+            gTable.setFilter('id', 'in', searchArray);
+          }
           gTable.setSort(SCORE_SORT);
         } else {
           gTable.clearFilter(true);
-          gTable.setSort(DEFAULT_SORT);
+          gTable.setSort(isRepos ? REPO_SORT : PACKAGE_SORT);
         }
         gTable.replaceData(data).then(console.log('table data replaced'));
       }
@@ -616,7 +706,7 @@
         setWindowSearchQuery('');
         query = '';
         if (gTable) {
-          gTable.setSort(DEFAULT_SORT);
+          gTable.setSort(getIsRepos() ? REPO_SORT : PACKAGE_SORT);
         }
       }
       showTable(gDistro, query).then(setSearch());
@@ -631,7 +721,7 @@
         setWindowSearchQuery('');
         query = '';
         if (gTable) {
-          gTable.setSort(DEFAULT_SORT);
+          gTable.setSort(getIsRepos() ? REPO_SORT : PACKAGE_SORT);
         }
       }
       showTable(gDistro, query).then(setSearch());
@@ -657,7 +747,7 @@
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2025-02-21</em>
+        <em class="hidden-xs">| generated on 2025-03-04</em>
       
       </div>
       <div style="float:right;">
