@@ -418,7 +418,7 @@ hatchbed_common
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-04-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-05
         </span>
       </td>
     </tr>
@@ -524,7 +524,7 @@ hatchbed_common
                     <div class="rendered-markdown">
 <h1 id="hatchbed_common">hatchbed_common</h1>
 
-<p>Common Hatchbed C++ utility code for ROS, such registering and handling updates to ros parameters.</p>
+<p>Common Hatchbed C++ utility code for ROS, such as registering and handling updates to ros parameters.</p>
 
 <h2 id="param-handler">Param Handler</h2>
 
@@ -580,13 +580,13 @@ items to the parameter, such as:</p>
   <li>
 <code class="language-plaintext highlighter-rouge">.dynamic()</code>: allow the parameter to by modified with dynamic reconfig</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.enum()</code>: specify an enumeration for integer parameters</li>
+<code class="language-plaintext highlighter-rouge">.enum()</code>: specify an enumeration for integer and integer array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.max()</code>: specify a maximum value for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.max()</code>: specify a maximum value for numeric and numeric array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.min()</code>: specify a minimun value for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.min()</code>: specify a minimun value for numeric and numeric array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.step()</code>: specify a step size for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.step()</code>: specify a step size for numeric and numeric array (per element) parameters</li>
 </ul>
 
 <p>Once the parameter has been configured, it’s necessary to call the <code class="language-plaintext highlighter-rouge">.declare()</code> method.</p>
@@ -599,8 +599,13 @@ value using the <code class="language-plaintext highlighter-rouge">.value()</cod
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto node = std::make_shared&lt;rclcpp::Node&gt;("param_handler_example");
 hatchbed_common::ParamHandler params(node);
 
-// integer parameter
+// integer parameter (note this will cast the internal ros2 int64_t param to an int in the background (and check bounds))
 int num_tries = params.param("num_tries", 1, "Number of tries").min(1).max(50).declare().value();
+
+// integer parameter (int64_t)
+// When using the short form (non pointer overload) for int64_t, you have to specify the value as a 64 bit integer 
+// (using L or LL suffix) if using literals. Otherwise the value will be interpreted as an int
+int64_t num_tries_long = params.param("num_tries_long", 1L, "Number of tries").min(1).max(50).declare().value();
 
 // string parameter
 std::string frame_id = params.param("frame_id", std::string("base_link"), "TF frame").declare().value();
@@ -619,6 +624,23 @@ int mode = params.param("mode", 0, "Operating mode").enumerate({
 
 </code></pre></div></div>
 
+<h4 id="array-parameters">Array Parameters</h4>
+
+<p>The Param Handler can also handle lists of values for parameters. ROS doesn’t support range/step constraints for numeric arrays, so the min/max/step methods are not available for the numeric arrays. If ROS adds support for array constraints this will be updated.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto node = std::make_shared&lt;rclcpp::Node&gt;("param_handler_example");
+hatchbed_common::ParamHandler params(node);
+// integer array parameter
+std::vector&lt;int64_t&gt; num_tries_list = params.param("num_tries_list", std::vector&lt;int64_t&gt;{1, 2, 3}, "Number of tries list").min(0).max(10).declare().value();
+// double array parameter
+std::vector&lt;double&gt; thresholds = params.param("thresholds", std::vector&lt;double&gt;{0.75, 0.1, 0.24}, "Thresholds").min(0.0).max(1.0).declare().value();
+// string array parameter
+std::vector&lt;std::string&gt; topic_list = params.param("topic_list", std::vector&lt;std::string&gt;{"/topic1", "topic2", "/namespace/topic3"}, "Topic list").declare().value();
+// bool array parameter
+std::vector&lt;bool&gt; debug_list = params.param("debug_list", std::vector&lt;bool&gt;{true, false, true}, "Enable debug mode list").declare().value();
+
+</code></pre></div></div>
+
 <h4 id="dynamic-parameters">Dynamic Parameters</h4>
 
 <p>For dynamic parameters, there are several options.</p>
@@ -629,21 +651,28 @@ parameter should be stored:</p>
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>int num_tries = 0;
 params.param(&amp;num_tries, "num_tries", 1, "Number of tries").min(1).max(50).dynamic().declare();
 
+std::vector&lt;double&gt; thresholds;
+params.param(&amp;thresholds, "thresholds", std::vector&lt;double&gt;{0.85, 0.9, 0.03},
+             "A list of dynamic thresholds").min(0.0).max(1.0).step(0.01).dynamic().declare().value();
+
 while (rclcpp::ok()) {
-    process.execute(num_tries);
+    process.execute(num_tries, dynamic_double_params);
     rclcpp::spin_some(node);
 }
 
 
 </code></pre></div></div>
 
-<p>Here the <code class="language-plaintext highlighter-rouge">num_tries</code> int variable will be automatically updated.</p>
+<p>Here the <code class="language-plaintext highlighter-rouge">num_tries</code> int and <code class="language-plaintext highlighter-rouge">dynamic_double_params</code> std::vector<double> variables will be automatically updated.</double></p>
 
 <p>When multi-threading is involved the above method is not recommended.  Instead
 the parameter object returned by the handler should be used to ensure thread-safe
 data access.</p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto num_tries = params.param("num_tries", 1, "Number of tries").min(1).max(50).dynamic().declare();
+auto thresholds = params.param("thresholds",
+                               std::vector&lt;double&gt;{0.85, 0.9, 0.03},
+                               "A list of dynamic thresholds").min(0.0).max(1.0).step(0.01).dynamic().declare().value();
 
 std::thread t([&amp;](){
     while (rclcpp::ok()) {
@@ -1214,7 +1243,7 @@ hatchbed_common
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-04-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-05
         </span>
       </td>
     </tr>
@@ -1320,7 +1349,7 @@ hatchbed_common
                     <div class="rendered-markdown">
 <h1 id="hatchbed_common">hatchbed_common</h1>
 
-<p>Common Hatchbed C++ utility code for ROS, such registering and handling updates to ros parameters.</p>
+<p>Common Hatchbed C++ utility code for ROS, such as registering and handling updates to ros parameters.</p>
 
 <h2 id="param-handler">Param Handler</h2>
 
@@ -1376,13 +1405,13 @@ items to the parameter, such as:</p>
   <li>
 <code class="language-plaintext highlighter-rouge">.dynamic()</code>: allow the parameter to by modified with dynamic reconfig</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.enum()</code>: specify an enumeration for integer parameters</li>
+<code class="language-plaintext highlighter-rouge">.enum()</code>: specify an enumeration for integer and integer array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.max()</code>: specify a maximum value for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.max()</code>: specify a maximum value for numeric and numeric array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.min()</code>: specify a minimun value for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.min()</code>: specify a minimun value for numeric and numeric array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.step()</code>: specify a step size for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.step()</code>: specify a step size for numeric and numeric array (per element) parameters</li>
 </ul>
 
 <p>Once the parameter has been configured, it’s necessary to call the <code class="language-plaintext highlighter-rouge">.declare()</code> method.</p>
@@ -1395,8 +1424,13 @@ value using the <code class="language-plaintext highlighter-rouge">.value()</cod
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto node = std::make_shared&lt;rclcpp::Node&gt;("param_handler_example");
 hatchbed_common::ParamHandler params(node);
 
-// integer parameter
+// integer parameter (note this will cast the internal ros2 int64_t param to an int in the background (and check bounds))
 int num_tries = params.param("num_tries", 1, "Number of tries").min(1).max(50).declare().value();
+
+// integer parameter (int64_t)
+// When using the short form (non pointer overload) for int64_t, you have to specify the value as a 64 bit integer 
+// (using L or LL suffix) if using literals. Otherwise the value will be interpreted as an int
+int64_t num_tries_long = params.param("num_tries_long", 1L, "Number of tries").min(1).max(50).declare().value();
 
 // string parameter
 std::string frame_id = params.param("frame_id", std::string("base_link"), "TF frame").declare().value();
@@ -1415,6 +1449,23 @@ int mode = params.param("mode", 0, "Operating mode").enumerate({
 
 </code></pre></div></div>
 
+<h4 id="array-parameters">Array Parameters</h4>
+
+<p>The Param Handler can also handle lists of values for parameters. ROS doesn’t support range/step constraints for numeric arrays, so the min/max/step methods are not available for the numeric arrays. If ROS adds support for array constraints this will be updated.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto node = std::make_shared&lt;rclcpp::Node&gt;("param_handler_example");
+hatchbed_common::ParamHandler params(node);
+// integer array parameter
+std::vector&lt;int64_t&gt; num_tries_list = params.param("num_tries_list", std::vector&lt;int64_t&gt;{1, 2, 3}, "Number of tries list").min(0).max(10).declare().value();
+// double array parameter
+std::vector&lt;double&gt; thresholds = params.param("thresholds", std::vector&lt;double&gt;{0.75, 0.1, 0.24}, "Thresholds").min(0.0).max(1.0).declare().value();
+// string array parameter
+std::vector&lt;std::string&gt; topic_list = params.param("topic_list", std::vector&lt;std::string&gt;{"/topic1", "topic2", "/namespace/topic3"}, "Topic list").declare().value();
+// bool array parameter
+std::vector&lt;bool&gt; debug_list = params.param("debug_list", std::vector&lt;bool&gt;{true, false, true}, "Enable debug mode list").declare().value();
+
+</code></pre></div></div>
+
 <h4 id="dynamic-parameters">Dynamic Parameters</h4>
 
 <p>For dynamic parameters, there are several options.</p>
@@ -1425,21 +1476,28 @@ parameter should be stored:</p>
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>int num_tries = 0;
 params.param(&amp;num_tries, "num_tries", 1, "Number of tries").min(1).max(50).dynamic().declare();
 
+std::vector&lt;double&gt; thresholds;
+params.param(&amp;thresholds, "thresholds", std::vector&lt;double&gt;{0.85, 0.9, 0.03},
+             "A list of dynamic thresholds").min(0.0).max(1.0).step(0.01).dynamic().declare().value();
+
 while (rclcpp::ok()) {
-    process.execute(num_tries);
+    process.execute(num_tries, dynamic_double_params);
     rclcpp::spin_some(node);
 }
 
 
 </code></pre></div></div>
 
-<p>Here the <code class="language-plaintext highlighter-rouge">num_tries</code> int variable will be automatically updated.</p>
+<p>Here the <code class="language-plaintext highlighter-rouge">num_tries</code> int and <code class="language-plaintext highlighter-rouge">dynamic_double_params</code> std::vector<double> variables will be automatically updated.</double></p>
 
 <p>When multi-threading is involved the above method is not recommended.  Instead
 the parameter object returned by the handler should be used to ensure thread-safe
 data access.</p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto num_tries = params.param("num_tries", 1, "Number of tries").min(1).max(50).dynamic().declare();
+auto thresholds = params.param("thresholds",
+                               std::vector&lt;double&gt;{0.85, 0.9, 0.03},
+                               "A list of dynamic thresholds").min(0.0).max(1.0).step(0.01).dynamic().declare().value();
 
 std::thread t([&amp;](){
     while (rclcpp::ok()) {
@@ -2031,7 +2089,7 @@ hatchbed_common
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-04-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-05
         </span>
       </td>
     </tr>
@@ -2137,7 +2195,7 @@ hatchbed_common
                     <div class="rendered-markdown">
 <h1 id="hatchbed_common">hatchbed_common</h1>
 
-<p>Common Hatchbed C++ utility code for ROS, such registering and handling updates to ros parameters.</p>
+<p>Common Hatchbed C++ utility code for ROS, such as registering and handling updates to ros parameters.</p>
 
 <h2 id="param-handler">Param Handler</h2>
 
@@ -2193,13 +2251,13 @@ items to the parameter, such as:</p>
   <li>
 <code class="language-plaintext highlighter-rouge">.dynamic()</code>: allow the parameter to by modified with dynamic reconfig</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.enum()</code>: specify an enumeration for integer parameters</li>
+<code class="language-plaintext highlighter-rouge">.enum()</code>: specify an enumeration for integer and integer array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.max()</code>: specify a maximum value for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.max()</code>: specify a maximum value for numeric and numeric array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.min()</code>: specify a minimun value for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.min()</code>: specify a minimun value for numeric and numeric array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.step()</code>: specify a step size for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.step()</code>: specify a step size for numeric and numeric array (per element) parameters</li>
 </ul>
 
 <p>Once the parameter has been configured, it’s necessary to call the <code class="language-plaintext highlighter-rouge">.declare()</code> method.</p>
@@ -2212,8 +2270,13 @@ value using the <code class="language-plaintext highlighter-rouge">.value()</cod
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto node = std::make_shared&lt;rclcpp::Node&gt;("param_handler_example");
 hatchbed_common::ParamHandler params(node);
 
-// integer parameter
+// integer parameter (note this will cast the internal ros2 int64_t param to an int in the background (and check bounds))
 int num_tries = params.param("num_tries", 1, "Number of tries").min(1).max(50).declare().value();
+
+// integer parameter (int64_t)
+// When using the short form (non pointer overload) for int64_t, you have to specify the value as a 64 bit integer 
+// (using L or LL suffix) if using literals. Otherwise the value will be interpreted as an int
+int64_t num_tries_long = params.param("num_tries_long", 1L, "Number of tries").min(1).max(50).declare().value();
 
 // string parameter
 std::string frame_id = params.param("frame_id", std::string("base_link"), "TF frame").declare().value();
@@ -2232,6 +2295,23 @@ int mode = params.param("mode", 0, "Operating mode").enumerate({
 
 </code></pre></div></div>
 
+<h4 id="array-parameters">Array Parameters</h4>
+
+<p>The Param Handler can also handle lists of values for parameters. ROS doesn’t support range/step constraints for numeric arrays, so the min/max/step methods are not available for the numeric arrays. If ROS adds support for array constraints this will be updated.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto node = std::make_shared&lt;rclcpp::Node&gt;("param_handler_example");
+hatchbed_common::ParamHandler params(node);
+// integer array parameter
+std::vector&lt;int64_t&gt; num_tries_list = params.param("num_tries_list", std::vector&lt;int64_t&gt;{1, 2, 3}, "Number of tries list").min(0).max(10).declare().value();
+// double array parameter
+std::vector&lt;double&gt; thresholds = params.param("thresholds", std::vector&lt;double&gt;{0.75, 0.1, 0.24}, "Thresholds").min(0.0).max(1.0).declare().value();
+// string array parameter
+std::vector&lt;std::string&gt; topic_list = params.param("topic_list", std::vector&lt;std::string&gt;{"/topic1", "topic2", "/namespace/topic3"}, "Topic list").declare().value();
+// bool array parameter
+std::vector&lt;bool&gt; debug_list = params.param("debug_list", std::vector&lt;bool&gt;{true, false, true}, "Enable debug mode list").declare().value();
+
+</code></pre></div></div>
+
 <h4 id="dynamic-parameters">Dynamic Parameters</h4>
 
 <p>For dynamic parameters, there are several options.</p>
@@ -2242,21 +2322,28 @@ parameter should be stored:</p>
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>int num_tries = 0;
 params.param(&amp;num_tries, "num_tries", 1, "Number of tries").min(1).max(50).dynamic().declare();
 
+std::vector&lt;double&gt; thresholds;
+params.param(&amp;thresholds, "thresholds", std::vector&lt;double&gt;{0.85, 0.9, 0.03},
+             "A list of dynamic thresholds").min(0.0).max(1.0).step(0.01).dynamic().declare().value();
+
 while (rclcpp::ok()) {
-    process.execute(num_tries);
+    process.execute(num_tries, dynamic_double_params);
     rclcpp::spin_some(node);
 }
 
 
 </code></pre></div></div>
 
-<p>Here the <code class="language-plaintext highlighter-rouge">num_tries</code> int variable will be automatically updated.</p>
+<p>Here the <code class="language-plaintext highlighter-rouge">num_tries</code> int and <code class="language-plaintext highlighter-rouge">dynamic_double_params</code> std::vector<double> variables will be automatically updated.</double></p>
 
 <p>When multi-threading is involved the above method is not recommended.  Instead
 the parameter object returned by the handler should be used to ensure thread-safe
 data access.</p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto num_tries = params.param("num_tries", 1, "Number of tries").min(1).max(50).dynamic().declare();
+auto thresholds = params.param("thresholds",
+                               std::vector&lt;double&gt;{0.85, 0.9, 0.03},
+                               "A list of dynamic thresholds").min(0.0).max(1.0).step(0.01).dynamic().declare().value();
 
 std::thread t([&amp;](){
     while (rclcpp::ok()) {
@@ -2848,7 +2935,7 @@ hatchbed_common
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-04-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-05
         </span>
       </td>
     </tr>
@@ -2954,7 +3041,7 @@ hatchbed_common
                     <div class="rendered-markdown">
 <h1 id="hatchbed_common">hatchbed_common</h1>
 
-<p>Common Hatchbed C++ utility code for ROS, such registering and handling updates to ros parameters.</p>
+<p>Common Hatchbed C++ utility code for ROS, such as registering and handling updates to ros parameters.</p>
 
 <h2 id="param-handler">Param Handler</h2>
 
@@ -3010,13 +3097,13 @@ items to the parameter, such as:</p>
   <li>
 <code class="language-plaintext highlighter-rouge">.dynamic()</code>: allow the parameter to by modified with dynamic reconfig</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.enum()</code>: specify an enumeration for integer parameters</li>
+<code class="language-plaintext highlighter-rouge">.enum()</code>: specify an enumeration for integer and integer array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.max()</code>: specify a maximum value for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.max()</code>: specify a maximum value for numeric and numeric array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.min()</code>: specify a minimun value for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.min()</code>: specify a minimun value for numeric and numeric array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.step()</code>: specify a step size for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.step()</code>: specify a step size for numeric and numeric array (per element) parameters</li>
 </ul>
 
 <p>Once the parameter has been configured, it’s necessary to call the <code class="language-plaintext highlighter-rouge">.declare()</code> method.</p>
@@ -3029,8 +3116,13 @@ value using the <code class="language-plaintext highlighter-rouge">.value()</cod
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto node = std::make_shared&lt;rclcpp::Node&gt;("param_handler_example");
 hatchbed_common::ParamHandler params(node);
 
-// integer parameter
+// integer parameter (note this will cast the internal ros2 int64_t param to an int in the background (and check bounds))
 int num_tries = params.param("num_tries", 1, "Number of tries").min(1).max(50).declare().value();
+
+// integer parameter (int64_t)
+// When using the short form (non pointer overload) for int64_t, you have to specify the value as a 64 bit integer 
+// (using L or LL suffix) if using literals. Otherwise the value will be interpreted as an int
+int64_t num_tries_long = params.param("num_tries_long", 1L, "Number of tries").min(1).max(50).declare().value();
 
 // string parameter
 std::string frame_id = params.param("frame_id", std::string("base_link"), "TF frame").declare().value();
@@ -3049,6 +3141,23 @@ int mode = params.param("mode", 0, "Operating mode").enumerate({
 
 </code></pre></div></div>
 
+<h4 id="array-parameters">Array Parameters</h4>
+
+<p>The Param Handler can also handle lists of values for parameters. ROS doesn’t support range/step constraints for numeric arrays, so the min/max/step methods are not available for the numeric arrays. If ROS adds support for array constraints this will be updated.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto node = std::make_shared&lt;rclcpp::Node&gt;("param_handler_example");
+hatchbed_common::ParamHandler params(node);
+// integer array parameter
+std::vector&lt;int64_t&gt; num_tries_list = params.param("num_tries_list", std::vector&lt;int64_t&gt;{1, 2, 3}, "Number of tries list").min(0).max(10).declare().value();
+// double array parameter
+std::vector&lt;double&gt; thresholds = params.param("thresholds", std::vector&lt;double&gt;{0.75, 0.1, 0.24}, "Thresholds").min(0.0).max(1.0).declare().value();
+// string array parameter
+std::vector&lt;std::string&gt; topic_list = params.param("topic_list", std::vector&lt;std::string&gt;{"/topic1", "topic2", "/namespace/topic3"}, "Topic list").declare().value();
+// bool array parameter
+std::vector&lt;bool&gt; debug_list = params.param("debug_list", std::vector&lt;bool&gt;{true, false, true}, "Enable debug mode list").declare().value();
+
+</code></pre></div></div>
+
 <h4 id="dynamic-parameters">Dynamic Parameters</h4>
 
 <p>For dynamic parameters, there are several options.</p>
@@ -3059,21 +3168,28 @@ parameter should be stored:</p>
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>int num_tries = 0;
 params.param(&amp;num_tries, "num_tries", 1, "Number of tries").min(1).max(50).dynamic().declare();
 
+std::vector&lt;double&gt; thresholds;
+params.param(&amp;thresholds, "thresholds", std::vector&lt;double&gt;{0.85, 0.9, 0.03},
+             "A list of dynamic thresholds").min(0.0).max(1.0).step(0.01).dynamic().declare().value();
+
 while (rclcpp::ok()) {
-    process.execute(num_tries);
+    process.execute(num_tries, dynamic_double_params);
     rclcpp::spin_some(node);
 }
 
 
 </code></pre></div></div>
 
-<p>Here the <code class="language-plaintext highlighter-rouge">num_tries</code> int variable will be automatically updated.</p>
+<p>Here the <code class="language-plaintext highlighter-rouge">num_tries</code> int and <code class="language-plaintext highlighter-rouge">dynamic_double_params</code> std::vector<double> variables will be automatically updated.</double></p>
 
 <p>When multi-threading is involved the above method is not recommended.  Instead
 the parameter object returned by the handler should be used to ensure thread-safe
 data access.</p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto num_tries = params.param("num_tries", 1, "Number of tries").min(1).max(50).dynamic().declare();
+auto thresholds = params.param("thresholds",
+                               std::vector&lt;double&gt;{0.85, 0.9, 0.03},
+                               "A list of dynamic thresholds").min(0.0).max(1.0).step(0.01).dynamic().declare().value();
 
 std::thread t([&amp;](){
     while (rclcpp::ok()) {
@@ -4427,7 +4543,7 @@ hatchbed_common
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-04-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-05
         </span>
       </td>
     </tr>
@@ -4533,7 +4649,7 @@ hatchbed_common
                     <div class="rendered-markdown">
 <h1 id="hatchbed_common">hatchbed_common</h1>
 
-<p>Common Hatchbed C++ utility code for ROS, such registering and handling updates to ros parameters.</p>
+<p>Common Hatchbed C++ utility code for ROS, such as registering and handling updates to ros parameters.</p>
 
 <h2 id="param-handler">Param Handler</h2>
 
@@ -4589,13 +4705,13 @@ items to the parameter, such as:</p>
   <li>
 <code class="language-plaintext highlighter-rouge">.dynamic()</code>: allow the parameter to by modified with dynamic reconfig</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.enum()</code>: specify an enumeration for integer parameters</li>
+<code class="language-plaintext highlighter-rouge">.enum()</code>: specify an enumeration for integer and integer array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.max()</code>: specify a maximum value for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.max()</code>: specify a maximum value for numeric and numeric array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.min()</code>: specify a minimun value for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.min()</code>: specify a minimun value for numeric and numeric array (per element) parameters</li>
   <li>
-<code class="language-plaintext highlighter-rouge">.step()</code>: specify a step size for numeric parameters</li>
+<code class="language-plaintext highlighter-rouge">.step()</code>: specify a step size for numeric and numeric array (per element) parameters</li>
 </ul>
 
 <p>Once the parameter has been configured, it’s necessary to call the <code class="language-plaintext highlighter-rouge">.declare()</code> method.</p>
@@ -4608,8 +4724,13 @@ value using the <code class="language-plaintext highlighter-rouge">.value()</cod
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto node = std::make_shared&lt;rclcpp::Node&gt;("param_handler_example");
 hatchbed_common::ParamHandler params(node);
 
-// integer parameter
+// integer parameter (note this will cast the internal ros2 int64_t param to an int in the background (and check bounds))
 int num_tries = params.param("num_tries", 1, "Number of tries").min(1).max(50).declare().value();
+
+// integer parameter (int64_t)
+// When using the short form (non pointer overload) for int64_t, you have to specify the value as a 64 bit integer 
+// (using L or LL suffix) if using literals. Otherwise the value will be interpreted as an int
+int64_t num_tries_long = params.param("num_tries_long", 1L, "Number of tries").min(1).max(50).declare().value();
 
 // string parameter
 std::string frame_id = params.param("frame_id", std::string("base_link"), "TF frame").declare().value();
@@ -4628,6 +4749,23 @@ int mode = params.param("mode", 0, "Operating mode").enumerate({
 
 </code></pre></div></div>
 
+<h4 id="array-parameters">Array Parameters</h4>
+
+<p>The Param Handler can also handle lists of values for parameters. ROS doesn’t support range/step constraints for numeric arrays, so the min/max/step methods are not available for the numeric arrays. If ROS adds support for array constraints this will be updated.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto node = std::make_shared&lt;rclcpp::Node&gt;("param_handler_example");
+hatchbed_common::ParamHandler params(node);
+// integer array parameter
+std::vector&lt;int64_t&gt; num_tries_list = params.param("num_tries_list", std::vector&lt;int64_t&gt;{1, 2, 3}, "Number of tries list").min(0).max(10).declare().value();
+// double array parameter
+std::vector&lt;double&gt; thresholds = params.param("thresholds", std::vector&lt;double&gt;{0.75, 0.1, 0.24}, "Thresholds").min(0.0).max(1.0).declare().value();
+// string array parameter
+std::vector&lt;std::string&gt; topic_list = params.param("topic_list", std::vector&lt;std::string&gt;{"/topic1", "topic2", "/namespace/topic3"}, "Topic list").declare().value();
+// bool array parameter
+std::vector&lt;bool&gt; debug_list = params.param("debug_list", std::vector&lt;bool&gt;{true, false, true}, "Enable debug mode list").declare().value();
+
+</code></pre></div></div>
+
 <h4 id="dynamic-parameters">Dynamic Parameters</h4>
 
 <p>For dynamic parameters, there are several options.</p>
@@ -4638,21 +4776,28 @@ parameter should be stored:</p>
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>int num_tries = 0;
 params.param(&amp;num_tries, "num_tries", 1, "Number of tries").min(1).max(50).dynamic().declare();
 
+std::vector&lt;double&gt; thresholds;
+params.param(&amp;thresholds, "thresholds", std::vector&lt;double&gt;{0.85, 0.9, 0.03},
+             "A list of dynamic thresholds").min(0.0).max(1.0).step(0.01).dynamic().declare().value();
+
 while (rclcpp::ok()) {
-    process.execute(num_tries);
+    process.execute(num_tries, dynamic_double_params);
     rclcpp::spin_some(node);
 }
 
 
 </code></pre></div></div>
 
-<p>Here the <code class="language-plaintext highlighter-rouge">num_tries</code> int variable will be automatically updated.</p>
+<p>Here the <code class="language-plaintext highlighter-rouge">num_tries</code> int and <code class="language-plaintext highlighter-rouge">dynamic_double_params</code> std::vector<double> variables will be automatically updated.</double></p>
 
 <p>When multi-threading is involved the above method is not recommended.  Instead
 the parameter object returned by the handler should be used to ensure thread-safe
 data access.</p>
 
 <div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>auto num_tries = params.param("num_tries", 1, "Number of tries").min(1).max(50).dynamic().declare();
+auto thresholds = params.param("thresholds",
+                               std::vector&lt;double&gt;{0.85, 0.9, 0.03},
+                               "A list of dynamic thresholds").min(0.0).max(1.0).step(0.01).dynamic().declare().value();
 
 std::thread t([&amp;](){
     while (rclcpp::ok()) {
@@ -5415,7 +5560,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2025-05-01</em>
+        <em class="hidden-xs">| generated on 2025-05-06</em>
       
       </div>
       <div style="float:right;">
