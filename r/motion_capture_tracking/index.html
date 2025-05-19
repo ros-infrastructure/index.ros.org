@@ -337,7 +337,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-09-05
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-19
         </span>
       </td>
     </tr>
@@ -449,13 +449,15 @@
   <li>Motion Analysis</li>
 </ul>
 
-<p>For most systems, three different tracking modes are available:</p>
+<p>For most systems, different tracking modes are available:</p>
 
 <ol>
-  <li>Tracking of rigid body poses via the official software (e.g., Vicon Tracker) using unique marker arrangements.</li>
-  <li>Tracking of rigid body poses with custom frame-to-frame tracking with identical marker arrangements.</li>
-  <li>Tracking of unlabeled marker positions using custom frame-to-frame tracking.</li>
+  <li>Tracking of rigid body poses via the official software (e.g., Vicon Tracker) using <strong>unique marker arrangements</strong>.</li>
+  <li>Tracking of rigid body poses with custom frame-to-frame tracking with <strong>identical marker arrangements</strong>.</li>
+  <li>Tracking of <strong>single unlabeled marker</strong> positions using custom frame-to-frame tracking.</li>
 </ol>
+
+<p>The different modes can be combined, e.g., one can use the official software for some rigid bodies and the custom frame-by-frame tracking for others.</p>
 
 <p>The data is directly published via tf2 and a <code class="language-plaintext highlighter-rouge">/poses</code> topic that supports different QoS settings.</p>
 
@@ -480,7 +482,43 @@ colcon build
 
 <p>The various options can be configured in <code class="language-plaintext highlighter-rouge">config/cfg.yaml</code>.</p>
 
-<h3 id="optitrack-vendor-specific-instructions">Optitrack: Vendor-specific Instructions</h3>
+<h3 id="choice-of-tracking-mode">Choice of Tracking Mode</h3>
+
+<h4 id="unique-marker-arrangements">Unique Marker Arrangements</h4>
+
+<p>With a unique marker arrangement for each rigid body, you rely on the motion capture vendor’s software.
+This is generally preferred. However, if you have lots of rigid bodies, it can be hard to design enough unique configurations – there are not many places to put a marker on small rigid bodies.</p>
+
+<p>If your arrangements are too similar, motion capture software may not fail gracefully. For example, it may rapidly switch back and forth between recognizing two different objects at a single physical location.</p>
+
+<p>To use this mode, simply enable the rigid body / asset in your vendor’s software and do <em>not</em> include it in the <code class="language-plaintext highlighter-rouge">rigid_bodies</code> section of <code class="language-plaintext highlighter-rouge">cfg.yaml</code>.</p>
+
+<h4 id="identical-marker-arrangement">Identical Marker Arrangement</h4>
+
+<p>If more than one rigid body has the same marker arrangement, standard motion capture software will refuse to track them. Instead, motion_capture_tracking can use the raw point cloud from the motion capture system and track the rigid bodies frame-by-frame. Here we use Iterative Closest Point (ICP) to greedily match the known marker arrangements to the pointcloud. There are two main consequences of this option:</p>
+
+<ul>
+  <li>
+    <p>The initial positions of the rigid bodies must be known, to establish a mapping between the name and physical locations.</p>
+  </li>
+  <li>
+    <p>The tracking is done frame-by-frame, so if markers are occluded for a significant amount of time, the algorithm may not be able to re-establish the ID-location mapping once they are visible again.</p>
+  </li>
+</ul>
+
+<p>To use this mode, disable the rigid body in your vendor’s software and add an entry in the <code class="language-plaintext highlighter-rouge">rigid_bodies</code> section of <code class="language-plaintext highlighter-rouge">cfg.yaml</code>. Note that you’ll need to specify the marker configuration (i.e., where the markers are placed in the local coordinate frame of the robot) and a dynamics configuration (first-order dynamics limits for filtering outliers).</p>
+
+<h4 id="single-marker-arrangement">Single Marker Arrangement</h4>
+
+<p>A special case of duplicated marker arrangements is the case where we only use a single marker per robot. As before, motion_capture_tracking will use the raw point cloud from the motion capture system and track the CFs frame-by-frame. In this mode, we use optimal task assignment at every frame, which makes this mode more robust to motion capture outliers compared to the duplicate marker arrangements. The main disadvantage is that the yaw angle cannot be observed without moving in the xy-plane.</p>
+
+<h4 id="hybrid-mode">Hybrid Mode</h4>
+
+<p>The three different modes can be mixed. Note that when mixing identical marker arrangement and single marker arrangement, a different backend for tracking is used, which might be computationally slower and is generally less well tested.</p>
+
+<h3 id="vendor-specific-instructions">Vendor-specific Instructions</h3>
+
+<h3 id="optitrack">Optitrack</h3>
 
 <p>There are two possible backends.</p>
 
@@ -502,7 +540,7 @@ colcon build
 
 <p>We recommend that you first try “optitrack” and switch to “optitrack_closed_source” if you encounter any issues.</p>
 
-<h3 id="nokov-vendor-specific-instructions">NOKOV: Vendor-specific Instructions</h3>
+<h3 id="nokov">NOKOV</h3>
 
 <p>Since the SDK is not publically available, adding the SDK and building from source is required.</p>
 
@@ -517,7 +555,7 @@ colcon build
 <h2 id="technical-background">Technical Background</h2>
 
 <p>The ROS package is a wrapper around <a href="https://github.com/IMRCLab/libmotioncapture">libmotioncapture</a> and <a href="https://github.com/IMRCLab/librigidbodytracker">librigidbodytracker</a>.
-The former is a C++ library that provides a unified interface over different motion capture SDKs to gather pose informations of rigid bodies and/or pointclouds of unlabeled markers.
+The former is a C++ library that provides a unified interface over different motion capture SDKs to gather poses of rigid bodies and/or pointclouds of unlabeled markers.
 The latter is a C++ library that takes the following inputs: i) a first-order dynamics model, ii) initial poses of rigid bodies, and iii) at every frame a point cloud. It outputs for every frame the best estimate of the robots’ poses.</p>
 
 <p>Some more information on the rigid body pose tracking is available in</p>
@@ -539,7 +577,19 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
 
 </code></pre></div></div>
 
-<p>The unlabeled marker tracking is using an optimal assignment with a min-cost max-flow formulation for each frame.</p>
+<p>Information about unlabeled marker tracking (optimal assignment with a min-cost max-flow formulation for each frame) and hybrid tracking (CBS-based optimization) is available in</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>@article{cai2025tracking,
+  title={Optimal Assignment for Multi-Robot Tracking Using Motion Capture Systems},
+  author={Nan Cai and
+          Wolfgang Hönig},
+  journal={1st German Robotics Conference},
+  code={https://github.com/IMRCLab/motion_capture_tracking},
+  pdf={https://imrclab.github.io/assets/pdf/cai2025tracking.pdf},
+  year={2025},
+}
+
+</code></pre></div></div>
 
 <h2 id="related-work">Related Work</h2>
 
@@ -682,7 +732,7 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-09-05
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-19
         </span>
       </td>
     </tr>
@@ -794,13 +844,15 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
   <li>Motion Analysis</li>
 </ul>
 
-<p>For most systems, three different tracking modes are available:</p>
+<p>For most systems, different tracking modes are available:</p>
 
 <ol>
-  <li>Tracking of rigid body poses via the official software (e.g., Vicon Tracker) using unique marker arrangements.</li>
-  <li>Tracking of rigid body poses with custom frame-to-frame tracking with identical marker arrangements.</li>
-  <li>Tracking of unlabeled marker positions using custom frame-to-frame tracking.</li>
+  <li>Tracking of rigid body poses via the official software (e.g., Vicon Tracker) using <strong>unique marker arrangements</strong>.</li>
+  <li>Tracking of rigid body poses with custom frame-to-frame tracking with <strong>identical marker arrangements</strong>.</li>
+  <li>Tracking of <strong>single unlabeled marker</strong> positions using custom frame-to-frame tracking.</li>
 </ol>
+
+<p>The different modes can be combined, e.g., one can use the official software for some rigid bodies and the custom frame-by-frame tracking for others.</p>
 
 <p>The data is directly published via tf2 and a <code class="language-plaintext highlighter-rouge">/poses</code> topic that supports different QoS settings.</p>
 
@@ -825,7 +877,43 @@ colcon build
 
 <p>The various options can be configured in <code class="language-plaintext highlighter-rouge">config/cfg.yaml</code>.</p>
 
-<h3 id="optitrack-vendor-specific-instructions">Optitrack: Vendor-specific Instructions</h3>
+<h3 id="choice-of-tracking-mode">Choice of Tracking Mode</h3>
+
+<h4 id="unique-marker-arrangements">Unique Marker Arrangements</h4>
+
+<p>With a unique marker arrangement for each rigid body, you rely on the motion capture vendor’s software.
+This is generally preferred. However, if you have lots of rigid bodies, it can be hard to design enough unique configurations – there are not many places to put a marker on small rigid bodies.</p>
+
+<p>If your arrangements are too similar, motion capture software may not fail gracefully. For example, it may rapidly switch back and forth between recognizing two different objects at a single physical location.</p>
+
+<p>To use this mode, simply enable the rigid body / asset in your vendor’s software and do <em>not</em> include it in the <code class="language-plaintext highlighter-rouge">rigid_bodies</code> section of <code class="language-plaintext highlighter-rouge">cfg.yaml</code>.</p>
+
+<h4 id="identical-marker-arrangement">Identical Marker Arrangement</h4>
+
+<p>If more than one rigid body has the same marker arrangement, standard motion capture software will refuse to track them. Instead, motion_capture_tracking can use the raw point cloud from the motion capture system and track the rigid bodies frame-by-frame. Here we use Iterative Closest Point (ICP) to greedily match the known marker arrangements to the pointcloud. There are two main consequences of this option:</p>
+
+<ul>
+  <li>
+    <p>The initial positions of the rigid bodies must be known, to establish a mapping between the name and physical locations.</p>
+  </li>
+  <li>
+    <p>The tracking is done frame-by-frame, so if markers are occluded for a significant amount of time, the algorithm may not be able to re-establish the ID-location mapping once they are visible again.</p>
+  </li>
+</ul>
+
+<p>To use this mode, disable the rigid body in your vendor’s software and add an entry in the <code class="language-plaintext highlighter-rouge">rigid_bodies</code> section of <code class="language-plaintext highlighter-rouge">cfg.yaml</code>. Note that you’ll need to specify the marker configuration (i.e., where the markers are placed in the local coordinate frame of the robot) and a dynamics configuration (first-order dynamics limits for filtering outliers).</p>
+
+<h4 id="single-marker-arrangement">Single Marker Arrangement</h4>
+
+<p>A special case of duplicated marker arrangements is the case where we only use a single marker per robot. As before, motion_capture_tracking will use the raw point cloud from the motion capture system and track the CFs frame-by-frame. In this mode, we use optimal task assignment at every frame, which makes this mode more robust to motion capture outliers compared to the duplicate marker arrangements. The main disadvantage is that the yaw angle cannot be observed without moving in the xy-plane.</p>
+
+<h4 id="hybrid-mode">Hybrid Mode</h4>
+
+<p>The three different modes can be mixed. Note that when mixing identical marker arrangement and single marker arrangement, a different backend for tracking is used, which might be computationally slower and is generally less well tested.</p>
+
+<h3 id="vendor-specific-instructions">Vendor-specific Instructions</h3>
+
+<h3 id="optitrack">Optitrack</h3>
 
 <p>There are two possible backends.</p>
 
@@ -847,7 +935,7 @@ colcon build
 
 <p>We recommend that you first try “optitrack” and switch to “optitrack_closed_source” if you encounter any issues.</p>
 
-<h3 id="nokov-vendor-specific-instructions">NOKOV: Vendor-specific Instructions</h3>
+<h3 id="nokov">NOKOV</h3>
 
 <p>Since the SDK is not publically available, adding the SDK and building from source is required.</p>
 
@@ -862,7 +950,7 @@ colcon build
 <h2 id="technical-background">Technical Background</h2>
 
 <p>The ROS package is a wrapper around <a href="https://github.com/IMRCLab/libmotioncapture">libmotioncapture</a> and <a href="https://github.com/IMRCLab/librigidbodytracker">librigidbodytracker</a>.
-The former is a C++ library that provides a unified interface over different motion capture SDKs to gather pose informations of rigid bodies and/or pointclouds of unlabeled markers.
+The former is a C++ library that provides a unified interface over different motion capture SDKs to gather poses of rigid bodies and/or pointclouds of unlabeled markers.
 The latter is a C++ library that takes the following inputs: i) a first-order dynamics model, ii) initial poses of rigid bodies, and iii) at every frame a point cloud. It outputs for every frame the best estimate of the robots’ poses.</p>
 
 <p>Some more information on the rigid body pose tracking is available in</p>
@@ -884,7 +972,19 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
 
 </code></pre></div></div>
 
-<p>The unlabeled marker tracking is using an optimal assignment with a min-cost max-flow formulation for each frame.</p>
+<p>Information about unlabeled marker tracking (optimal assignment with a min-cost max-flow formulation for each frame) and hybrid tracking (CBS-based optimization) is available in</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>@article{cai2025tracking,
+  title={Optimal Assignment for Multi-Robot Tracking Using Motion Capture Systems},
+  author={Nan Cai and
+          Wolfgang Hönig},
+  journal={1st German Robotics Conference},
+  code={https://github.com/IMRCLab/motion_capture_tracking},
+  pdf={https://imrclab.github.io/assets/pdf/cai2025tracking.pdf},
+  year={2025},
+}
+
+</code></pre></div></div>
 
 <h2 id="related-work">Related Work</h2>
 
@@ -1027,7 +1127,7 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-09-05
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-19
         </span>
       </td>
     </tr>
@@ -1139,13 +1239,15 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
   <li>Motion Analysis</li>
 </ul>
 
-<p>For most systems, three different tracking modes are available:</p>
+<p>For most systems, different tracking modes are available:</p>
 
 <ol>
-  <li>Tracking of rigid body poses via the official software (e.g., Vicon Tracker) using unique marker arrangements.</li>
-  <li>Tracking of rigid body poses with custom frame-to-frame tracking with identical marker arrangements.</li>
-  <li>Tracking of unlabeled marker positions using custom frame-to-frame tracking.</li>
+  <li>Tracking of rigid body poses via the official software (e.g., Vicon Tracker) using <strong>unique marker arrangements</strong>.</li>
+  <li>Tracking of rigid body poses with custom frame-to-frame tracking with <strong>identical marker arrangements</strong>.</li>
+  <li>Tracking of <strong>single unlabeled marker</strong> positions using custom frame-to-frame tracking.</li>
 </ol>
+
+<p>The different modes can be combined, e.g., one can use the official software for some rigid bodies and the custom frame-by-frame tracking for others.</p>
 
 <p>The data is directly published via tf2 and a <code class="language-plaintext highlighter-rouge">/poses</code> topic that supports different QoS settings.</p>
 
@@ -1170,7 +1272,43 @@ colcon build
 
 <p>The various options can be configured in <code class="language-plaintext highlighter-rouge">config/cfg.yaml</code>.</p>
 
-<h3 id="optitrack-vendor-specific-instructions">Optitrack: Vendor-specific Instructions</h3>
+<h3 id="choice-of-tracking-mode">Choice of Tracking Mode</h3>
+
+<h4 id="unique-marker-arrangements">Unique Marker Arrangements</h4>
+
+<p>With a unique marker arrangement for each rigid body, you rely on the motion capture vendor’s software.
+This is generally preferred. However, if you have lots of rigid bodies, it can be hard to design enough unique configurations – there are not many places to put a marker on small rigid bodies.</p>
+
+<p>If your arrangements are too similar, motion capture software may not fail gracefully. For example, it may rapidly switch back and forth between recognizing two different objects at a single physical location.</p>
+
+<p>To use this mode, simply enable the rigid body / asset in your vendor’s software and do <em>not</em> include it in the <code class="language-plaintext highlighter-rouge">rigid_bodies</code> section of <code class="language-plaintext highlighter-rouge">cfg.yaml</code>.</p>
+
+<h4 id="identical-marker-arrangement">Identical Marker Arrangement</h4>
+
+<p>If more than one rigid body has the same marker arrangement, standard motion capture software will refuse to track them. Instead, motion_capture_tracking can use the raw point cloud from the motion capture system and track the rigid bodies frame-by-frame. Here we use Iterative Closest Point (ICP) to greedily match the known marker arrangements to the pointcloud. There are two main consequences of this option:</p>
+
+<ul>
+  <li>
+    <p>The initial positions of the rigid bodies must be known, to establish a mapping between the name and physical locations.</p>
+  </li>
+  <li>
+    <p>The tracking is done frame-by-frame, so if markers are occluded for a significant amount of time, the algorithm may not be able to re-establish the ID-location mapping once they are visible again.</p>
+  </li>
+</ul>
+
+<p>To use this mode, disable the rigid body in your vendor’s software and add an entry in the <code class="language-plaintext highlighter-rouge">rigid_bodies</code> section of <code class="language-plaintext highlighter-rouge">cfg.yaml</code>. Note that you’ll need to specify the marker configuration (i.e., where the markers are placed in the local coordinate frame of the robot) and a dynamics configuration (first-order dynamics limits for filtering outliers).</p>
+
+<h4 id="single-marker-arrangement">Single Marker Arrangement</h4>
+
+<p>A special case of duplicated marker arrangements is the case where we only use a single marker per robot. As before, motion_capture_tracking will use the raw point cloud from the motion capture system and track the CFs frame-by-frame. In this mode, we use optimal task assignment at every frame, which makes this mode more robust to motion capture outliers compared to the duplicate marker arrangements. The main disadvantage is that the yaw angle cannot be observed without moving in the xy-plane.</p>
+
+<h4 id="hybrid-mode">Hybrid Mode</h4>
+
+<p>The three different modes can be mixed. Note that when mixing identical marker arrangement and single marker arrangement, a different backend for tracking is used, which might be computationally slower and is generally less well tested.</p>
+
+<h3 id="vendor-specific-instructions">Vendor-specific Instructions</h3>
+
+<h3 id="optitrack">Optitrack</h3>
 
 <p>There are two possible backends.</p>
 
@@ -1192,7 +1330,7 @@ colcon build
 
 <p>We recommend that you first try “optitrack” and switch to “optitrack_closed_source” if you encounter any issues.</p>
 
-<h3 id="nokov-vendor-specific-instructions">NOKOV: Vendor-specific Instructions</h3>
+<h3 id="nokov">NOKOV</h3>
 
 <p>Since the SDK is not publically available, adding the SDK and building from source is required.</p>
 
@@ -1207,7 +1345,7 @@ colcon build
 <h2 id="technical-background">Technical Background</h2>
 
 <p>The ROS package is a wrapper around <a href="https://github.com/IMRCLab/libmotioncapture">libmotioncapture</a> and <a href="https://github.com/IMRCLab/librigidbodytracker">librigidbodytracker</a>.
-The former is a C++ library that provides a unified interface over different motion capture SDKs to gather pose informations of rigid bodies and/or pointclouds of unlabeled markers.
+The former is a C++ library that provides a unified interface over different motion capture SDKs to gather poses of rigid bodies and/or pointclouds of unlabeled markers.
 The latter is a C++ library that takes the following inputs: i) a first-order dynamics model, ii) initial poses of rigid bodies, and iii) at every frame a point cloud. It outputs for every frame the best estimate of the robots’ poses.</p>
 
 <p>Some more information on the rigid body pose tracking is available in</p>
@@ -1229,7 +1367,19 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
 
 </code></pre></div></div>
 
-<p>The unlabeled marker tracking is using an optimal assignment with a min-cost max-flow formulation for each frame.</p>
+<p>Information about unlabeled marker tracking (optimal assignment with a min-cost max-flow formulation for each frame) and hybrid tracking (CBS-based optimization) is available in</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>@article{cai2025tracking,
+  title={Optimal Assignment for Multi-Robot Tracking Using Motion Capture Systems},
+  author={Nan Cai and
+          Wolfgang Hönig},
+  journal={1st German Robotics Conference},
+  code={https://github.com/IMRCLab/motion_capture_tracking},
+  pdf={https://imrclab.github.io/assets/pdf/cai2025tracking.pdf},
+  year={2025},
+}
+
+</code></pre></div></div>
 
 <h2 id="related-work">Related Work</h2>
 
@@ -1372,7 +1522,7 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-09-05
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-19
         </span>
       </td>
     </tr>
@@ -1484,13 +1634,15 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
   <li>Motion Analysis</li>
 </ul>
 
-<p>For most systems, three different tracking modes are available:</p>
+<p>For most systems, different tracking modes are available:</p>
 
 <ol>
-  <li>Tracking of rigid body poses via the official software (e.g., Vicon Tracker) using unique marker arrangements.</li>
-  <li>Tracking of rigid body poses with custom frame-to-frame tracking with identical marker arrangements.</li>
-  <li>Tracking of unlabeled marker positions using custom frame-to-frame tracking.</li>
+  <li>Tracking of rigid body poses via the official software (e.g., Vicon Tracker) using <strong>unique marker arrangements</strong>.</li>
+  <li>Tracking of rigid body poses with custom frame-to-frame tracking with <strong>identical marker arrangements</strong>.</li>
+  <li>Tracking of <strong>single unlabeled marker</strong> positions using custom frame-to-frame tracking.</li>
 </ol>
+
+<p>The different modes can be combined, e.g., one can use the official software for some rigid bodies and the custom frame-by-frame tracking for others.</p>
 
 <p>The data is directly published via tf2 and a <code class="language-plaintext highlighter-rouge">/poses</code> topic that supports different QoS settings.</p>
 
@@ -1515,7 +1667,43 @@ colcon build
 
 <p>The various options can be configured in <code class="language-plaintext highlighter-rouge">config/cfg.yaml</code>.</p>
 
-<h3 id="optitrack-vendor-specific-instructions">Optitrack: Vendor-specific Instructions</h3>
+<h3 id="choice-of-tracking-mode">Choice of Tracking Mode</h3>
+
+<h4 id="unique-marker-arrangements">Unique Marker Arrangements</h4>
+
+<p>With a unique marker arrangement for each rigid body, you rely on the motion capture vendor’s software.
+This is generally preferred. However, if you have lots of rigid bodies, it can be hard to design enough unique configurations – there are not many places to put a marker on small rigid bodies.</p>
+
+<p>If your arrangements are too similar, motion capture software may not fail gracefully. For example, it may rapidly switch back and forth between recognizing two different objects at a single physical location.</p>
+
+<p>To use this mode, simply enable the rigid body / asset in your vendor’s software and do <em>not</em> include it in the <code class="language-plaintext highlighter-rouge">rigid_bodies</code> section of <code class="language-plaintext highlighter-rouge">cfg.yaml</code>.</p>
+
+<h4 id="identical-marker-arrangement">Identical Marker Arrangement</h4>
+
+<p>If more than one rigid body has the same marker arrangement, standard motion capture software will refuse to track them. Instead, motion_capture_tracking can use the raw point cloud from the motion capture system and track the rigid bodies frame-by-frame. Here we use Iterative Closest Point (ICP) to greedily match the known marker arrangements to the pointcloud. There are two main consequences of this option:</p>
+
+<ul>
+  <li>
+    <p>The initial positions of the rigid bodies must be known, to establish a mapping between the name and physical locations.</p>
+  </li>
+  <li>
+    <p>The tracking is done frame-by-frame, so if markers are occluded for a significant amount of time, the algorithm may not be able to re-establish the ID-location mapping once they are visible again.</p>
+  </li>
+</ul>
+
+<p>To use this mode, disable the rigid body in your vendor’s software and add an entry in the <code class="language-plaintext highlighter-rouge">rigid_bodies</code> section of <code class="language-plaintext highlighter-rouge">cfg.yaml</code>. Note that you’ll need to specify the marker configuration (i.e., where the markers are placed in the local coordinate frame of the robot) and a dynamics configuration (first-order dynamics limits for filtering outliers).</p>
+
+<h4 id="single-marker-arrangement">Single Marker Arrangement</h4>
+
+<p>A special case of duplicated marker arrangements is the case where we only use a single marker per robot. As before, motion_capture_tracking will use the raw point cloud from the motion capture system and track the CFs frame-by-frame. In this mode, we use optimal task assignment at every frame, which makes this mode more robust to motion capture outliers compared to the duplicate marker arrangements. The main disadvantage is that the yaw angle cannot be observed without moving in the xy-plane.</p>
+
+<h4 id="hybrid-mode">Hybrid Mode</h4>
+
+<p>The three different modes can be mixed. Note that when mixing identical marker arrangement and single marker arrangement, a different backend for tracking is used, which might be computationally slower and is generally less well tested.</p>
+
+<h3 id="vendor-specific-instructions">Vendor-specific Instructions</h3>
+
+<h3 id="optitrack">Optitrack</h3>
 
 <p>There are two possible backends.</p>
 
@@ -1537,7 +1725,7 @@ colcon build
 
 <p>We recommend that you first try “optitrack” and switch to “optitrack_closed_source” if you encounter any issues.</p>
 
-<h3 id="nokov-vendor-specific-instructions">NOKOV: Vendor-specific Instructions</h3>
+<h3 id="nokov">NOKOV</h3>
 
 <p>Since the SDK is not publically available, adding the SDK and building from source is required.</p>
 
@@ -1552,7 +1740,7 @@ colcon build
 <h2 id="technical-background">Technical Background</h2>
 
 <p>The ROS package is a wrapper around <a href="https://github.com/IMRCLab/libmotioncapture">libmotioncapture</a> and <a href="https://github.com/IMRCLab/librigidbodytracker">librigidbodytracker</a>.
-The former is a C++ library that provides a unified interface over different motion capture SDKs to gather pose informations of rigid bodies and/or pointclouds of unlabeled markers.
+The former is a C++ library that provides a unified interface over different motion capture SDKs to gather poses of rigid bodies and/or pointclouds of unlabeled markers.
 The latter is a C++ library that takes the following inputs: i) a first-order dynamics model, ii) initial poses of rigid bodies, and iii) at every frame a point cloud. It outputs for every frame the best estimate of the robots’ poses.</p>
 
 <p>Some more information on the rigid body pose tracking is available in</p>
@@ -1574,7 +1762,19 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
 
 </code></pre></div></div>
 
-<p>The unlabeled marker tracking is using an optimal assignment with a min-cost max-flow formulation for each frame.</p>
+<p>Information about unlabeled marker tracking (optimal assignment with a min-cost max-flow formulation for each frame) and hybrid tracking (CBS-based optimization) is available in</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>@article{cai2025tracking,
+  title={Optimal Assignment for Multi-Robot Tracking Using Motion Capture Systems},
+  author={Nan Cai and
+          Wolfgang Hönig},
+  journal={1st German Robotics Conference},
+  code={https://github.com/IMRCLab/motion_capture_tracking},
+  pdf={https://imrclab.github.io/assets/pdf/cai2025tracking.pdf},
+  year={2025},
+}
+
+</code></pre></div></div>
 
 <h2 id="related-work">Related Work</h2>
 
@@ -2237,7 +2437,7 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2024-09-05
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-19
         </span>
       </td>
     </tr>
@@ -2349,13 +2549,15 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
   <li>Motion Analysis</li>
 </ul>
 
-<p>For most systems, three different tracking modes are available:</p>
+<p>For most systems, different tracking modes are available:</p>
 
 <ol>
-  <li>Tracking of rigid body poses via the official software (e.g., Vicon Tracker) using unique marker arrangements.</li>
-  <li>Tracking of rigid body poses with custom frame-to-frame tracking with identical marker arrangements.</li>
-  <li>Tracking of unlabeled marker positions using custom frame-to-frame tracking.</li>
+  <li>Tracking of rigid body poses via the official software (e.g., Vicon Tracker) using <strong>unique marker arrangements</strong>.</li>
+  <li>Tracking of rigid body poses with custom frame-to-frame tracking with <strong>identical marker arrangements</strong>.</li>
+  <li>Tracking of <strong>single unlabeled marker</strong> positions using custom frame-to-frame tracking.</li>
 </ol>
+
+<p>The different modes can be combined, e.g., one can use the official software for some rigid bodies and the custom frame-by-frame tracking for others.</p>
 
 <p>The data is directly published via tf2 and a <code class="language-plaintext highlighter-rouge">/poses</code> topic that supports different QoS settings.</p>
 
@@ -2380,7 +2582,43 @@ colcon build
 
 <p>The various options can be configured in <code class="language-plaintext highlighter-rouge">config/cfg.yaml</code>.</p>
 
-<h3 id="optitrack-vendor-specific-instructions">Optitrack: Vendor-specific Instructions</h3>
+<h3 id="choice-of-tracking-mode">Choice of Tracking Mode</h3>
+
+<h4 id="unique-marker-arrangements">Unique Marker Arrangements</h4>
+
+<p>With a unique marker arrangement for each rigid body, you rely on the motion capture vendor’s software.
+This is generally preferred. However, if you have lots of rigid bodies, it can be hard to design enough unique configurations – there are not many places to put a marker on small rigid bodies.</p>
+
+<p>If your arrangements are too similar, motion capture software may not fail gracefully. For example, it may rapidly switch back and forth between recognizing two different objects at a single physical location.</p>
+
+<p>To use this mode, simply enable the rigid body / asset in your vendor’s software and do <em>not</em> include it in the <code class="language-plaintext highlighter-rouge">rigid_bodies</code> section of <code class="language-plaintext highlighter-rouge">cfg.yaml</code>.</p>
+
+<h4 id="identical-marker-arrangement">Identical Marker Arrangement</h4>
+
+<p>If more than one rigid body has the same marker arrangement, standard motion capture software will refuse to track them. Instead, motion_capture_tracking can use the raw point cloud from the motion capture system and track the rigid bodies frame-by-frame. Here we use Iterative Closest Point (ICP) to greedily match the known marker arrangements to the pointcloud. There are two main consequences of this option:</p>
+
+<ul>
+  <li>
+    <p>The initial positions of the rigid bodies must be known, to establish a mapping between the name and physical locations.</p>
+  </li>
+  <li>
+    <p>The tracking is done frame-by-frame, so if markers are occluded for a significant amount of time, the algorithm may not be able to re-establish the ID-location mapping once they are visible again.</p>
+  </li>
+</ul>
+
+<p>To use this mode, disable the rigid body in your vendor’s software and add an entry in the <code class="language-plaintext highlighter-rouge">rigid_bodies</code> section of <code class="language-plaintext highlighter-rouge">cfg.yaml</code>. Note that you’ll need to specify the marker configuration (i.e., where the markers are placed in the local coordinate frame of the robot) and a dynamics configuration (first-order dynamics limits for filtering outliers).</p>
+
+<h4 id="single-marker-arrangement">Single Marker Arrangement</h4>
+
+<p>A special case of duplicated marker arrangements is the case where we only use a single marker per robot. As before, motion_capture_tracking will use the raw point cloud from the motion capture system and track the CFs frame-by-frame. In this mode, we use optimal task assignment at every frame, which makes this mode more robust to motion capture outliers compared to the duplicate marker arrangements. The main disadvantage is that the yaw angle cannot be observed without moving in the xy-plane.</p>
+
+<h4 id="hybrid-mode">Hybrid Mode</h4>
+
+<p>The three different modes can be mixed. Note that when mixing identical marker arrangement and single marker arrangement, a different backend for tracking is used, which might be computationally slower and is generally less well tested.</p>
+
+<h3 id="vendor-specific-instructions">Vendor-specific Instructions</h3>
+
+<h3 id="optitrack">Optitrack</h3>
 
 <p>There are two possible backends.</p>
 
@@ -2402,7 +2640,7 @@ colcon build
 
 <p>We recommend that you first try “optitrack” and switch to “optitrack_closed_source” if you encounter any issues.</p>
 
-<h3 id="nokov-vendor-specific-instructions">NOKOV: Vendor-specific Instructions</h3>
+<h3 id="nokov">NOKOV</h3>
 
 <p>Since the SDK is not publically available, adding the SDK and building from source is required.</p>
 
@@ -2417,7 +2655,7 @@ colcon build
 <h2 id="technical-background">Technical Background</h2>
 
 <p>The ROS package is a wrapper around <a href="https://github.com/IMRCLab/libmotioncapture">libmotioncapture</a> and <a href="https://github.com/IMRCLab/librigidbodytracker">librigidbodytracker</a>.
-The former is a C++ library that provides a unified interface over different motion capture SDKs to gather pose informations of rigid bodies and/or pointclouds of unlabeled markers.
+The former is a C++ library that provides a unified interface over different motion capture SDKs to gather poses of rigid bodies and/or pointclouds of unlabeled markers.
 The latter is a C++ library that takes the following inputs: i) a first-order dynamics model, ii) initial poses of rigid bodies, and iii) at every frame a point cloud. It outputs for every frame the best estimate of the robots’ poses.</p>
 
 <p>Some more information on the rigid body pose tracking is available in</p>
@@ -2439,7 +2677,19 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
 
 </code></pre></div></div>
 
-<p>The unlabeled marker tracking is using an optimal assignment with a min-cost max-flow formulation for each frame.</p>
+<p>Information about unlabeled marker tracking (optimal assignment with a min-cost max-flow formulation for each frame) and hybrid tracking (CBS-based optimization) is available in</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>@article{cai2025tracking,
+  title={Optimal Assignment for Multi-Robot Tracking Using Motion Capture Systems},
+  author={Nan Cai and
+          Wolfgang Hönig},
+  journal={1st German Robotics Conference},
+  code={https://github.com/IMRCLab/motion_capture_tracking},
+  pdf={https://imrclab.github.io/assets/pdf/cai2025tracking.pdf},
+  year={2025},
+}
+
+</code></pre></div></div>
 
 <h2 id="related-work">Related Work</h2>
 
@@ -2913,7 +3163,7 @@ The latter is a C++ library that takes the following inputs: i) a first-order dy
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2025-05-18</em>
+        <em class="hidden-xs">| generated on 2025-05-19</em>
       
       </div>
       <div style="float:right;">
