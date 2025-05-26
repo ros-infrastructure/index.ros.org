@@ -381,7 +381,7 @@
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>3.0.1</td>
+                <td>3.0.2</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -429,7 +429,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-04-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-25
         </span>
       </td>
     </tr>
@@ -610,31 +610,25 @@ above.</p>
 2)  Prepare the ROS2 driver build: Make sure you have your ROS2
     environment sourced:</p>
 
-<!-- -->
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    source /opt/ros/&lt;my_ros_distro&gt;/setup.bash
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>source /opt/ros/&lt;my_ros_distro&gt;/setup.bash
-</code></pre></div></div>
+Create a workspace (`~/ws`), clone this repo:
 
-<p>Create a workspace (<code class="language-plaintext highlighter-rouge">~/ws</code>), clone this repo:</p>
+    mkdir -p ~/ws/src
+    cd ~/ws/src
+    git clone --branch humble-devel https://github.com/ros-drivers/flir_camera_driver
+    cd ..
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mkdir -p ~/ws/src
-cd ~/ws/src
-git clone --branch humble-devel https://github.com/ros-drivers/flir_camera_driver
-cd ..
-</code></pre></div></div>
+To automatically install all packages that the `flir_camera_driver`
+packages depends upon, run this at the top of your workspace:
 
-<p>To automatically install all packages that the <code class="language-plaintext highlighter-rouge">flir_camera_driver</code>
-packages depends upon, run this at the top of your workspace:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>rosdep install --from-paths src --ignore-src
+    rosdep install --from-paths src --ignore-src
 </code></pre></div></div>
 
 <p>3)  Build the driver and source the workspace:</p>
 
-<!-- -->
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-. install/setup.bash
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    . install/setup.bash
 </code></pre></div></div>
 
 <h2 id="how-to-use">How to use</h2>
@@ -656,15 +650,8 @@ packages depends upon, run this at the top of your workspace:</p>
 
 <ul>
   <li>
-
-    <dl>
-      <dt>
-<code class="language-plaintext highlighter-rouge">~/control</code>: (only when <code class="language-plaintext highlighter-rouge">enable_external_control</code> is set to True)</dt>
-      <dd>
-        <p>for external control exposure time and gain.</p>
-      </dd>
-    </dl>
-  </li>
+<code class="language-plaintext highlighter-rouge">~/control</code>: (only when <code class="language-plaintext highlighter-rouge">enable_external_control</code> is set to True)
+for external control exposure time and gain.</li>
 </ul>
 
 <h3 id="parameters">Parameters</h3>
@@ -725,13 +712,27 @@ image messages.</li>
 <code class="language-plaintext highlighter-rouge">image_queue_size</code>: ROS output queue size (number of frames).
 Default: 4</li>
   <li>
+<code class="language-plaintext highlighter-rouge">max_ieee_1588_offset</code>: maximum allowed PTP/system clock offset
+[s] before warning is triggered. Default: 0.1</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">min_ieee_1588_offset</code>: minimum PTP offset [s] before warning is
+triggered. Default: 0</li>
+  <li>
 <code class="language-plaintext highlighter-rouge">parameter_file</code>: location of the .yaml file defining the camera
 (blackfly_s.yaml etc)</li>
   <li>
 <code class="language-plaintext highlighter-rouge">serial_number</code>: serial number of the camera. If you don’t know it,
 put in anything you like and the driver will croak with an error
 message, telling you what cameras serial numbers are available</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_ieee_1588</code>: use PTP (IEEE 1588) to set the <code class="language-plaintext highlighter-rouge">header.stamp</code> time
+stamp instead of system time. Note that you will still need to
+enable IEEE 1588 at the camera level, and enable time stamp
+"chunks". Default: false.</li>
 </ul>
+
+<p>The parameters listed above <em>cannot</em> be dynamically updated at runtime
+but require a driver restart to modify.</p>
 
 <p>Parameters can also be defined to correspond to commands for the camera
 to run, for example a <a href="https://github.com/ros-drivers/flir_camera_driver/blob/76fe2ff0c3e92d2ebcdea7c6e792e7cea8cf5f0e/spinnaker_camera_driver/config/oryx.yaml#L192">software
@@ -825,10 +826,116 @@ for the port that connects to your camera to "Link-Local Only." (You
 could also set the IPv4 Method to "Manual" with an address of
 169.254.100.1 and a subnet mask of 255.255.0.0).</p>
 
+<p>To check if the MTU settings are working correctly on the host you can
+ping with large packet size from a different host on the same network
+(must also have a MTU of 9000):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ping &lt;host_ip_address&gt; -c 2 -M do -s 8972
+</code></pre></div></div>
+
+<p>Note that this will <em>not</em> work if you ping the camera: you will find a
+MTU size of 1500, even if both camera and host NIC have correct MTU
+setting. Beware that some network cards have <a href="https://www.reddit.com/r/networking/comments/1ebvj5y/linux_ptp_and_jumbo_frames_for_gige_vision/">bugs that mess up the MTU
+when running
+ptp4l</a>.</p>
+
 <p>For more tips on GigE setup look at FLIR’s support pages
 <a href="https://www.flir.com/support-center/iis/machine-vision/knowledge-base/lost-ethernet-data-packets-on-linux-systems/">here</a>
 and
 <a href="https://www.flir.com/support-center/iis/machine-vision/application-note/troubleshooting-image-consistency-errors/">here</a>.</p>
+
+<h2 id="configuring-ptp-ieee-1588">Configuring PTP (IEEE 1588)</h2>
+
+<p>The following resources are useful to learn about PTP setup on Linux:</p>
+
+<ul>
+  <li><a href="https://tsn.readthedocs.io/timesync.html/">Synchronizing Time with Linux
+PTP</a></li>
+  <li>
+<a href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/7/html/system_administrators_guide/ch-configuring_ptp_using_ptp4l#sec-Checking_for_Driver_and_Hardware_Support/">RedHat Configuring PTP using
+ptp4l</a>.</li>
+</ul>
+
+<p>Only FLIR GigE cameras are PTP capable, but not all of them. For example
+the Blackfly series does not have PTP support, but the Blackfly S series
+does.</p>
+
+<p>Each camera has a built-in PTP hardware clock (PHC). To use it, you need
+to:</p>
+
+<ul>
+  <li>configure the camera to use PTP by enabling it either in SpinView or
+via the ROS parameter [gev_ieee_1588]{.title-ref}` (set to
+true/false)</li>
+  <li>run the camera in <code class="language-plaintext highlighter-rouge">Auto</code> or <code class="language-plaintext highlighter-rouge">SlaveOnly</code> mode by setting the
+corresponding parameter in SpinView or using the ROS parameter
+<code class="language-plaintext highlighter-rouge">gev_ieee_1588_mode</code>.</li>
+  <li>enable time stamps being sent via chunks by setting
+<code class="language-plaintext highlighter-rouge">chunk_mode_active</code> to <code class="language-plaintext highlighter-rouge">True</code>, <code class="language-plaintext highlighter-rouge">chunk_selector_timestamp</code> to
+<code class="language-plaintext highlighter-rouge">Timestamp</code> followed by <code class="language-plaintext highlighter-rouge">chunk_enable_timestamp</code> to True.</li>
+  <li>tell the driver to actually use the time stamps instead of the
+system clock by setting <code class="language-plaintext highlighter-rouge">use_ieee_1588</code> to True. If this flag is
+set, the driver will populate the ROS image message header stamp
+with the PTP time stamp.</li>
+</ul>
+
+<p>The launch file section for the Blackfly S has some commented out
+example settings.</p>
+
+<p>When the camera boots up it will start its PHC time at zero rather than
+at the correct time (TAI). The driver log will have warning messages and
+indicate a huge offset.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[WARN] [1744643742.707293740] rate [Hz] in   5.01 out   0.00 drop   0 LIS off[s]: 1744643660.7902
+</code></pre></div></div>
+
+<p><strong>Do not run like that</strong> because your image header stamps will be
+totally messed up. In the above example, the camera has been started in
+<code class="language-plaintext highlighter-rouge">SlaveOnly</code> mode, and hence is in the <code class="language-plaintext highlighter-rouge">LIS</code> status (listening). This
+cannot be fixed by running the camera in <code class="language-plaintext highlighter-rouge">Auto</code> mode, because the camera
+has no way to set its PHC to a network time. Although the camera will
+eventually assume a role as master and the clock status will show <code class="language-plaintext highlighter-rouge">MAS</code>,
+it will still have a huge offset. To fix this you must provide PTP
+messages from another host on the network by running <code class="language-plaintext highlighter-rouge">ptp4l</code> like so: :</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ptp4l -i eth0 -m
+</code></pre></div></div>
+
+<p>If you have some fancy PTP capable hardware clock attached to this host,
+you can synchronize your host system clock with the PHC of the network
+card:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>phc2sys -c /dev/ptp_my_fancy_clock -c CLOCK_REALTIME -O 0 -m -l 6
+</code></pre></div></div>
+
+<p>and you are all set. Alternatively you can force the network card's PHC
+to follow your host's system clock:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>phc2sys -s CLOCK_REALTIME -c /dev/ptp0 -O 0 -m -l 6
+</code></pre></div></div>
+
+<p>In this scenario you need to make sure that your host's system clock
+does not exhibit jumps, e.g. use something like <code class="language-plaintext highlighter-rouge">chrony</code> to keep it
+smoothly in sync with network time.</p>
+
+<p>Once the camera gets PTP packets it will eventually accept the host's
+PHC as master clock, switch to slave mode, and reset its time stamps:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[WARN] [1744645260.742396500]: rate [Hz] in   5.00 out   0.00 drop   0 LIS off[s]: 1744645228.1477
+[WARN] [1744645265.742424829]: rate [Hz] in   5.00 out   0.00 drop   0 SLV off[s]: 1744645228.1478
+[INFO] [1744645270.742237929]: rate [Hz] in   5.00 out   0.00 drop   0 SLV off[s]: 0.0273
+</code></pre></div></div>
+
+<p>Note that once a camera has been up and running for a while it can be
+very reluctant to accept PTP message from a master and switch from
+listener (<code class="language-plaintext highlighter-rouge">LIS</code>) to Slave (<code class="language-plaintext highlighter-rouge">SLV</code>) mode. Power cycle the camera
+(disconnect the GigE/POE cable) to fix this. Best practice is to have
+the master clock running already before starting the camera.</p>
+
+<p><strong>Monitor the offset for a while!</strong> If the system clock of the host that
+is running the driver is not disciplined by the master PHC then the
+offset will keep drifting. Make sure that something keeps the system
+clock synchronized with the PHC.</p>
 
 <h2 id="how-to-develop-your-own-camera-configuration-file">How to develop your own camera configuration file</h2>
 
@@ -844,29 +951,23 @@ comes with the Spinnaker SDK. Once you know what property you want to
 expose as a ROS parameter, you add a mapping entry to the yaml
 configuration file, e.g.:</p>
 
-<p>``` {.sourceCode .}</p>
-<ul>
-  <li>name: image_width
-type: int
-node: ImageFormatControl/Width</li>
-</ul>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>- name: image_width
+  type: int
+  node: ImageFormatControl/Width
+</code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-With this entry in place, the ROS driver will now accept an integer
-parameter of name `image_width`, and whenever `image_width` changes, it
-will apply this change to the Spinnaker Node `ImageFormatControl/Width`.
+<p>With this entry in place, the ROS driver will now accept an integer
+parameter of name <code class="language-plaintext highlighter-rouge">image_width</code>, and whenever <code class="language-plaintext highlighter-rouge">image_width</code> changes, it
+will apply this change to the Spinnaker Node <code class="language-plaintext highlighter-rouge">ImageFormatControl/Width</code>.</p>
 
-Enumerations (`enum`) parameters are slightly trickier than float and
+<p>Enumerations (<code class="language-plaintext highlighter-rouge">enum</code>) parameters are slightly trickier than float and
 integers because their values are restricted to a set of strings. Any
 other strings will be rejected by the Spinnaker API. Please document the
-valid enum strings in the configuration file, e.g.:
+valid enum strings in the configuration file, e.g.:</p>
 
-
-``` {.sourceCode .}
-- name: line1_linemode  # valid values: "Input", "Output"
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>- name: line1_linemode  # valid values: "Input", "Output"
   type: enum
   node: DigitalIOControl/LineMode
-
 </code></pre></div></div>
 
 <p>The hard part is often finding the node name, in the last example
@@ -905,54 +1006,64 @@ set, or else the camera refuses to set the exposure time.</p>
 2)  Driver doesn't publish images and/or warns about incomplete images
     for GigE cameras</p>
 
-<p>``` {.sourceCode .}
-    rate [Hz] in  39.76 out   0.00 drop   0% INCOMPLETE 100%</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    rate [Hz] in  39.76 out   0.00 drop   0% INCOMPLETE 100%
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-    The reason for the incomplete images is usually that you are
-    exceeding the network bandwidth, causing packets to be dropped such
-    that incomplete frames arrive at the host. Check for the MTU on all
-    network cards and switches to be 9000 (jumbo frames). Sometimes the
-    MTU for switches has to be set higher. Also make sure the GigE
-    camera has jumbo frames enabled, i.e. `gev_scps_packet_size` is set
-    to 9000.
+The reason for the incomplete images is usually that you are
+exceeding the network bandwidth, causing packets to be dropped such
+that incomplete frames arrive at the host. Check for the MTU on all
+network cards and switches to be 9000 (jumbo frames). Sometimes the
+MTU for switches has to be set higher. Also make sure the GigE
+camera has jumbo frames enabled, i.e. `gev_scps_packet_size` is set
+to 9000.
+</code></pre></div></div>
 
-3)  Driver reports dropped packages. This means the connected subscriber
+<p>3)  Driver reports dropped packages. This means the connected subscriber
     is not picking up fast enough. Check CPU utilization of subscribers
     and the available network bandwidth between driver and subscriber.
 4)  Image seems laggy when viewed. This is usually not a camera driver
     issue, but related to ROS2 RMW or the image viewer. Check CPU
     utilization on displaying host and network bandwidth.
-5)  Camera doesn\'t reach desired frame rate. First play around in
+5)  Camera doesn't reach desired frame rate. First play around in
     SpinView to reproduce the problem there. For GigE cameras, check
     network bandwidth. Switch to Bayer images to reduce network
     bandwidth by a factor of three. Check your exposure time. The frame
     rate cannot exceed the inverse of the exposure time.
+6)  GigE camera cannot be initialized:</p>
 
-Setting up Linux without Spinnaker SDK
---------------------------------------
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    [19074765]: found camera with serial number: 19074765
+    [Spinnaker Wrapper]: Could not initialize camera on any interface!
+    [Spinnaker Wrapper]: failed attempt on interface: GEV Interface 1
 
-Only use these instructions if you did not install the Spinnaker SDK on
-your machine.
-
-1)  Somewhere in your `.bashrc` file, set the following env variable:
-
-
-``` {.sourceCode .}
-export SPINNAKER_GENTL64_CTI=/opt/ros/${ROS_DISTRO}/lib/spinnaker-gentl/Spinnaker_GenTL.cti
-
+Either the IP address of your camera is out-of-network (switch it to
+DHCP using SpinView) or another application (SpinView?) is currently
+using the camera.
 </code></pre></div></div>
+
+<h2 id="setting-up-linux-without-spinnaker-sdk">Setting up Linux without Spinnaker SDK</h2>
+
+<p>Only use these instructions if you did not install the Spinnaker SDK on
+your machine.</p>
+
+<p>1)  Somewhere in your <code class="language-plaintext highlighter-rouge">.bashrc</code> file, set the following env variable:</p>
+
+<blockquote>
+  <div class="language-plaintext highlighter-rouge">
+<div class="highlight"><pre class="highlight"><code>export SPINNAKER_GENTL64_CTI=/opt/ros/${ROS_DISTRO}/lib/spinnaker-gentl/Spinnaker_GenTL.cti
+</code></pre></div>  </div>
+</blockquote>
 
 <p>2)  Add the “flirimaging” group and make yourself a member of it</p>
 
-<p>``` {.sourceCode .}
-sudo addgroup flirimaging
-sudo usermod -a -G flirimaging ${USER}</p>
+<blockquote>
+  <div class="language-plaintext highlighter-rouge">
+<div class="highlight"><pre class="highlight"><code>sudo addgroup flirimaging
+sudo usermod -a -G flirimaging ${USER}
+</code></pre></div>  </div>
+</blockquote>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-3)  Bump the usbfs memory limits
+<p>3)  Bump the usbfs memory limits</p>
 
-The following was taken from
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>The following was taken from
 [here](https://www.flir.com/support-center/iis/machine-vision/application-note/using-linux-with-usb-3.1/).
 Edit the file `/etc/default/grub` and change the line default to:
 
@@ -963,28 +1074,26 @@ Then
     sudo update-grub
 
 If your system does not have `/etc/default/grub`, create the file
-`/etc/rc.local`, and change its permissions to 'executable'. Then write
-the following text to it:
+`/etc/rc.local`, and change its permissions to 'executable'. Then
+write the following text to it:
 
     #!/bin/sh -e
     sh -c 'echo 1000 &gt; /sys/module/usbcore/parameters/usbfs_memory_mb'
-
     exit 0
+</code></pre></div></div>
 
-4)  Setup udev rules
+<p>4)  Setup udev rules</p>
 
-
-``` {.sourceCode .}
-echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
-echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
-sudo service udev restart
-sudo udevadm trigger
-
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
+    echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
+    sudo service udev restart
+    sudo udevadm trigger
 </code></pre></div></div>
 
 <p>5)  Logout and log back in (or better, reboot)</p>
 
-<p><code class="language-plaintext highlighter-rouge">sudo reboot</code></p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    sudo reboot
+</code></pre></div></div>
 
 <h2 id="how-to-contribute">How to contribute</h2>
 
@@ -1019,6 +1128,16 @@ some basic lint tests:</p>
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-spinnaker_camera_driver">Changelog for package spinnaker_camera_driver</h1>
+
+<h2 id="302-2025-05-25">3.0.2 (2025-05-25)</h2>
+
+<ul>
+  <li>avoid ament_target_dependencies</li>
+  <li>fixed doc formatting</li>
+  <li>PTP support for spinnaker_camera_driver</li>
+  <li>added reverse x/y for blackfly s</li>
+  <li>Contributors: Bernd Pfrommer</li>
+</ul>
 
 <h2 id="301-2025-04-01">3.0.1 (2025-04-01)</h2>
 
@@ -1946,7 +2065,7 @@ jQuery(function() {
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>3.0.1</td>
+                <td>3.0.2</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -1994,7 +2113,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-04-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-25
         </span>
       </td>
     </tr>
@@ -2175,31 +2294,25 @@ above.</p>
 2)  Prepare the ROS2 driver build: Make sure you have your ROS2
     environment sourced:</p>
 
-<!-- -->
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    source /opt/ros/&lt;my_ros_distro&gt;/setup.bash
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>source /opt/ros/&lt;my_ros_distro&gt;/setup.bash
-</code></pre></div></div>
+Create a workspace (`~/ws`), clone this repo:
 
-<p>Create a workspace (<code class="language-plaintext highlighter-rouge">~/ws</code>), clone this repo:</p>
+    mkdir -p ~/ws/src
+    cd ~/ws/src
+    git clone --branch humble-devel https://github.com/ros-drivers/flir_camera_driver
+    cd ..
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mkdir -p ~/ws/src
-cd ~/ws/src
-git clone --branch humble-devel https://github.com/ros-drivers/flir_camera_driver
-cd ..
-</code></pre></div></div>
+To automatically install all packages that the `flir_camera_driver`
+packages depends upon, run this at the top of your workspace:
 
-<p>To automatically install all packages that the <code class="language-plaintext highlighter-rouge">flir_camera_driver</code>
-packages depends upon, run this at the top of your workspace:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>rosdep install --from-paths src --ignore-src
+    rosdep install --from-paths src --ignore-src
 </code></pre></div></div>
 
 <p>3)  Build the driver and source the workspace:</p>
 
-<!-- -->
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-. install/setup.bash
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    . install/setup.bash
 </code></pre></div></div>
 
 <h2 id="how-to-use">How to use</h2>
@@ -2221,15 +2334,8 @@ packages depends upon, run this at the top of your workspace:</p>
 
 <ul>
   <li>
-
-    <dl>
-      <dt>
-<code class="language-plaintext highlighter-rouge">~/control</code>: (only when <code class="language-plaintext highlighter-rouge">enable_external_control</code> is set to True)</dt>
-      <dd>
-        <p>for external control exposure time and gain.</p>
-      </dd>
-    </dl>
-  </li>
+<code class="language-plaintext highlighter-rouge">~/control</code>: (only when <code class="language-plaintext highlighter-rouge">enable_external_control</code> is set to True)
+for external control exposure time and gain.</li>
 </ul>
 
 <h3 id="parameters">Parameters</h3>
@@ -2290,13 +2396,27 @@ image messages.</li>
 <code class="language-plaintext highlighter-rouge">image_queue_size</code>: ROS output queue size (number of frames).
 Default: 4</li>
   <li>
+<code class="language-plaintext highlighter-rouge">max_ieee_1588_offset</code>: maximum allowed PTP/system clock offset
+[s] before warning is triggered. Default: 0.1</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">min_ieee_1588_offset</code>: minimum PTP offset [s] before warning is
+triggered. Default: 0</li>
+  <li>
 <code class="language-plaintext highlighter-rouge">parameter_file</code>: location of the .yaml file defining the camera
 (blackfly_s.yaml etc)</li>
   <li>
 <code class="language-plaintext highlighter-rouge">serial_number</code>: serial number of the camera. If you don’t know it,
 put in anything you like and the driver will croak with an error
 message, telling you what cameras serial numbers are available</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_ieee_1588</code>: use PTP (IEEE 1588) to set the <code class="language-plaintext highlighter-rouge">header.stamp</code> time
+stamp instead of system time. Note that you will still need to
+enable IEEE 1588 at the camera level, and enable time stamp
+"chunks". Default: false.</li>
 </ul>
+
+<p>The parameters listed above <em>cannot</em> be dynamically updated at runtime
+but require a driver restart to modify.</p>
 
 <p>Parameters can also be defined to correspond to commands for the camera
 to run, for example a <a href="https://github.com/ros-drivers/flir_camera_driver/blob/76fe2ff0c3e92d2ebcdea7c6e792e7cea8cf5f0e/spinnaker_camera_driver/config/oryx.yaml#L192">software
@@ -2390,10 +2510,116 @@ for the port that connects to your camera to "Link-Local Only." (You
 could also set the IPv4 Method to "Manual" with an address of
 169.254.100.1 and a subnet mask of 255.255.0.0).</p>
 
+<p>To check if the MTU settings are working correctly on the host you can
+ping with large packet size from a different host on the same network
+(must also have a MTU of 9000):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ping &lt;host_ip_address&gt; -c 2 -M do -s 8972
+</code></pre></div></div>
+
+<p>Note that this will <em>not</em> work if you ping the camera: you will find a
+MTU size of 1500, even if both camera and host NIC have correct MTU
+setting. Beware that some network cards have <a href="https://www.reddit.com/r/networking/comments/1ebvj5y/linux_ptp_and_jumbo_frames_for_gige_vision/">bugs that mess up the MTU
+when running
+ptp4l</a>.</p>
+
 <p>For more tips on GigE setup look at FLIR’s support pages
 <a href="https://www.flir.com/support-center/iis/machine-vision/knowledge-base/lost-ethernet-data-packets-on-linux-systems/">here</a>
 and
 <a href="https://www.flir.com/support-center/iis/machine-vision/application-note/troubleshooting-image-consistency-errors/">here</a>.</p>
+
+<h2 id="configuring-ptp-ieee-1588">Configuring PTP (IEEE 1588)</h2>
+
+<p>The following resources are useful to learn about PTP setup on Linux:</p>
+
+<ul>
+  <li><a href="https://tsn.readthedocs.io/timesync.html/">Synchronizing Time with Linux
+PTP</a></li>
+  <li>
+<a href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/7/html/system_administrators_guide/ch-configuring_ptp_using_ptp4l#sec-Checking_for_Driver_and_Hardware_Support/">RedHat Configuring PTP using
+ptp4l</a>.</li>
+</ul>
+
+<p>Only FLIR GigE cameras are PTP capable, but not all of them. For example
+the Blackfly series does not have PTP support, but the Blackfly S series
+does.</p>
+
+<p>Each camera has a built-in PTP hardware clock (PHC). To use it, you need
+to:</p>
+
+<ul>
+  <li>configure the camera to use PTP by enabling it either in SpinView or
+via the ROS parameter [gev_ieee_1588]{.title-ref}` (set to
+true/false)</li>
+  <li>run the camera in <code class="language-plaintext highlighter-rouge">Auto</code> or <code class="language-plaintext highlighter-rouge">SlaveOnly</code> mode by setting the
+corresponding parameter in SpinView or using the ROS parameter
+<code class="language-plaintext highlighter-rouge">gev_ieee_1588_mode</code>.</li>
+  <li>enable time stamps being sent via chunks by setting
+<code class="language-plaintext highlighter-rouge">chunk_mode_active</code> to <code class="language-plaintext highlighter-rouge">True</code>, <code class="language-plaintext highlighter-rouge">chunk_selector_timestamp</code> to
+<code class="language-plaintext highlighter-rouge">Timestamp</code> followed by <code class="language-plaintext highlighter-rouge">chunk_enable_timestamp</code> to True.</li>
+  <li>tell the driver to actually use the time stamps instead of the
+system clock by setting <code class="language-plaintext highlighter-rouge">use_ieee_1588</code> to True. If this flag is
+set, the driver will populate the ROS image message header stamp
+with the PTP time stamp.</li>
+</ul>
+
+<p>The launch file section for the Blackfly S has some commented out
+example settings.</p>
+
+<p>When the camera boots up it will start its PHC time at zero rather than
+at the correct time (TAI). The driver log will have warning messages and
+indicate a huge offset.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[WARN] [1744643742.707293740] rate [Hz] in   5.01 out   0.00 drop   0 LIS off[s]: 1744643660.7902
+</code></pre></div></div>
+
+<p><strong>Do not run like that</strong> because your image header stamps will be
+totally messed up. In the above example, the camera has been started in
+<code class="language-plaintext highlighter-rouge">SlaveOnly</code> mode, and hence is in the <code class="language-plaintext highlighter-rouge">LIS</code> status (listening). This
+cannot be fixed by running the camera in <code class="language-plaintext highlighter-rouge">Auto</code> mode, because the camera
+has no way to set its PHC to a network time. Although the camera will
+eventually assume a role as master and the clock status will show <code class="language-plaintext highlighter-rouge">MAS</code>,
+it will still have a huge offset. To fix this you must provide PTP
+messages from another host on the network by running <code class="language-plaintext highlighter-rouge">ptp4l</code> like so: :</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ptp4l -i eth0 -m
+</code></pre></div></div>
+
+<p>If you have some fancy PTP capable hardware clock attached to this host,
+you can synchronize your host system clock with the PHC of the network
+card:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>phc2sys -c /dev/ptp_my_fancy_clock -c CLOCK_REALTIME -O 0 -m -l 6
+</code></pre></div></div>
+
+<p>and you are all set. Alternatively you can force the network card's PHC
+to follow your host's system clock:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>phc2sys -s CLOCK_REALTIME -c /dev/ptp0 -O 0 -m -l 6
+</code></pre></div></div>
+
+<p>In this scenario you need to make sure that your host's system clock
+does not exhibit jumps, e.g. use something like <code class="language-plaintext highlighter-rouge">chrony</code> to keep it
+smoothly in sync with network time.</p>
+
+<p>Once the camera gets PTP packets it will eventually accept the host's
+PHC as master clock, switch to slave mode, and reset its time stamps:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[WARN] [1744645260.742396500]: rate [Hz] in   5.00 out   0.00 drop   0 LIS off[s]: 1744645228.1477
+[WARN] [1744645265.742424829]: rate [Hz] in   5.00 out   0.00 drop   0 SLV off[s]: 1744645228.1478
+[INFO] [1744645270.742237929]: rate [Hz] in   5.00 out   0.00 drop   0 SLV off[s]: 0.0273
+</code></pre></div></div>
+
+<p>Note that once a camera has been up and running for a while it can be
+very reluctant to accept PTP message from a master and switch from
+listener (<code class="language-plaintext highlighter-rouge">LIS</code>) to Slave (<code class="language-plaintext highlighter-rouge">SLV</code>) mode. Power cycle the camera
+(disconnect the GigE/POE cable) to fix this. Best practice is to have
+the master clock running already before starting the camera.</p>
+
+<p><strong>Monitor the offset for a while!</strong> If the system clock of the host that
+is running the driver is not disciplined by the master PHC then the
+offset will keep drifting. Make sure that something keeps the system
+clock synchronized with the PHC.</p>
 
 <h2 id="how-to-develop-your-own-camera-configuration-file">How to develop your own camera configuration file</h2>
 
@@ -2409,29 +2635,23 @@ comes with the Spinnaker SDK. Once you know what property you want to
 expose as a ROS parameter, you add a mapping entry to the yaml
 configuration file, e.g.:</p>
 
-<p>``` {.sourceCode .}</p>
-<ul>
-  <li>name: image_width
-type: int
-node: ImageFormatControl/Width</li>
-</ul>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>- name: image_width
+  type: int
+  node: ImageFormatControl/Width
+</code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-With this entry in place, the ROS driver will now accept an integer
-parameter of name `image_width`, and whenever `image_width` changes, it
-will apply this change to the Spinnaker Node `ImageFormatControl/Width`.
+<p>With this entry in place, the ROS driver will now accept an integer
+parameter of name <code class="language-plaintext highlighter-rouge">image_width</code>, and whenever <code class="language-plaintext highlighter-rouge">image_width</code> changes, it
+will apply this change to the Spinnaker Node <code class="language-plaintext highlighter-rouge">ImageFormatControl/Width</code>.</p>
 
-Enumerations (`enum`) parameters are slightly trickier than float and
+<p>Enumerations (<code class="language-plaintext highlighter-rouge">enum</code>) parameters are slightly trickier than float and
 integers because their values are restricted to a set of strings. Any
 other strings will be rejected by the Spinnaker API. Please document the
-valid enum strings in the configuration file, e.g.:
+valid enum strings in the configuration file, e.g.:</p>
 
-
-``` {.sourceCode .}
-- name: line1_linemode  # valid values: "Input", "Output"
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>- name: line1_linemode  # valid values: "Input", "Output"
   type: enum
   node: DigitalIOControl/LineMode
-
 </code></pre></div></div>
 
 <p>The hard part is often finding the node name, in the last example
@@ -2470,54 +2690,64 @@ set, or else the camera refuses to set the exposure time.</p>
 2)  Driver doesn't publish images and/or warns about incomplete images
     for GigE cameras</p>
 
-<p>``` {.sourceCode .}
-    rate [Hz] in  39.76 out   0.00 drop   0% INCOMPLETE 100%</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    rate [Hz] in  39.76 out   0.00 drop   0% INCOMPLETE 100%
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-    The reason for the incomplete images is usually that you are
-    exceeding the network bandwidth, causing packets to be dropped such
-    that incomplete frames arrive at the host. Check for the MTU on all
-    network cards and switches to be 9000 (jumbo frames). Sometimes the
-    MTU for switches has to be set higher. Also make sure the GigE
-    camera has jumbo frames enabled, i.e. `gev_scps_packet_size` is set
-    to 9000.
+The reason for the incomplete images is usually that you are
+exceeding the network bandwidth, causing packets to be dropped such
+that incomplete frames arrive at the host. Check for the MTU on all
+network cards and switches to be 9000 (jumbo frames). Sometimes the
+MTU for switches has to be set higher. Also make sure the GigE
+camera has jumbo frames enabled, i.e. `gev_scps_packet_size` is set
+to 9000.
+</code></pre></div></div>
 
-3)  Driver reports dropped packages. This means the connected subscriber
+<p>3)  Driver reports dropped packages. This means the connected subscriber
     is not picking up fast enough. Check CPU utilization of subscribers
     and the available network bandwidth between driver and subscriber.
 4)  Image seems laggy when viewed. This is usually not a camera driver
     issue, but related to ROS2 RMW or the image viewer. Check CPU
     utilization on displaying host and network bandwidth.
-5)  Camera doesn\'t reach desired frame rate. First play around in
+5)  Camera doesn't reach desired frame rate. First play around in
     SpinView to reproduce the problem there. For GigE cameras, check
     network bandwidth. Switch to Bayer images to reduce network
     bandwidth by a factor of three. Check your exposure time. The frame
     rate cannot exceed the inverse of the exposure time.
+6)  GigE camera cannot be initialized:</p>
 
-Setting up Linux without Spinnaker SDK
---------------------------------------
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    [19074765]: found camera with serial number: 19074765
+    [Spinnaker Wrapper]: Could not initialize camera on any interface!
+    [Spinnaker Wrapper]: failed attempt on interface: GEV Interface 1
 
-Only use these instructions if you did not install the Spinnaker SDK on
-your machine.
-
-1)  Somewhere in your `.bashrc` file, set the following env variable:
-
-
-``` {.sourceCode .}
-export SPINNAKER_GENTL64_CTI=/opt/ros/${ROS_DISTRO}/lib/spinnaker-gentl/Spinnaker_GenTL.cti
-
+Either the IP address of your camera is out-of-network (switch it to
+DHCP using SpinView) or another application (SpinView?) is currently
+using the camera.
 </code></pre></div></div>
+
+<h2 id="setting-up-linux-without-spinnaker-sdk">Setting up Linux without Spinnaker SDK</h2>
+
+<p>Only use these instructions if you did not install the Spinnaker SDK on
+your machine.</p>
+
+<p>1)  Somewhere in your <code class="language-plaintext highlighter-rouge">.bashrc</code> file, set the following env variable:</p>
+
+<blockquote>
+  <div class="language-plaintext highlighter-rouge">
+<div class="highlight"><pre class="highlight"><code>export SPINNAKER_GENTL64_CTI=/opt/ros/${ROS_DISTRO}/lib/spinnaker-gentl/Spinnaker_GenTL.cti
+</code></pre></div>  </div>
+</blockquote>
 
 <p>2)  Add the “flirimaging” group and make yourself a member of it</p>
 
-<p>``` {.sourceCode .}
-sudo addgroup flirimaging
-sudo usermod -a -G flirimaging ${USER}</p>
+<blockquote>
+  <div class="language-plaintext highlighter-rouge">
+<div class="highlight"><pre class="highlight"><code>sudo addgroup flirimaging
+sudo usermod -a -G flirimaging ${USER}
+</code></pre></div>  </div>
+</blockquote>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-3)  Bump the usbfs memory limits
+<p>3)  Bump the usbfs memory limits</p>
 
-The following was taken from
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>The following was taken from
 [here](https://www.flir.com/support-center/iis/machine-vision/application-note/using-linux-with-usb-3.1/).
 Edit the file `/etc/default/grub` and change the line default to:
 
@@ -2528,28 +2758,26 @@ Then
     sudo update-grub
 
 If your system does not have `/etc/default/grub`, create the file
-`/etc/rc.local`, and change its permissions to 'executable'. Then write
-the following text to it:
+`/etc/rc.local`, and change its permissions to 'executable'. Then
+write the following text to it:
 
     #!/bin/sh -e
     sh -c 'echo 1000 &gt; /sys/module/usbcore/parameters/usbfs_memory_mb'
-
     exit 0
+</code></pre></div></div>
 
-4)  Setup udev rules
+<p>4)  Setup udev rules</p>
 
-
-``` {.sourceCode .}
-echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
-echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
-sudo service udev restart
-sudo udevadm trigger
-
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
+    echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
+    sudo service udev restart
+    sudo udevadm trigger
 </code></pre></div></div>
 
 <p>5)  Logout and log back in (or better, reboot)</p>
 
-<p><code class="language-plaintext highlighter-rouge">sudo reboot</code></p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    sudo reboot
+</code></pre></div></div>
 
 <h2 id="how-to-contribute">How to contribute</h2>
 
@@ -2584,6 +2812,16 @@ some basic lint tests:</p>
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-spinnaker_camera_driver">Changelog for package spinnaker_camera_driver</h1>
+
+<h2 id="302-2025-05-25">3.0.2 (2025-05-25)</h2>
+
+<ul>
+  <li>avoid ament_target_dependencies</li>
+  <li>fixed doc formatting</li>
+  <li>PTP support for spinnaker_camera_driver</li>
+  <li>added reverse x/y for blackfly s</li>
+  <li>Contributors: Bernd Pfrommer</li>
+</ul>
 
 <h2 id="301-2025-04-01">3.0.1 (2025-04-01)</h2>
 
@@ -3511,7 +3749,7 @@ jQuery(function() {
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>3.0.1</td>
+                <td>3.0.2</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -3559,7 +3797,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-04-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-25
         </span>
       </td>
     </tr>
@@ -3740,31 +3978,25 @@ above.</p>
 2)  Prepare the ROS2 driver build: Make sure you have your ROS2
     environment sourced:</p>
 
-<!-- -->
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    source /opt/ros/&lt;my_ros_distro&gt;/setup.bash
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>source /opt/ros/&lt;my_ros_distro&gt;/setup.bash
-</code></pre></div></div>
+Create a workspace (`~/ws`), clone this repo:
 
-<p>Create a workspace (<code class="language-plaintext highlighter-rouge">~/ws</code>), clone this repo:</p>
+    mkdir -p ~/ws/src
+    cd ~/ws/src
+    git clone --branch humble-devel https://github.com/ros-drivers/flir_camera_driver
+    cd ..
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mkdir -p ~/ws/src
-cd ~/ws/src
-git clone --branch humble-devel https://github.com/ros-drivers/flir_camera_driver
-cd ..
-</code></pre></div></div>
+To automatically install all packages that the `flir_camera_driver`
+packages depends upon, run this at the top of your workspace:
 
-<p>To automatically install all packages that the <code class="language-plaintext highlighter-rouge">flir_camera_driver</code>
-packages depends upon, run this at the top of your workspace:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>rosdep install --from-paths src --ignore-src
+    rosdep install --from-paths src --ignore-src
 </code></pre></div></div>
 
 <p>3)  Build the driver and source the workspace:</p>
 
-<!-- -->
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-. install/setup.bash
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    . install/setup.bash
 </code></pre></div></div>
 
 <h2 id="how-to-use">How to use</h2>
@@ -3786,15 +4018,8 @@ packages depends upon, run this at the top of your workspace:</p>
 
 <ul>
   <li>
-
-    <dl>
-      <dt>
-<code class="language-plaintext highlighter-rouge">~/control</code>: (only when <code class="language-plaintext highlighter-rouge">enable_external_control</code> is set to True)</dt>
-      <dd>
-        <p>for external control exposure time and gain.</p>
-      </dd>
-    </dl>
-  </li>
+<code class="language-plaintext highlighter-rouge">~/control</code>: (only when <code class="language-plaintext highlighter-rouge">enable_external_control</code> is set to True)
+for external control exposure time and gain.</li>
 </ul>
 
 <h3 id="parameters">Parameters</h3>
@@ -3855,13 +4080,27 @@ image messages.</li>
 <code class="language-plaintext highlighter-rouge">image_queue_size</code>: ROS output queue size (number of frames).
 Default: 4</li>
   <li>
+<code class="language-plaintext highlighter-rouge">max_ieee_1588_offset</code>: maximum allowed PTP/system clock offset
+[s] before warning is triggered. Default: 0.1</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">min_ieee_1588_offset</code>: minimum PTP offset [s] before warning is
+triggered. Default: 0</li>
+  <li>
 <code class="language-plaintext highlighter-rouge">parameter_file</code>: location of the .yaml file defining the camera
 (blackfly_s.yaml etc)</li>
   <li>
 <code class="language-plaintext highlighter-rouge">serial_number</code>: serial number of the camera. If you don’t know it,
 put in anything you like and the driver will croak with an error
 message, telling you what cameras serial numbers are available</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_ieee_1588</code>: use PTP (IEEE 1588) to set the <code class="language-plaintext highlighter-rouge">header.stamp</code> time
+stamp instead of system time. Note that you will still need to
+enable IEEE 1588 at the camera level, and enable time stamp
+"chunks". Default: false.</li>
 </ul>
+
+<p>The parameters listed above <em>cannot</em> be dynamically updated at runtime
+but require a driver restart to modify.</p>
 
 <p>Parameters can also be defined to correspond to commands for the camera
 to run, for example a <a href="https://github.com/ros-drivers/flir_camera_driver/blob/76fe2ff0c3e92d2ebcdea7c6e792e7cea8cf5f0e/spinnaker_camera_driver/config/oryx.yaml#L192">software
@@ -3955,10 +4194,116 @@ for the port that connects to your camera to "Link-Local Only." (You
 could also set the IPv4 Method to "Manual" with an address of
 169.254.100.1 and a subnet mask of 255.255.0.0).</p>
 
+<p>To check if the MTU settings are working correctly on the host you can
+ping with large packet size from a different host on the same network
+(must also have a MTU of 9000):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ping &lt;host_ip_address&gt; -c 2 -M do -s 8972
+</code></pre></div></div>
+
+<p>Note that this will <em>not</em> work if you ping the camera: you will find a
+MTU size of 1500, even if both camera and host NIC have correct MTU
+setting. Beware that some network cards have <a href="https://www.reddit.com/r/networking/comments/1ebvj5y/linux_ptp_and_jumbo_frames_for_gige_vision/">bugs that mess up the MTU
+when running
+ptp4l</a>.</p>
+
 <p>For more tips on GigE setup look at FLIR’s support pages
 <a href="https://www.flir.com/support-center/iis/machine-vision/knowledge-base/lost-ethernet-data-packets-on-linux-systems/">here</a>
 and
 <a href="https://www.flir.com/support-center/iis/machine-vision/application-note/troubleshooting-image-consistency-errors/">here</a>.</p>
+
+<h2 id="configuring-ptp-ieee-1588">Configuring PTP (IEEE 1588)</h2>
+
+<p>The following resources are useful to learn about PTP setup on Linux:</p>
+
+<ul>
+  <li><a href="https://tsn.readthedocs.io/timesync.html/">Synchronizing Time with Linux
+PTP</a></li>
+  <li>
+<a href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/7/html/system_administrators_guide/ch-configuring_ptp_using_ptp4l#sec-Checking_for_Driver_and_Hardware_Support/">RedHat Configuring PTP using
+ptp4l</a>.</li>
+</ul>
+
+<p>Only FLIR GigE cameras are PTP capable, but not all of them. For example
+the Blackfly series does not have PTP support, but the Blackfly S series
+does.</p>
+
+<p>Each camera has a built-in PTP hardware clock (PHC). To use it, you need
+to:</p>
+
+<ul>
+  <li>configure the camera to use PTP by enabling it either in SpinView or
+via the ROS parameter [gev_ieee_1588]{.title-ref}` (set to
+true/false)</li>
+  <li>run the camera in <code class="language-plaintext highlighter-rouge">Auto</code> or <code class="language-plaintext highlighter-rouge">SlaveOnly</code> mode by setting the
+corresponding parameter in SpinView or using the ROS parameter
+<code class="language-plaintext highlighter-rouge">gev_ieee_1588_mode</code>.</li>
+  <li>enable time stamps being sent via chunks by setting
+<code class="language-plaintext highlighter-rouge">chunk_mode_active</code> to <code class="language-plaintext highlighter-rouge">True</code>, <code class="language-plaintext highlighter-rouge">chunk_selector_timestamp</code> to
+<code class="language-plaintext highlighter-rouge">Timestamp</code> followed by <code class="language-plaintext highlighter-rouge">chunk_enable_timestamp</code> to True.</li>
+  <li>tell the driver to actually use the time stamps instead of the
+system clock by setting <code class="language-plaintext highlighter-rouge">use_ieee_1588</code> to True. If this flag is
+set, the driver will populate the ROS image message header stamp
+with the PTP time stamp.</li>
+</ul>
+
+<p>The launch file section for the Blackfly S has some commented out
+example settings.</p>
+
+<p>When the camera boots up it will start its PHC time at zero rather than
+at the correct time (TAI). The driver log will have warning messages and
+indicate a huge offset.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[WARN] [1744643742.707293740] rate [Hz] in   5.01 out   0.00 drop   0 LIS off[s]: 1744643660.7902
+</code></pre></div></div>
+
+<p><strong>Do not run like that</strong> because your image header stamps will be
+totally messed up. In the above example, the camera has been started in
+<code class="language-plaintext highlighter-rouge">SlaveOnly</code> mode, and hence is in the <code class="language-plaintext highlighter-rouge">LIS</code> status (listening). This
+cannot be fixed by running the camera in <code class="language-plaintext highlighter-rouge">Auto</code> mode, because the camera
+has no way to set its PHC to a network time. Although the camera will
+eventually assume a role as master and the clock status will show <code class="language-plaintext highlighter-rouge">MAS</code>,
+it will still have a huge offset. To fix this you must provide PTP
+messages from another host on the network by running <code class="language-plaintext highlighter-rouge">ptp4l</code> like so: :</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ptp4l -i eth0 -m
+</code></pre></div></div>
+
+<p>If you have some fancy PTP capable hardware clock attached to this host,
+you can synchronize your host system clock with the PHC of the network
+card:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>phc2sys -c /dev/ptp_my_fancy_clock -c CLOCK_REALTIME -O 0 -m -l 6
+</code></pre></div></div>
+
+<p>and you are all set. Alternatively you can force the network card's PHC
+to follow your host's system clock:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>phc2sys -s CLOCK_REALTIME -c /dev/ptp0 -O 0 -m -l 6
+</code></pre></div></div>
+
+<p>In this scenario you need to make sure that your host's system clock
+does not exhibit jumps, e.g. use something like <code class="language-plaintext highlighter-rouge">chrony</code> to keep it
+smoothly in sync with network time.</p>
+
+<p>Once the camera gets PTP packets it will eventually accept the host's
+PHC as master clock, switch to slave mode, and reset its time stamps:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[WARN] [1744645260.742396500]: rate [Hz] in   5.00 out   0.00 drop   0 LIS off[s]: 1744645228.1477
+[WARN] [1744645265.742424829]: rate [Hz] in   5.00 out   0.00 drop   0 SLV off[s]: 1744645228.1478
+[INFO] [1744645270.742237929]: rate [Hz] in   5.00 out   0.00 drop   0 SLV off[s]: 0.0273
+</code></pre></div></div>
+
+<p>Note that once a camera has been up and running for a while it can be
+very reluctant to accept PTP message from a master and switch from
+listener (<code class="language-plaintext highlighter-rouge">LIS</code>) to Slave (<code class="language-plaintext highlighter-rouge">SLV</code>) mode. Power cycle the camera
+(disconnect the GigE/POE cable) to fix this. Best practice is to have
+the master clock running already before starting the camera.</p>
+
+<p><strong>Monitor the offset for a while!</strong> If the system clock of the host that
+is running the driver is not disciplined by the master PHC then the
+offset will keep drifting. Make sure that something keeps the system
+clock synchronized with the PHC.</p>
 
 <h2 id="how-to-develop-your-own-camera-configuration-file">How to develop your own camera configuration file</h2>
 
@@ -3974,29 +4319,23 @@ comes with the Spinnaker SDK. Once you know what property you want to
 expose as a ROS parameter, you add a mapping entry to the yaml
 configuration file, e.g.:</p>
 
-<p>``` {.sourceCode .}</p>
-<ul>
-  <li>name: image_width
-type: int
-node: ImageFormatControl/Width</li>
-</ul>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>- name: image_width
+  type: int
+  node: ImageFormatControl/Width
+</code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-With this entry in place, the ROS driver will now accept an integer
-parameter of name `image_width`, and whenever `image_width` changes, it
-will apply this change to the Spinnaker Node `ImageFormatControl/Width`.
+<p>With this entry in place, the ROS driver will now accept an integer
+parameter of name <code class="language-plaintext highlighter-rouge">image_width</code>, and whenever <code class="language-plaintext highlighter-rouge">image_width</code> changes, it
+will apply this change to the Spinnaker Node <code class="language-plaintext highlighter-rouge">ImageFormatControl/Width</code>.</p>
 
-Enumerations (`enum`) parameters are slightly trickier than float and
+<p>Enumerations (<code class="language-plaintext highlighter-rouge">enum</code>) parameters are slightly trickier than float and
 integers because their values are restricted to a set of strings. Any
 other strings will be rejected by the Spinnaker API. Please document the
-valid enum strings in the configuration file, e.g.:
+valid enum strings in the configuration file, e.g.:</p>
 
-
-``` {.sourceCode .}
-- name: line1_linemode  # valid values: "Input", "Output"
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>- name: line1_linemode  # valid values: "Input", "Output"
   type: enum
   node: DigitalIOControl/LineMode
-
 </code></pre></div></div>
 
 <p>The hard part is often finding the node name, in the last example
@@ -4035,54 +4374,64 @@ set, or else the camera refuses to set the exposure time.</p>
 2)  Driver doesn't publish images and/or warns about incomplete images
     for GigE cameras</p>
 
-<p>``` {.sourceCode .}
-    rate [Hz] in  39.76 out   0.00 drop   0% INCOMPLETE 100%</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    rate [Hz] in  39.76 out   0.00 drop   0% INCOMPLETE 100%
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-    The reason for the incomplete images is usually that you are
-    exceeding the network bandwidth, causing packets to be dropped such
-    that incomplete frames arrive at the host. Check for the MTU on all
-    network cards and switches to be 9000 (jumbo frames). Sometimes the
-    MTU for switches has to be set higher. Also make sure the GigE
-    camera has jumbo frames enabled, i.e. `gev_scps_packet_size` is set
-    to 9000.
+The reason for the incomplete images is usually that you are
+exceeding the network bandwidth, causing packets to be dropped such
+that incomplete frames arrive at the host. Check for the MTU on all
+network cards and switches to be 9000 (jumbo frames). Sometimes the
+MTU for switches has to be set higher. Also make sure the GigE
+camera has jumbo frames enabled, i.e. `gev_scps_packet_size` is set
+to 9000.
+</code></pre></div></div>
 
-3)  Driver reports dropped packages. This means the connected subscriber
+<p>3)  Driver reports dropped packages. This means the connected subscriber
     is not picking up fast enough. Check CPU utilization of subscribers
     and the available network bandwidth between driver and subscriber.
 4)  Image seems laggy when viewed. This is usually not a camera driver
     issue, but related to ROS2 RMW or the image viewer. Check CPU
     utilization on displaying host and network bandwidth.
-5)  Camera doesn\'t reach desired frame rate. First play around in
+5)  Camera doesn't reach desired frame rate. First play around in
     SpinView to reproduce the problem there. For GigE cameras, check
     network bandwidth. Switch to Bayer images to reduce network
     bandwidth by a factor of three. Check your exposure time. The frame
     rate cannot exceed the inverse of the exposure time.
+6)  GigE camera cannot be initialized:</p>
 
-Setting up Linux without Spinnaker SDK
---------------------------------------
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    [19074765]: found camera with serial number: 19074765
+    [Spinnaker Wrapper]: Could not initialize camera on any interface!
+    [Spinnaker Wrapper]: failed attempt on interface: GEV Interface 1
 
-Only use these instructions if you did not install the Spinnaker SDK on
-your machine.
-
-1)  Somewhere in your `.bashrc` file, set the following env variable:
-
-
-``` {.sourceCode .}
-export SPINNAKER_GENTL64_CTI=/opt/ros/${ROS_DISTRO}/lib/spinnaker-gentl/Spinnaker_GenTL.cti
-
+Either the IP address of your camera is out-of-network (switch it to
+DHCP using SpinView) or another application (SpinView?) is currently
+using the camera.
 </code></pre></div></div>
+
+<h2 id="setting-up-linux-without-spinnaker-sdk">Setting up Linux without Spinnaker SDK</h2>
+
+<p>Only use these instructions if you did not install the Spinnaker SDK on
+your machine.</p>
+
+<p>1)  Somewhere in your <code class="language-plaintext highlighter-rouge">.bashrc</code> file, set the following env variable:</p>
+
+<blockquote>
+  <div class="language-plaintext highlighter-rouge">
+<div class="highlight"><pre class="highlight"><code>export SPINNAKER_GENTL64_CTI=/opt/ros/${ROS_DISTRO}/lib/spinnaker-gentl/Spinnaker_GenTL.cti
+</code></pre></div>  </div>
+</blockquote>
 
 <p>2)  Add the “flirimaging” group and make yourself a member of it</p>
 
-<p>``` {.sourceCode .}
-sudo addgroup flirimaging
-sudo usermod -a -G flirimaging ${USER}</p>
+<blockquote>
+  <div class="language-plaintext highlighter-rouge">
+<div class="highlight"><pre class="highlight"><code>sudo addgroup flirimaging
+sudo usermod -a -G flirimaging ${USER}
+</code></pre></div>  </div>
+</blockquote>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-3)  Bump the usbfs memory limits
+<p>3)  Bump the usbfs memory limits</p>
 
-The following was taken from
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>The following was taken from
 [here](https://www.flir.com/support-center/iis/machine-vision/application-note/using-linux-with-usb-3.1/).
 Edit the file `/etc/default/grub` and change the line default to:
 
@@ -4093,28 +4442,26 @@ Then
     sudo update-grub
 
 If your system does not have `/etc/default/grub`, create the file
-`/etc/rc.local`, and change its permissions to 'executable'. Then write
-the following text to it:
+`/etc/rc.local`, and change its permissions to 'executable'. Then
+write the following text to it:
 
     #!/bin/sh -e
     sh -c 'echo 1000 &gt; /sys/module/usbcore/parameters/usbfs_memory_mb'
-
     exit 0
+</code></pre></div></div>
 
-4)  Setup udev rules
+<p>4)  Setup udev rules</p>
 
-
-``` {.sourceCode .}
-echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
-echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
-sudo service udev restart
-sudo udevadm trigger
-
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
+    echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
+    sudo service udev restart
+    sudo udevadm trigger
 </code></pre></div></div>
 
 <p>5)  Logout and log back in (or better, reboot)</p>
 
-<p><code class="language-plaintext highlighter-rouge">sudo reboot</code></p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    sudo reboot
+</code></pre></div></div>
 
 <h2 id="how-to-contribute">How to contribute</h2>
 
@@ -4149,6 +4496,16 @@ some basic lint tests:</p>
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-spinnaker_camera_driver">Changelog for package spinnaker_camera_driver</h1>
+
+<h2 id="302-2025-05-25">3.0.2 (2025-05-25)</h2>
+
+<ul>
+  <li>avoid ament_target_dependencies</li>
+  <li>fixed doc formatting</li>
+  <li>PTP support for spinnaker_camera_driver</li>
+  <li>added reverse x/y for blackfly s</li>
+  <li>Contributors: Bernd Pfrommer</li>
+</ul>
 
 <h2 id="301-2025-04-01">3.0.1 (2025-04-01)</h2>
 
@@ -5076,7 +5433,7 @@ jQuery(function() {
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>3.0.1</td>
+                <td>3.0.2</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -5124,7 +5481,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-04-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-25
         </span>
       </td>
     </tr>
@@ -5305,31 +5662,25 @@ above.</p>
 2)  Prepare the ROS2 driver build: Make sure you have your ROS2
     environment sourced:</p>
 
-<!-- -->
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    source /opt/ros/&lt;my_ros_distro&gt;/setup.bash
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>source /opt/ros/&lt;my_ros_distro&gt;/setup.bash
-</code></pre></div></div>
+Create a workspace (`~/ws`), clone this repo:
 
-<p>Create a workspace (<code class="language-plaintext highlighter-rouge">~/ws</code>), clone this repo:</p>
+    mkdir -p ~/ws/src
+    cd ~/ws/src
+    git clone --branch humble-devel https://github.com/ros-drivers/flir_camera_driver
+    cd ..
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mkdir -p ~/ws/src
-cd ~/ws/src
-git clone --branch humble-devel https://github.com/ros-drivers/flir_camera_driver
-cd ..
-</code></pre></div></div>
+To automatically install all packages that the `flir_camera_driver`
+packages depends upon, run this at the top of your workspace:
 
-<p>To automatically install all packages that the <code class="language-plaintext highlighter-rouge">flir_camera_driver</code>
-packages depends upon, run this at the top of your workspace:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>rosdep install --from-paths src --ignore-src
+    rosdep install --from-paths src --ignore-src
 </code></pre></div></div>
 
 <p>3)  Build the driver and source the workspace:</p>
 
-<!-- -->
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-. install/setup.bash
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    . install/setup.bash
 </code></pre></div></div>
 
 <h2 id="how-to-use">How to use</h2>
@@ -5351,15 +5702,8 @@ packages depends upon, run this at the top of your workspace:</p>
 
 <ul>
   <li>
-
-    <dl>
-      <dt>
-<code class="language-plaintext highlighter-rouge">~/control</code>: (only when <code class="language-plaintext highlighter-rouge">enable_external_control</code> is set to True)</dt>
-      <dd>
-        <p>for external control exposure time and gain.</p>
-      </dd>
-    </dl>
-  </li>
+<code class="language-plaintext highlighter-rouge">~/control</code>: (only when <code class="language-plaintext highlighter-rouge">enable_external_control</code> is set to True)
+for external control exposure time and gain.</li>
 </ul>
 
 <h3 id="parameters">Parameters</h3>
@@ -5420,13 +5764,27 @@ image messages.</li>
 <code class="language-plaintext highlighter-rouge">image_queue_size</code>: ROS output queue size (number of frames).
 Default: 4</li>
   <li>
+<code class="language-plaintext highlighter-rouge">max_ieee_1588_offset</code>: maximum allowed PTP/system clock offset
+[s] before warning is triggered. Default: 0.1</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">min_ieee_1588_offset</code>: minimum PTP offset [s] before warning is
+triggered. Default: 0</li>
+  <li>
 <code class="language-plaintext highlighter-rouge">parameter_file</code>: location of the .yaml file defining the camera
 (blackfly_s.yaml etc)</li>
   <li>
 <code class="language-plaintext highlighter-rouge">serial_number</code>: serial number of the camera. If you don’t know it,
 put in anything you like and the driver will croak with an error
 message, telling you what cameras serial numbers are available</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_ieee_1588</code>: use PTP (IEEE 1588) to set the <code class="language-plaintext highlighter-rouge">header.stamp</code> time
+stamp instead of system time. Note that you will still need to
+enable IEEE 1588 at the camera level, and enable time stamp
+"chunks". Default: false.</li>
 </ul>
+
+<p>The parameters listed above <em>cannot</em> be dynamically updated at runtime
+but require a driver restart to modify.</p>
 
 <p>Parameters can also be defined to correspond to commands for the camera
 to run, for example a <a href="https://github.com/ros-drivers/flir_camera_driver/blob/76fe2ff0c3e92d2ebcdea7c6e792e7cea8cf5f0e/spinnaker_camera_driver/config/oryx.yaml#L192">software
@@ -5520,10 +5878,116 @@ for the port that connects to your camera to "Link-Local Only." (You
 could also set the IPv4 Method to "Manual" with an address of
 169.254.100.1 and a subnet mask of 255.255.0.0).</p>
 
+<p>To check if the MTU settings are working correctly on the host you can
+ping with large packet size from a different host on the same network
+(must also have a MTU of 9000):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ping &lt;host_ip_address&gt; -c 2 -M do -s 8972
+</code></pre></div></div>
+
+<p>Note that this will <em>not</em> work if you ping the camera: you will find a
+MTU size of 1500, even if both camera and host NIC have correct MTU
+setting. Beware that some network cards have <a href="https://www.reddit.com/r/networking/comments/1ebvj5y/linux_ptp_and_jumbo_frames_for_gige_vision/">bugs that mess up the MTU
+when running
+ptp4l</a>.</p>
+
 <p>For more tips on GigE setup look at FLIR’s support pages
 <a href="https://www.flir.com/support-center/iis/machine-vision/knowledge-base/lost-ethernet-data-packets-on-linux-systems/">here</a>
 and
 <a href="https://www.flir.com/support-center/iis/machine-vision/application-note/troubleshooting-image-consistency-errors/">here</a>.</p>
+
+<h2 id="configuring-ptp-ieee-1588">Configuring PTP (IEEE 1588)</h2>
+
+<p>The following resources are useful to learn about PTP setup on Linux:</p>
+
+<ul>
+  <li><a href="https://tsn.readthedocs.io/timesync.html/">Synchronizing Time with Linux
+PTP</a></li>
+  <li>
+<a href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/7/html/system_administrators_guide/ch-configuring_ptp_using_ptp4l#sec-Checking_for_Driver_and_Hardware_Support/">RedHat Configuring PTP using
+ptp4l</a>.</li>
+</ul>
+
+<p>Only FLIR GigE cameras are PTP capable, but not all of them. For example
+the Blackfly series does not have PTP support, but the Blackfly S series
+does.</p>
+
+<p>Each camera has a built-in PTP hardware clock (PHC). To use it, you need
+to:</p>
+
+<ul>
+  <li>configure the camera to use PTP by enabling it either in SpinView or
+via the ROS parameter [gev_ieee_1588]{.title-ref}` (set to
+true/false)</li>
+  <li>run the camera in <code class="language-plaintext highlighter-rouge">Auto</code> or <code class="language-plaintext highlighter-rouge">SlaveOnly</code> mode by setting the
+corresponding parameter in SpinView or using the ROS parameter
+<code class="language-plaintext highlighter-rouge">gev_ieee_1588_mode</code>.</li>
+  <li>enable time stamps being sent via chunks by setting
+<code class="language-plaintext highlighter-rouge">chunk_mode_active</code> to <code class="language-plaintext highlighter-rouge">True</code>, <code class="language-plaintext highlighter-rouge">chunk_selector_timestamp</code> to
+<code class="language-plaintext highlighter-rouge">Timestamp</code> followed by <code class="language-plaintext highlighter-rouge">chunk_enable_timestamp</code> to True.</li>
+  <li>tell the driver to actually use the time stamps instead of the
+system clock by setting <code class="language-plaintext highlighter-rouge">use_ieee_1588</code> to True. If this flag is
+set, the driver will populate the ROS image message header stamp
+with the PTP time stamp.</li>
+</ul>
+
+<p>The launch file section for the Blackfly S has some commented out
+example settings.</p>
+
+<p>When the camera boots up it will start its PHC time at zero rather than
+at the correct time (TAI). The driver log will have warning messages and
+indicate a huge offset.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[WARN] [1744643742.707293740] rate [Hz] in   5.01 out   0.00 drop   0 LIS off[s]: 1744643660.7902
+</code></pre></div></div>
+
+<p><strong>Do not run like that</strong> because your image header stamps will be
+totally messed up. In the above example, the camera has been started in
+<code class="language-plaintext highlighter-rouge">SlaveOnly</code> mode, and hence is in the <code class="language-plaintext highlighter-rouge">LIS</code> status (listening). This
+cannot be fixed by running the camera in <code class="language-plaintext highlighter-rouge">Auto</code> mode, because the camera
+has no way to set its PHC to a network time. Although the camera will
+eventually assume a role as master and the clock status will show <code class="language-plaintext highlighter-rouge">MAS</code>,
+it will still have a huge offset. To fix this you must provide PTP
+messages from another host on the network by running <code class="language-plaintext highlighter-rouge">ptp4l</code> like so: :</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ptp4l -i eth0 -m
+</code></pre></div></div>
+
+<p>If you have some fancy PTP capable hardware clock attached to this host,
+you can synchronize your host system clock with the PHC of the network
+card:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>phc2sys -c /dev/ptp_my_fancy_clock -c CLOCK_REALTIME -O 0 -m -l 6
+</code></pre></div></div>
+
+<p>and you are all set. Alternatively you can force the network card's PHC
+to follow your host's system clock:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>phc2sys -s CLOCK_REALTIME -c /dev/ptp0 -O 0 -m -l 6
+</code></pre></div></div>
+
+<p>In this scenario you need to make sure that your host's system clock
+does not exhibit jumps, e.g. use something like <code class="language-plaintext highlighter-rouge">chrony</code> to keep it
+smoothly in sync with network time.</p>
+
+<p>Once the camera gets PTP packets it will eventually accept the host's
+PHC as master clock, switch to slave mode, and reset its time stamps:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[WARN] [1744645260.742396500]: rate [Hz] in   5.00 out   0.00 drop   0 LIS off[s]: 1744645228.1477
+[WARN] [1744645265.742424829]: rate [Hz] in   5.00 out   0.00 drop   0 SLV off[s]: 1744645228.1478
+[INFO] [1744645270.742237929]: rate [Hz] in   5.00 out   0.00 drop   0 SLV off[s]: 0.0273
+</code></pre></div></div>
+
+<p>Note that once a camera has been up and running for a while it can be
+very reluctant to accept PTP message from a master and switch from
+listener (<code class="language-plaintext highlighter-rouge">LIS</code>) to Slave (<code class="language-plaintext highlighter-rouge">SLV</code>) mode. Power cycle the camera
+(disconnect the GigE/POE cable) to fix this. Best practice is to have
+the master clock running already before starting the camera.</p>
+
+<p><strong>Monitor the offset for a while!</strong> If the system clock of the host that
+is running the driver is not disciplined by the master PHC then the
+offset will keep drifting. Make sure that something keeps the system
+clock synchronized with the PHC.</p>
 
 <h2 id="how-to-develop-your-own-camera-configuration-file">How to develop your own camera configuration file</h2>
 
@@ -5539,29 +6003,23 @@ comes with the Spinnaker SDK. Once you know what property you want to
 expose as a ROS parameter, you add a mapping entry to the yaml
 configuration file, e.g.:</p>
 
-<p>``` {.sourceCode .}</p>
-<ul>
-  <li>name: image_width
-type: int
-node: ImageFormatControl/Width</li>
-</ul>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>- name: image_width
+  type: int
+  node: ImageFormatControl/Width
+</code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-With this entry in place, the ROS driver will now accept an integer
-parameter of name `image_width`, and whenever `image_width` changes, it
-will apply this change to the Spinnaker Node `ImageFormatControl/Width`.
+<p>With this entry in place, the ROS driver will now accept an integer
+parameter of name <code class="language-plaintext highlighter-rouge">image_width</code>, and whenever <code class="language-plaintext highlighter-rouge">image_width</code> changes, it
+will apply this change to the Spinnaker Node <code class="language-plaintext highlighter-rouge">ImageFormatControl/Width</code>.</p>
 
-Enumerations (`enum`) parameters are slightly trickier than float and
+<p>Enumerations (<code class="language-plaintext highlighter-rouge">enum</code>) parameters are slightly trickier than float and
 integers because their values are restricted to a set of strings. Any
 other strings will be rejected by the Spinnaker API. Please document the
-valid enum strings in the configuration file, e.g.:
+valid enum strings in the configuration file, e.g.:</p>
 
-
-``` {.sourceCode .}
-- name: line1_linemode  # valid values: "Input", "Output"
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>- name: line1_linemode  # valid values: "Input", "Output"
   type: enum
   node: DigitalIOControl/LineMode
-
 </code></pre></div></div>
 
 <p>The hard part is often finding the node name, in the last example
@@ -5600,54 +6058,64 @@ set, or else the camera refuses to set the exposure time.</p>
 2)  Driver doesn't publish images and/or warns about incomplete images
     for GigE cameras</p>
 
-<p>``` {.sourceCode .}
-    rate [Hz] in  39.76 out   0.00 drop   0% INCOMPLETE 100%</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    rate [Hz] in  39.76 out   0.00 drop   0% INCOMPLETE 100%
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-    The reason for the incomplete images is usually that you are
-    exceeding the network bandwidth, causing packets to be dropped such
-    that incomplete frames arrive at the host. Check for the MTU on all
-    network cards and switches to be 9000 (jumbo frames). Sometimes the
-    MTU for switches has to be set higher. Also make sure the GigE
-    camera has jumbo frames enabled, i.e. `gev_scps_packet_size` is set
-    to 9000.
+The reason for the incomplete images is usually that you are
+exceeding the network bandwidth, causing packets to be dropped such
+that incomplete frames arrive at the host. Check for the MTU on all
+network cards and switches to be 9000 (jumbo frames). Sometimes the
+MTU for switches has to be set higher. Also make sure the GigE
+camera has jumbo frames enabled, i.e. `gev_scps_packet_size` is set
+to 9000.
+</code></pre></div></div>
 
-3)  Driver reports dropped packages. This means the connected subscriber
+<p>3)  Driver reports dropped packages. This means the connected subscriber
     is not picking up fast enough. Check CPU utilization of subscribers
     and the available network bandwidth between driver and subscriber.
 4)  Image seems laggy when viewed. This is usually not a camera driver
     issue, but related to ROS2 RMW or the image viewer. Check CPU
     utilization on displaying host and network bandwidth.
-5)  Camera doesn\'t reach desired frame rate. First play around in
+5)  Camera doesn't reach desired frame rate. First play around in
     SpinView to reproduce the problem there. For GigE cameras, check
     network bandwidth. Switch to Bayer images to reduce network
     bandwidth by a factor of three. Check your exposure time. The frame
     rate cannot exceed the inverse of the exposure time.
+6)  GigE camera cannot be initialized:</p>
 
-Setting up Linux without Spinnaker SDK
---------------------------------------
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    [19074765]: found camera with serial number: 19074765
+    [Spinnaker Wrapper]: Could not initialize camera on any interface!
+    [Spinnaker Wrapper]: failed attempt on interface: GEV Interface 1
 
-Only use these instructions if you did not install the Spinnaker SDK on
-your machine.
-
-1)  Somewhere in your `.bashrc` file, set the following env variable:
-
-
-``` {.sourceCode .}
-export SPINNAKER_GENTL64_CTI=/opt/ros/${ROS_DISTRO}/lib/spinnaker-gentl/Spinnaker_GenTL.cti
-
+Either the IP address of your camera is out-of-network (switch it to
+DHCP using SpinView) or another application (SpinView?) is currently
+using the camera.
 </code></pre></div></div>
+
+<h2 id="setting-up-linux-without-spinnaker-sdk">Setting up Linux without Spinnaker SDK</h2>
+
+<p>Only use these instructions if you did not install the Spinnaker SDK on
+your machine.</p>
+
+<p>1)  Somewhere in your <code class="language-plaintext highlighter-rouge">.bashrc</code> file, set the following env variable:</p>
+
+<blockquote>
+  <div class="language-plaintext highlighter-rouge">
+<div class="highlight"><pre class="highlight"><code>export SPINNAKER_GENTL64_CTI=/opt/ros/${ROS_DISTRO}/lib/spinnaker-gentl/Spinnaker_GenTL.cti
+</code></pre></div>  </div>
+</blockquote>
 
 <p>2)  Add the “flirimaging” group and make yourself a member of it</p>
 
-<p>``` {.sourceCode .}
-sudo addgroup flirimaging
-sudo usermod -a -G flirimaging ${USER}</p>
+<blockquote>
+  <div class="language-plaintext highlighter-rouge">
+<div class="highlight"><pre class="highlight"><code>sudo addgroup flirimaging
+sudo usermod -a -G flirimaging ${USER}
+</code></pre></div>  </div>
+</blockquote>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-3)  Bump the usbfs memory limits
+<p>3)  Bump the usbfs memory limits</p>
 
-The following was taken from
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>The following was taken from
 [here](https://www.flir.com/support-center/iis/machine-vision/application-note/using-linux-with-usb-3.1/).
 Edit the file `/etc/default/grub` and change the line default to:
 
@@ -5658,28 +6126,26 @@ Then
     sudo update-grub
 
 If your system does not have `/etc/default/grub`, create the file
-`/etc/rc.local`, and change its permissions to 'executable'. Then write
-the following text to it:
+`/etc/rc.local`, and change its permissions to 'executable'. Then
+write the following text to it:
 
     #!/bin/sh -e
     sh -c 'echo 1000 &gt; /sys/module/usbcore/parameters/usbfs_memory_mb'
-
     exit 0
+</code></pre></div></div>
 
-4)  Setup udev rules
+<p>4)  Setup udev rules</p>
 
-
-``` {.sourceCode .}
-echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
-echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
-sudo service udev restart
-sudo udevadm trigger
-
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
+    echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
+    sudo service udev restart
+    sudo udevadm trigger
 </code></pre></div></div>
 
 <p>5)  Logout and log back in (or better, reboot)</p>
 
-<p><code class="language-plaintext highlighter-rouge">sudo reboot</code></p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    sudo reboot
+</code></pre></div></div>
 
 <h2 id="how-to-contribute">How to contribute</h2>
 
@@ -5714,6 +6180,16 @@ some basic lint tests:</p>
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-spinnaker_camera_driver">Changelog for package spinnaker_camera_driver</h1>
+
+<h2 id="302-2025-05-25">3.0.2 (2025-05-25)</h2>
+
+<ul>
+  <li>avoid ament_target_dependencies</li>
+  <li>fixed doc formatting</li>
+  <li>PTP support for spinnaker_camera_driver</li>
+  <li>added reverse x/y for blackfly s</li>
+  <li>Contributors: Bernd Pfrommer</li>
+</ul>
 
 <h2 id="301-2025-04-01">3.0.1 (2025-04-01)</h2>
 
@@ -8039,7 +8515,7 @@ jQuery(function() {
               </tr>
               <tr>
                 <td class="text-right"><strong>Version</strong></td>
-                <td>3.0.1</td>
+                <td>3.0.2</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -8087,7 +8563,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-04-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-25
         </span>
       </td>
     </tr>
@@ -8268,31 +8744,25 @@ above.</p>
 2)  Prepare the ROS2 driver build: Make sure you have your ROS2
     environment sourced:</p>
 
-<!-- -->
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    source /opt/ros/&lt;my_ros_distro&gt;/setup.bash
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>source /opt/ros/&lt;my_ros_distro&gt;/setup.bash
-</code></pre></div></div>
+Create a workspace (`~/ws`), clone this repo:
 
-<p>Create a workspace (<code class="language-plaintext highlighter-rouge">~/ws</code>), clone this repo:</p>
+    mkdir -p ~/ws/src
+    cd ~/ws/src
+    git clone --branch humble-devel https://github.com/ros-drivers/flir_camera_driver
+    cd ..
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mkdir -p ~/ws/src
-cd ~/ws/src
-git clone --branch humble-devel https://github.com/ros-drivers/flir_camera_driver
-cd ..
-</code></pre></div></div>
+To automatically install all packages that the `flir_camera_driver`
+packages depends upon, run this at the top of your workspace:
 
-<p>To automatically install all packages that the <code class="language-plaintext highlighter-rouge">flir_camera_driver</code>
-packages depends upon, run this at the top of your workspace:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>rosdep install --from-paths src --ignore-src
+    rosdep install --from-paths src --ignore-src
 </code></pre></div></div>
 
 <p>3)  Build the driver and source the workspace:</p>
 
-<!-- -->
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-. install/setup.bash
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    colcon build --symlink-install --cmake-args -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+    . install/setup.bash
 </code></pre></div></div>
 
 <h2 id="how-to-use">How to use</h2>
@@ -8314,15 +8784,8 @@ packages depends upon, run this at the top of your workspace:</p>
 
 <ul>
   <li>
-
-    <dl>
-      <dt>
-<code class="language-plaintext highlighter-rouge">~/control</code>: (only when <code class="language-plaintext highlighter-rouge">enable_external_control</code> is set to True)</dt>
-      <dd>
-        <p>for external control exposure time and gain.</p>
-      </dd>
-    </dl>
-  </li>
+<code class="language-plaintext highlighter-rouge">~/control</code>: (only when <code class="language-plaintext highlighter-rouge">enable_external_control</code> is set to True)
+for external control exposure time and gain.</li>
 </ul>
 
 <h3 id="parameters">Parameters</h3>
@@ -8383,13 +8846,27 @@ image messages.</li>
 <code class="language-plaintext highlighter-rouge">image_queue_size</code>: ROS output queue size (number of frames).
 Default: 4</li>
   <li>
+<code class="language-plaintext highlighter-rouge">max_ieee_1588_offset</code>: maximum allowed PTP/system clock offset
+[s] before warning is triggered. Default: 0.1</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">min_ieee_1588_offset</code>: minimum PTP offset [s] before warning is
+triggered. Default: 0</li>
+  <li>
 <code class="language-plaintext highlighter-rouge">parameter_file</code>: location of the .yaml file defining the camera
 (blackfly_s.yaml etc)</li>
   <li>
 <code class="language-plaintext highlighter-rouge">serial_number</code>: serial number of the camera. If you don’t know it,
 put in anything you like and the driver will croak with an error
 message, telling you what cameras serial numbers are available</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_ieee_1588</code>: use PTP (IEEE 1588) to set the <code class="language-plaintext highlighter-rouge">header.stamp</code> time
+stamp instead of system time. Note that you will still need to
+enable IEEE 1588 at the camera level, and enable time stamp
+"chunks". Default: false.</li>
 </ul>
+
+<p>The parameters listed above <em>cannot</em> be dynamically updated at runtime
+but require a driver restart to modify.</p>
 
 <p>Parameters can also be defined to correspond to commands for the camera
 to run, for example a <a href="https://github.com/ros-drivers/flir_camera_driver/blob/76fe2ff0c3e92d2ebcdea7c6e792e7cea8cf5f0e/spinnaker_camera_driver/config/oryx.yaml#L192">software
@@ -8483,10 +8960,116 @@ for the port that connects to your camera to "Link-Local Only." (You
 could also set the IPv4 Method to "Manual" with an address of
 169.254.100.1 and a subnet mask of 255.255.0.0).</p>
 
+<p>To check if the MTU settings are working correctly on the host you can
+ping with large packet size from a different host on the same network
+(must also have a MTU of 9000):</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ping &lt;host_ip_address&gt; -c 2 -M do -s 8972
+</code></pre></div></div>
+
+<p>Note that this will <em>not</em> work if you ping the camera: you will find a
+MTU size of 1500, even if both camera and host NIC have correct MTU
+setting. Beware that some network cards have <a href="https://www.reddit.com/r/networking/comments/1ebvj5y/linux_ptp_and_jumbo_frames_for_gige_vision/">bugs that mess up the MTU
+when running
+ptp4l</a>.</p>
+
 <p>For more tips on GigE setup look at FLIR’s support pages
 <a href="https://www.flir.com/support-center/iis/machine-vision/knowledge-base/lost-ethernet-data-packets-on-linux-systems/">here</a>
 and
 <a href="https://www.flir.com/support-center/iis/machine-vision/application-note/troubleshooting-image-consistency-errors/">here</a>.</p>
+
+<h2 id="configuring-ptp-ieee-1588">Configuring PTP (IEEE 1588)</h2>
+
+<p>The following resources are useful to learn about PTP setup on Linux:</p>
+
+<ul>
+  <li><a href="https://tsn.readthedocs.io/timesync.html/">Synchronizing Time with Linux
+PTP</a></li>
+  <li>
+<a href="https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/7/html/system_administrators_guide/ch-configuring_ptp_using_ptp4l#sec-Checking_for_Driver_and_Hardware_Support/">RedHat Configuring PTP using
+ptp4l</a>.</li>
+</ul>
+
+<p>Only FLIR GigE cameras are PTP capable, but not all of them. For example
+the Blackfly series does not have PTP support, but the Blackfly S series
+does.</p>
+
+<p>Each camera has a built-in PTP hardware clock (PHC). To use it, you need
+to:</p>
+
+<ul>
+  <li>configure the camera to use PTP by enabling it either in SpinView or
+via the ROS parameter [gev_ieee_1588]{.title-ref}` (set to
+true/false)</li>
+  <li>run the camera in <code class="language-plaintext highlighter-rouge">Auto</code> or <code class="language-plaintext highlighter-rouge">SlaveOnly</code> mode by setting the
+corresponding parameter in SpinView or using the ROS parameter
+<code class="language-plaintext highlighter-rouge">gev_ieee_1588_mode</code>.</li>
+  <li>enable time stamps being sent via chunks by setting
+<code class="language-plaintext highlighter-rouge">chunk_mode_active</code> to <code class="language-plaintext highlighter-rouge">True</code>, <code class="language-plaintext highlighter-rouge">chunk_selector_timestamp</code> to
+<code class="language-plaintext highlighter-rouge">Timestamp</code> followed by <code class="language-plaintext highlighter-rouge">chunk_enable_timestamp</code> to True.</li>
+  <li>tell the driver to actually use the time stamps instead of the
+system clock by setting <code class="language-plaintext highlighter-rouge">use_ieee_1588</code> to True. If this flag is
+set, the driver will populate the ROS image message header stamp
+with the PTP time stamp.</li>
+</ul>
+
+<p>The launch file section for the Blackfly S has some commented out
+example settings.</p>
+
+<p>When the camera boots up it will start its PHC time at zero rather than
+at the correct time (TAI). The driver log will have warning messages and
+indicate a huge offset.</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[WARN] [1744643742.707293740] rate [Hz] in   5.01 out   0.00 drop   0 LIS off[s]: 1744643660.7902
+</code></pre></div></div>
+
+<p><strong>Do not run like that</strong> because your image header stamps will be
+totally messed up. In the above example, the camera has been started in
+<code class="language-plaintext highlighter-rouge">SlaveOnly</code> mode, and hence is in the <code class="language-plaintext highlighter-rouge">LIS</code> status (listening). This
+cannot be fixed by running the camera in <code class="language-plaintext highlighter-rouge">Auto</code> mode, because the camera
+has no way to set its PHC to a network time. Although the camera will
+eventually assume a role as master and the clock status will show <code class="language-plaintext highlighter-rouge">MAS</code>,
+it will still have a huge offset. To fix this you must provide PTP
+messages from another host on the network by running <code class="language-plaintext highlighter-rouge">ptp4l</code> like so: :</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ptp4l -i eth0 -m
+</code></pre></div></div>
+
+<p>If you have some fancy PTP capable hardware clock attached to this host,
+you can synchronize your host system clock with the PHC of the network
+card:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>phc2sys -c /dev/ptp_my_fancy_clock -c CLOCK_REALTIME -O 0 -m -l 6
+</code></pre></div></div>
+
+<p>and you are all set. Alternatively you can force the network card's PHC
+to follow your host's system clock:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>phc2sys -s CLOCK_REALTIME -c /dev/ptp0 -O 0 -m -l 6
+</code></pre></div></div>
+
+<p>In this scenario you need to make sure that your host's system clock
+does not exhibit jumps, e.g. use something like <code class="language-plaintext highlighter-rouge">chrony</code> to keep it
+smoothly in sync with network time.</p>
+
+<p>Once the camera gets PTP packets it will eventually accept the host's
+PHC as master clock, switch to slave mode, and reset its time stamps:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>[WARN] [1744645260.742396500]: rate [Hz] in   5.00 out   0.00 drop   0 LIS off[s]: 1744645228.1477
+[WARN] [1744645265.742424829]: rate [Hz] in   5.00 out   0.00 drop   0 SLV off[s]: 1744645228.1478
+[INFO] [1744645270.742237929]: rate [Hz] in   5.00 out   0.00 drop   0 SLV off[s]: 0.0273
+</code></pre></div></div>
+
+<p>Note that once a camera has been up and running for a while it can be
+very reluctant to accept PTP message from a master and switch from
+listener (<code class="language-plaintext highlighter-rouge">LIS</code>) to Slave (<code class="language-plaintext highlighter-rouge">SLV</code>) mode. Power cycle the camera
+(disconnect the GigE/POE cable) to fix this. Best practice is to have
+the master clock running already before starting the camera.</p>
+
+<p><strong>Monitor the offset for a while!</strong> If the system clock of the host that
+is running the driver is not disciplined by the master PHC then the
+offset will keep drifting. Make sure that something keeps the system
+clock synchronized with the PHC.</p>
 
 <h2 id="how-to-develop-your-own-camera-configuration-file">How to develop your own camera configuration file</h2>
 
@@ -8502,29 +9085,23 @@ comes with the Spinnaker SDK. Once you know what property you want to
 expose as a ROS parameter, you add a mapping entry to the yaml
 configuration file, e.g.:</p>
 
-<p>``` {.sourceCode .}</p>
-<ul>
-  <li>name: image_width
-type: int
-node: ImageFormatControl/Width</li>
-</ul>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>- name: image_width
+  type: int
+  node: ImageFormatControl/Width
+</code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-With this entry in place, the ROS driver will now accept an integer
-parameter of name `image_width`, and whenever `image_width` changes, it
-will apply this change to the Spinnaker Node `ImageFormatControl/Width`.
+<p>With this entry in place, the ROS driver will now accept an integer
+parameter of name <code class="language-plaintext highlighter-rouge">image_width</code>, and whenever <code class="language-plaintext highlighter-rouge">image_width</code> changes, it
+will apply this change to the Spinnaker Node <code class="language-plaintext highlighter-rouge">ImageFormatControl/Width</code>.</p>
 
-Enumerations (`enum`) parameters are slightly trickier than float and
+<p>Enumerations (<code class="language-plaintext highlighter-rouge">enum</code>) parameters are slightly trickier than float and
 integers because their values are restricted to a set of strings. Any
 other strings will be rejected by the Spinnaker API. Please document the
-valid enum strings in the configuration file, e.g.:
+valid enum strings in the configuration file, e.g.:</p>
 
-
-``` {.sourceCode .}
-- name: line1_linemode  # valid values: "Input", "Output"
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>- name: line1_linemode  # valid values: "Input", "Output"
   type: enum
   node: DigitalIOControl/LineMode
-
 </code></pre></div></div>
 
 <p>The hard part is often finding the node name, in the last example
@@ -8563,54 +9140,64 @@ set, or else the camera refuses to set the exposure time.</p>
 2)  Driver doesn't publish images and/or warns about incomplete images
     for GigE cameras</p>
 
-<p>``` {.sourceCode .}
-    rate [Hz] in  39.76 out   0.00 drop   0% INCOMPLETE 100%</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    rate [Hz] in  39.76 out   0.00 drop   0% INCOMPLETE 100%
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-    The reason for the incomplete images is usually that you are
-    exceeding the network bandwidth, causing packets to be dropped such
-    that incomplete frames arrive at the host. Check for the MTU on all
-    network cards and switches to be 9000 (jumbo frames). Sometimes the
-    MTU for switches has to be set higher. Also make sure the GigE
-    camera has jumbo frames enabled, i.e. `gev_scps_packet_size` is set
-    to 9000.
+The reason for the incomplete images is usually that you are
+exceeding the network bandwidth, causing packets to be dropped such
+that incomplete frames arrive at the host. Check for the MTU on all
+network cards and switches to be 9000 (jumbo frames). Sometimes the
+MTU for switches has to be set higher. Also make sure the GigE
+camera has jumbo frames enabled, i.e. `gev_scps_packet_size` is set
+to 9000.
+</code></pre></div></div>
 
-3)  Driver reports dropped packages. This means the connected subscriber
+<p>3)  Driver reports dropped packages. This means the connected subscriber
     is not picking up fast enough. Check CPU utilization of subscribers
     and the available network bandwidth between driver and subscriber.
 4)  Image seems laggy when viewed. This is usually not a camera driver
     issue, but related to ROS2 RMW or the image viewer. Check CPU
     utilization on displaying host and network bandwidth.
-5)  Camera doesn\'t reach desired frame rate. First play around in
+5)  Camera doesn't reach desired frame rate. First play around in
     SpinView to reproduce the problem there. For GigE cameras, check
     network bandwidth. Switch to Bayer images to reduce network
     bandwidth by a factor of three. Check your exposure time. The frame
     rate cannot exceed the inverse of the exposure time.
+6)  GigE camera cannot be initialized:</p>
 
-Setting up Linux without Spinnaker SDK
---------------------------------------
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    [19074765]: found camera with serial number: 19074765
+    [Spinnaker Wrapper]: Could not initialize camera on any interface!
+    [Spinnaker Wrapper]: failed attempt on interface: GEV Interface 1
 
-Only use these instructions if you did not install the Spinnaker SDK on
-your machine.
-
-1)  Somewhere in your `.bashrc` file, set the following env variable:
-
-
-``` {.sourceCode .}
-export SPINNAKER_GENTL64_CTI=/opt/ros/${ROS_DISTRO}/lib/spinnaker-gentl/Spinnaker_GenTL.cti
-
+Either the IP address of your camera is out-of-network (switch it to
+DHCP using SpinView) or another application (SpinView?) is currently
+using the camera.
 </code></pre></div></div>
+
+<h2 id="setting-up-linux-without-spinnaker-sdk">Setting up Linux without Spinnaker SDK</h2>
+
+<p>Only use these instructions if you did not install the Spinnaker SDK on
+your machine.</p>
+
+<p>1)  Somewhere in your <code class="language-plaintext highlighter-rouge">.bashrc</code> file, set the following env variable:</p>
+
+<blockquote>
+  <div class="language-plaintext highlighter-rouge">
+<div class="highlight"><pre class="highlight"><code>export SPINNAKER_GENTL64_CTI=/opt/ros/${ROS_DISTRO}/lib/spinnaker-gentl/Spinnaker_GenTL.cti
+</code></pre></div>  </div>
+</blockquote>
 
 <p>2)  Add the “flirimaging” group and make yourself a member of it</p>
 
-<p>``` {.sourceCode .}
-sudo addgroup flirimaging
-sudo usermod -a -G flirimaging ${USER}</p>
+<blockquote>
+  <div class="language-plaintext highlighter-rouge">
+<div class="highlight"><pre class="highlight"><code>sudo addgroup flirimaging
+sudo usermod -a -G flirimaging ${USER}
+</code></pre></div>  </div>
+</blockquote>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-3)  Bump the usbfs memory limits
+<p>3)  Bump the usbfs memory limits</p>
 
-The following was taken from
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>The following was taken from
 [here](https://www.flir.com/support-center/iis/machine-vision/application-note/using-linux-with-usb-3.1/).
 Edit the file `/etc/default/grub` and change the line default to:
 
@@ -8621,28 +9208,26 @@ Then
     sudo update-grub
 
 If your system does not have `/etc/default/grub`, create the file
-`/etc/rc.local`, and change its permissions to 'executable'. Then write
-the following text to it:
+`/etc/rc.local`, and change its permissions to 'executable'. Then
+write the following text to it:
 
     #!/bin/sh -e
     sh -c 'echo 1000 &gt; /sys/module/usbcore/parameters/usbfs_memory_mb'
-
     exit 0
+</code></pre></div></div>
 
-4)  Setup udev rules
+<p>4)  Setup udev rules</p>
 
-
-``` {.sourceCode .}
-echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
-echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
-sudo service udev restart
-sudo udevadm trigger
-
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1e10", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
+    echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="1724", GROUP="flirimaging"' | sudo tee -a /etc/udev/rules.d/40-flir-spinnaker.rules
+    sudo service udev restart
+    sudo udevadm trigger
 </code></pre></div></div>
 
 <p>5)  Logout and log back in (or better, reboot)</p>
 
-<p><code class="language-plaintext highlighter-rouge">sudo reboot</code></p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>    sudo reboot
+</code></pre></div></div>
 
 <h2 id="how-to-contribute">How to contribute</h2>
 
@@ -8677,6 +9262,16 @@ some basic lint tests:</p>
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-spinnaker_camera_driver">Changelog for package spinnaker_camera_driver</h1>
+
+<h2 id="302-2025-05-25">3.0.2 (2025-05-25)</h2>
+
+<ul>
+  <li>avoid ament_target_dependencies</li>
+  <li>fixed doc formatting</li>
+  <li>PTP support for spinnaker_camera_driver</li>
+  <li>added reverse x/y for blackfly s</li>
+  <li>Contributors: Bernd Pfrommer</li>
+</ul>
 
 <h2 id="301-2025-04-01">3.0.1 (2025-04-01)</h2>
 
@@ -10928,7 +11523,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2025-05-18</em>
+        <em class="hidden-xs">| generated on 2025-05-26</em>
       
       </div>
       <div style="float:right;">
