@@ -166,10 +166,6 @@
       <input type="radio" name="options" id="rolling-radio" autocomplete="off"> rolling
     </label>
   
-    <label id="noetic-option" class="distro-button btn btn-xs btn-primary" href="#noetic" data="noetic">
-      <input type="radio" name="options" id="noetic-radio" autocomplete="off"> noetic
-    </label>
-  
 
   <!-- Older distros -->
   <div class="btn-group dropdown">
@@ -234,6 +230,10 @@
       
         <li data="melodic" id="melodic-option" class=" older-distro-option"  href="#melodic">
           <a href="#melodic" data="melodic" id="melodic-button">melodic</a>
+        </li>
+      
+        <li data="noetic" id="noetic-option" class=" older-distro-option"  href="#noetic">
+          <a href="#noetic" data="noetic" id="noetic-button">noetic</a>
         </li>
       
     </ul>
@@ -552,119 +552,178 @@
               <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/ros2/dataspeed_can_tools/README.txt" title="Open in git repository">dataspeed_can_tools/README.txt</a></div>
               <div class="panel-body">
                     <div class="rendered-markdown">
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-===can_node===
-* START: node.cpp
-	* Create a CanDriver.cpp instance
-* CanDriver.cpp
-	* TO CHANGE: Add Sync Time support
-	* Create a CanUsb.cpp instance
-		* This creates a reference to a data stream which provides a callback whenever USB data is read from the CAN device.
-	* Set the CanUsb callback to CanDriver.cpp::recvDevice
-	* Get bitrate and error_topic information
-		* Each channel is fetched individually and placed in a vector. bitrate[0] is modified by the launch parameter "bitrate_1", like so:
-			&lt;remap from="can_bus_1" to="can_bus_1"/&gt;
-    		&lt;param name="bitrate_1" value="250000" /&gt; &lt;!-- 250kbit/s --&gt;
-    		&lt;param name="channel_1_mask_0"  value="0x80000000" /&gt;
-    		&lt;param name="channel_1_match_0" value="0x80000000" /&gt; 
-    	* Same for filter_masks and matches.
-    * Open the CAN driver (run CanUsb.cpp::open)
-    * Read version number and channel count
-    * For each channel, print the filter masks, and filter matches to the console
-    * For each channel, attempt to set the bitrates, then print to console
-    * If all channel bitrates are set successfully, set up ROS pub/subs:
-    	* For each channel with nonzero bitrate, create a node (can_bus_#)
-    		* Create a subscriber (can_tx) to receive messages to send to the device
-    		* Create a publisher (can_rx) to send messages whenever the device sends data
-    		* Create an error publisher (can_err) if argument is set
-    * Whenever data is received from the device, publish a can_msgs::Frame to the appropriate channel
-    	* can_msgs is a standard message type: http://docs.ros.org/kinetic/api/can_msgs/html/msg/Frame.html
-    	Contains a unique ID, data length code (dlc), and data (up to 8 bytes)
+<p>```</p>
 
-===dbc_node===
-* START: dbc_node.cpp
-	* Create a Node and NodeHandle
-	* Get dbc_file parameter; if it doesn't exist, exit.
-	* Create a CanExtractor.cpp object, passing the dbc_file value
-	* Create a subscriber to can_rx (which is published by can_node)
-		* When a can_msgs::Frame message is received, get the ID (OR it with 0x80000000 if it's an extended msg) and put it in a RosCanMsgStruct
-		* Run CanExtractor::getMessage(RosCanMsgStruct), which returns true/false
-			* If true, run CanExtractor::initPublishers(RosCanMsgStruct, NodeHandle)
-		* Run CanExtractor::pubMessage(can_msgs::Frame), which posts the data to the appropriate ROS topic 
-* CanExtractor.cpp
-	* dbc_
-		* A DBCIterator.cpp object
-	* msgs_
-		* A map between CAN message IDs and RosCanMsgStructs
-	* getMessage(RosCanMsgStruct)
-		* Check if the RosCanMsgStruct is already in the msgs_ map.
-		* If it is, set the RosCanMsgStruct reference to the stored one, and return false (the message type has already been processed).
-		* If it isn't, iterate over dbc_, searching for the CAN ID.
-			* For each matching DBCMessage::Message found, create a RosCanSigStruct based on it and append it to the RosCanMsgStruct
-			* Then store the RosCanMsgStruct and return it
-		* Either way, the result is a RosCanMsgStruct, containing a CAN ID, and message name.
-		* RosCanMsgStruct contains a can_msgs::Frame publisher which sends whenever a message is received, and a vector of RosCanSigStructs, each containing a publisher which sends individual fields whenever a message is received.
-	* initPublishers(RosCanMsgStruct, NodeHandle)
-		* Creates a publisher for the message as a whole (can_msgs::Frame) and attaches it to RosCanMsgStruct
-		* Creates publishers for each signal with registerCanSignalPublisher(RosCanSigStruct NodeHandle)
-	* registerCanSignalPublisher(RosCanSigStruct NodeHandle)
-		* Creates an std_msgs::Int/Float64/Bool publisher (signed/unsigned/size based on RosCanSigStruct)
-		* Attaches the publisher to the RosCanSigStruct
-	* pubMessage()
-		* Retrieve the RosCanMsgStruct from the msgs_ map based on message ID.
-			* If the messageID isn't in the msgs_ map, return.
-		* An 8-byte integer (uint64) stores all message data.
-		* TO CHANGE: Loop through the list of signals for a signal multiplexor enum value that is MULTIPLEXOR. Save this value and break if found, set to -1 otherwise.
-		* For each signal, the data is retrieved based on the start bit and length (signed or unsigned).
-		* TO CHANGE: For each signal, if the multiplexor is not -1, use an if conditional to check if the signal's multiplexor enum is MULTIPLEXED; if it is, check if the multiplexNum is equal to the multiplexor value from the loop above; only publish if the values match.
-* DBCIterator.cpp
-	* messageList: Vector of DBCMessage.Message objects
-	* init
-		* TO CHANGE: Support multiple file streams
-		* Open the file stream
-		* DBCMessage::Message overrides the &gt;&gt; operator, and uses this to take a stream (up to the next )
-		* If the process fails and the stream errors out, clear it (which will cause the loop to exit)
-		* Else, add the message to the messageList.
-		* DBCIterator iterates the file's messages, DBCMessage iterates the message's signals
-* DBCMessage.cpp
-	* If the line does not start in BO_, throw an error to get the parent iterator to clear to the next line.
-	* If it does, fetch the BO data:
-		BO_ &lt;ID&gt; &lt;Messagename&gt; &lt;ByteLength&gt; &lt;Sender&gt;
-	* Then, iterate over the next lines;
-	* While the stream is creating valid signal objects, &gt;&gt; create more DbcSignal.cpp objects.
-* DBCSignal.cpp
-	* Get the next line, if (after cleanup) the line is empty or does not start with SG_, throw an error to get the parent iterator to finish parsing signals.
-	* If it does, fetch the signal data:
-		SG_ &lt;Fieldname&gt; &lt;Multiplexor&gt; : &lt;StartBit&gt;|&lt;BitLength&gt;@&lt;Order&gt;&lt;Signed&gt; (&lt;Factor&gt;,&lt;Offset&gt;) [&lt;Minimum&gt;|&lt;Maximum&gt;] "&lt;Unit&gt;" &lt;Receivers&gt;
-	* Multiplexor may be blank (meaning value always appears in the message), in which case there will be no value between the Fieldname and the :
-	* If Multiplexor is not blank, it is either:
-		* 'M', meaning the value is the multiplexor
-		* 'm###', with numbers, meaning the signal only appears in the message when the multiplexor value is equal to that of the multiplexed signal
-	* Byteorder is either Motorola (big-endian/network) (0) or Intel (little-endian/math) (1)
-	* Signed is either + (unsigned value) or - (signed value)
-	* phys = digits * factor + offset
+<p>===can_node===</p>
+<ul>
+  <li>START: node.cpp
+    <ul>
+      <li>Create a CanDriver.cpp instance</li>
+    </ul>
+  </li>
+  <li>CanDriver.cpp
+    <ul>
+      <li>TO CHANGE: Add Sync Time support</li>
+      <li>Create a CanUsb.cpp instance
+        <ul>
+          <li>This creates a reference to a data stream which provides a callback whenever USB data is read from the CAN device.</li>
+        </ul>
+      </li>
+      <li>Set the CanUsb callback to CanDriver.cpp::recvDevice</li>
+      <li>Get bitrate and error_topic information
+        <ul>
+          <li>Each channel is fetched individually and placed in a vector. bitrate[0] is modified by the launch parameter “bitrate_1”, like so:
+            <remap from="can_bus_1" to="can_bus_1"></remap>
 
-===DBC EXAMPLE===
+  		<param name="bitrate_1" value="250000"> <!-- 250kbit/s -->
+  		<param name="channel_1_mask_0" value="0x80000000">
+  		<param name="channel_1_match_0" value="0x80000000"> 
+  	* Same for filter_masks and matches.
+          </li>
+        </ul>
+      </li>
+      <li>Open the CAN driver (run CanUsb.cpp::open)</li>
+      <li>Read version number and channel count</li>
+      <li>For each channel, print the filter masks, and filter matches to the console</li>
+      <li>For each channel, attempt to set the bitrates, then print to console</li>
+      <li>If all channel bitrates are set successfully, set up ROS pub/subs:
+  	* For each channel with nonzero bitrate, create a node (can_bus_#)
+  		* Create a subscriber (can_tx) to receive messages to send to the device
+  		* Create a publisher (can_rx) to send messages whenever the device sends data
+  		* Create an error publisher (can_err) if argument is set</li>
+      <li>Whenever data is received from the device, publish a can_msgs::Frame to the appropriate channel
+  	* can_msgs is a standard message type: http://docs.ros.org/kinetic/api/can_msgs/html/msg/Frame.html
+  	Contains a unique ID, data length code (dlc), and data (up to 8 bytes)</li>
+    </ul>
+  </li>
+</ul>
+
+<p>===dbc_node===</p>
+<ul>
+  <li>START: dbc_node.cpp
+    <ul>
+      <li>Create a Node and NodeHandle</li>
+      <li>Get dbc_file parameter; if it doesn’t exist, exit.</li>
+      <li>Create a CanExtractor.cpp object, passing the dbc_file value</li>
+      <li>Create a subscriber to can_rx (which is published by can_node)
+        <ul>
+          <li>When a can_msgs::Frame message is received, get the ID (OR it with 0x80000000 if it’s an extended msg) and put it in a RosCanMsgStruct</li>
+          <li>Run CanExtractor::getMessage(RosCanMsgStruct), which returns true/false
+            <ul>
+              <li>If true, run CanExtractor::initPublishers(RosCanMsgStruct, NodeHandle)</li>
+            </ul>
+          </li>
+          <li>Run CanExtractor::pubMessage(can_msgs::Frame), which posts the data to the appropriate ROS topic</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>CanExtractor.cpp
+    <ul>
+      <li>dbc_
+        <ul>
+          <li>A DBCIterator.cpp object</li>
+        </ul>
+      </li>
+      <li>msgs_
+        <ul>
+          <li>A map between CAN message IDs and RosCanMsgStructs</li>
+        </ul>
+      </li>
+      <li>getMessage(RosCanMsgStruct)
+        <ul>
+          <li>Check if the RosCanMsgStruct is already in the msgs_ map.</li>
+          <li>If it is, set the RosCanMsgStruct reference to the stored one, and return false (the message type has already been processed).</li>
+          <li>If it isn’t, iterate over dbc_, searching for the CAN ID.
+            <ul>
+              <li>For each matching DBCMessage::Message found, create a RosCanSigStruct based on it and append it to the RosCanMsgStruct</li>
+              <li>Then store the RosCanMsgStruct and return it</li>
+            </ul>
+          </li>
+          <li>Either way, the result is a RosCanMsgStruct, containing a CAN ID, and message name.</li>
+          <li>RosCanMsgStruct contains a can_msgs::Frame publisher which sends whenever a message is received, and a vector of RosCanSigStructs, each containing a publisher which sends individual fields whenever a message is received.</li>
+        </ul>
+      </li>
+      <li>initPublishers(RosCanMsgStruct, NodeHandle)
+        <ul>
+          <li>Creates a publisher for the message as a whole (can_msgs::Frame) and attaches it to RosCanMsgStruct</li>
+          <li>Creates publishers for each signal with registerCanSignalPublisher(RosCanSigStruct NodeHandle)</li>
+        </ul>
+      </li>
+      <li>registerCanSignalPublisher(RosCanSigStruct NodeHandle)
+        <ul>
+          <li>Creates an std_msgs::Int/Float64/Bool publisher (signed/unsigned/size based on RosCanSigStruct)</li>
+          <li>Attaches the publisher to the RosCanSigStruct</li>
+        </ul>
+      </li>
+      <li>pubMessage()
+        <ul>
+          <li>Retrieve the RosCanMsgStruct from the msgs_ map based on message ID.
+            <ul>
+              <li>If the messageID isn’t in the msgs_ map, return.</li>
+            </ul>
+          </li>
+          <li>An 8-byte integer (uint64) stores all message data.</li>
+          <li>TO CHANGE: Loop through the list of signals for a signal multiplexor enum value that is MULTIPLEXOR. Save this value and break if found, set to -1 otherwise.</li>
+          <li>For each signal, the data is retrieved based on the start bit and length (signed or unsigned).</li>
+          <li>TO CHANGE: For each signal, if the multiplexor is not -1, use an if conditional to check if the signal’s multiplexor enum is MULTIPLEXED; if it is, check if the multiplexNum is equal to the multiplexor value from the loop above; only publish if the values match.</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>DBCIterator.cpp
+    <ul>
+      <li>messageList: Vector of DBCMessage.Message objects</li>
+      <li>init
+        <ul>
+          <li>TO CHANGE: Support multiple file streams</li>
+          <li>Open the file stream</li>
+          <li>DBCMessage::Message overrides the » operator, and uses this to take a stream (up to the next )</li>
+          <li>If the process fails and the stream errors out, clear it (which will cause the loop to exit)</li>
+          <li>Else, add the message to the messageList.</li>
+          <li>DBCIterator iterates the file’s messages, DBCMessage iterates the message’s signals</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>DBCMessage.cpp
+    <ul>
+      <li>If the line does not start in BO_, throw an error to get the parent iterator to clear to the next line.</li>
+      <li>If it does, fetch the BO data:
+  BO_ <id> <messagename> <bytelength> <sender></sender></bytelength></messagename></id>
+</li>
+      <li>Then, iterate over the next lines;</li>
+      <li>While the stream is creating valid signal objects, » create more DbcSignal.cpp objects.</li>
+    </ul>
+  </li>
+  <li>DBCSignal.cpp
+    <ul>
+      <li>Get the next line, if (after cleanup) the line is empty or does not start with SG_, throw an error to get the parent iterator to finish parsing signals.</li>
+      <li>If it does, fetch the signal data:
+  SG_ <fieldname> <multiplexor> : <startbit>|<bitlength>@<order><signed> (<factor>,<offset>) [<minimum>|<maximum>] "<unit>" <receivers></receivers></unit></maximum></minimum></offset></factor></signed></order></bitlength></startbit></multiplexor></fieldname>
+</li>
+      <li>Multiplexor may be blank (meaning value always appears in the message), in which case there will be no value between the Fieldname and the :</li>
+      <li>If Multiplexor is not blank, it is either:
+        <ul>
+          <li>‘M’, meaning the value is the multiplexor</li>
+          <li>‘m###’, with numbers, meaning the signal only appears in the message when the multiplexor value is equal to that of the multiplexed signal</li>
+        </ul>
+      </li>
+      <li>Byteorder is either Motorola (big-endian/network) (0) or Intel (little-endian/math) (1)</li>
+      <li>Signed is either + (unsigned value) or - (signed value)</li>
+      <li>phys = digits * factor + offset</li>
+    </ul>
+  </li>
+</ul>
+
+<p>===DBC EXAMPLE===
 BO_ 126 License: 8 EPAS
- SG_ EXPIRED : 10|1@1+ (1,0) [0|0] ""  MAB
- SG_ MUX M : 0|8@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_TRIALS_USED m0 : 32|16@1+ (1,0) [0|0] ""  MAB
- SG_ DATE1 m129 : 24|8@1+ (1,0) [0|0] ""  MAB
+ SG_ EXPIRED : 10|1@1+ (1,0) [0|0] “”  MAB
+ SG_ MUX M : 0|8@1+ (1,0) [0|0] “”  MAB
+ SG_ FEAT_BASE_TRIALS_USED m0 : 32|16@1+ (1,0) [0|0] “”  MAB
+ SG_ DATE1 m129 : 24|8@1+ (1,0) [0|0] “”  MAB</p>
 
- 
- SG_ FEAT_BASE_TRIALS_REMAINING m0 : 48|16@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_TRIAL m0 : 17|1@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_ENABLED m0 : 16|1@1+ (1,0) [0|0] ""  MAB
- SG_ TRIAL : 9|1@1+ (1,0) [0|0] ""  MAB
- SG_ READY : 8|1@1+ (1,0) [0|0] ""  MAB
- SG_ DATE0 m129 : 16|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN16 m133 : 48|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN15 m133 : 40|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN14 m133 : 32|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN01 m131 : 24|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN00 m131 : 16|8@1+ (1,0) [0|0] ""  MAB
-
-</code></pre></div></div>
+<p>File truncated at 100 lines <a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/ros2/dataspeed_can_tools">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -809,10 +868,7 @@ dependent packages)</li>
 
 <h2 id="100-2016-09-28">1.0.0 (2016-09-28)</h2>
 
-<ul>
-  <li>Initial release</li>
-  <li>Contributors: Kevin Hallenbeck, Micho Radovnikovich</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/ros2/dataspeed_can_tools">see the full file</a></p>
 </div>
             
           </div>
@@ -1408,119 +1464,178 @@ jQuery(function() {
               <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/ros2/dataspeed_can_tools/README.txt" title="Open in git repository">dataspeed_can_tools/README.txt</a></div>
               <div class="panel-body">
                     <div class="rendered-markdown">
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-===can_node===
-* START: node.cpp
-	* Create a CanDriver.cpp instance
-* CanDriver.cpp
-	* TO CHANGE: Add Sync Time support
-	* Create a CanUsb.cpp instance
-		* This creates a reference to a data stream which provides a callback whenever USB data is read from the CAN device.
-	* Set the CanUsb callback to CanDriver.cpp::recvDevice
-	* Get bitrate and error_topic information
-		* Each channel is fetched individually and placed in a vector. bitrate[0] is modified by the launch parameter "bitrate_1", like so:
-			&lt;remap from="can_bus_1" to="can_bus_1"/&gt;
-    		&lt;param name="bitrate_1" value="250000" /&gt; &lt;!-- 250kbit/s --&gt;
-    		&lt;param name="channel_1_mask_0"  value="0x80000000" /&gt;
-    		&lt;param name="channel_1_match_0" value="0x80000000" /&gt; 
-    	* Same for filter_masks and matches.
-    * Open the CAN driver (run CanUsb.cpp::open)
-    * Read version number and channel count
-    * For each channel, print the filter masks, and filter matches to the console
-    * For each channel, attempt to set the bitrates, then print to console
-    * If all channel bitrates are set successfully, set up ROS pub/subs:
-    	* For each channel with nonzero bitrate, create a node (can_bus_#)
-    		* Create a subscriber (can_tx) to receive messages to send to the device
-    		* Create a publisher (can_rx) to send messages whenever the device sends data
-    		* Create an error publisher (can_err) if argument is set
-    * Whenever data is received from the device, publish a can_msgs::Frame to the appropriate channel
-    	* can_msgs is a standard message type: http://docs.ros.org/kinetic/api/can_msgs/html/msg/Frame.html
-    	Contains a unique ID, data length code (dlc), and data (up to 8 bytes)
+<p>```</p>
 
-===dbc_node===
-* START: dbc_node.cpp
-	* Create a Node and NodeHandle
-	* Get dbc_file parameter; if it doesn't exist, exit.
-	* Create a CanExtractor.cpp object, passing the dbc_file value
-	* Create a subscriber to can_rx (which is published by can_node)
-		* When a can_msgs::Frame message is received, get the ID (OR it with 0x80000000 if it's an extended msg) and put it in a RosCanMsgStruct
-		* Run CanExtractor::getMessage(RosCanMsgStruct), which returns true/false
-			* If true, run CanExtractor::initPublishers(RosCanMsgStruct, NodeHandle)
-		* Run CanExtractor::pubMessage(can_msgs::Frame), which posts the data to the appropriate ROS topic 
-* CanExtractor.cpp
-	* dbc_
-		* A DBCIterator.cpp object
-	* msgs_
-		* A map between CAN message IDs and RosCanMsgStructs
-	* getMessage(RosCanMsgStruct)
-		* Check if the RosCanMsgStruct is already in the msgs_ map.
-		* If it is, set the RosCanMsgStruct reference to the stored one, and return false (the message type has already been processed).
-		* If it isn't, iterate over dbc_, searching for the CAN ID.
-			* For each matching DBCMessage::Message found, create a RosCanSigStruct based on it and append it to the RosCanMsgStruct
-			* Then store the RosCanMsgStruct and return it
-		* Either way, the result is a RosCanMsgStruct, containing a CAN ID, and message name.
-		* RosCanMsgStruct contains a can_msgs::Frame publisher which sends whenever a message is received, and a vector of RosCanSigStructs, each containing a publisher which sends individual fields whenever a message is received.
-	* initPublishers(RosCanMsgStruct, NodeHandle)
-		* Creates a publisher for the message as a whole (can_msgs::Frame) and attaches it to RosCanMsgStruct
-		* Creates publishers for each signal with registerCanSignalPublisher(RosCanSigStruct NodeHandle)
-	* registerCanSignalPublisher(RosCanSigStruct NodeHandle)
-		* Creates an std_msgs::Int/Float64/Bool publisher (signed/unsigned/size based on RosCanSigStruct)
-		* Attaches the publisher to the RosCanSigStruct
-	* pubMessage()
-		* Retrieve the RosCanMsgStruct from the msgs_ map based on message ID.
-			* If the messageID isn't in the msgs_ map, return.
-		* An 8-byte integer (uint64) stores all message data.
-		* TO CHANGE: Loop through the list of signals for a signal multiplexor enum value that is MULTIPLEXOR. Save this value and break if found, set to -1 otherwise.
-		* For each signal, the data is retrieved based on the start bit and length (signed or unsigned).
-		* TO CHANGE: For each signal, if the multiplexor is not -1, use an if conditional to check if the signal's multiplexor enum is MULTIPLEXED; if it is, check if the multiplexNum is equal to the multiplexor value from the loop above; only publish if the values match.
-* DBCIterator.cpp
-	* messageList: Vector of DBCMessage.Message objects
-	* init
-		* TO CHANGE: Support multiple file streams
-		* Open the file stream
-		* DBCMessage::Message overrides the &gt;&gt; operator, and uses this to take a stream (up to the next )
-		* If the process fails and the stream errors out, clear it (which will cause the loop to exit)
-		* Else, add the message to the messageList.
-		* DBCIterator iterates the file's messages, DBCMessage iterates the message's signals
-* DBCMessage.cpp
-	* If the line does not start in BO_, throw an error to get the parent iterator to clear to the next line.
-	* If it does, fetch the BO data:
-		BO_ &lt;ID&gt; &lt;Messagename&gt; &lt;ByteLength&gt; &lt;Sender&gt;
-	* Then, iterate over the next lines;
-	* While the stream is creating valid signal objects, &gt;&gt; create more DbcSignal.cpp objects.
-* DBCSignal.cpp
-	* Get the next line, if (after cleanup) the line is empty or does not start with SG_, throw an error to get the parent iterator to finish parsing signals.
-	* If it does, fetch the signal data:
-		SG_ &lt;Fieldname&gt; &lt;Multiplexor&gt; : &lt;StartBit&gt;|&lt;BitLength&gt;@&lt;Order&gt;&lt;Signed&gt; (&lt;Factor&gt;,&lt;Offset&gt;) [&lt;Minimum&gt;|&lt;Maximum&gt;] "&lt;Unit&gt;" &lt;Receivers&gt;
-	* Multiplexor may be blank (meaning value always appears in the message), in which case there will be no value between the Fieldname and the :
-	* If Multiplexor is not blank, it is either:
-		* 'M', meaning the value is the multiplexor
-		* 'm###', with numbers, meaning the signal only appears in the message when the multiplexor value is equal to that of the multiplexed signal
-	* Byteorder is either Motorola (big-endian/network) (0) or Intel (little-endian/math) (1)
-	* Signed is either + (unsigned value) or - (signed value)
-	* phys = digits * factor + offset
+<p>===can_node===</p>
+<ul>
+  <li>START: node.cpp
+    <ul>
+      <li>Create a CanDriver.cpp instance</li>
+    </ul>
+  </li>
+  <li>CanDriver.cpp
+    <ul>
+      <li>TO CHANGE: Add Sync Time support</li>
+      <li>Create a CanUsb.cpp instance
+        <ul>
+          <li>This creates a reference to a data stream which provides a callback whenever USB data is read from the CAN device.</li>
+        </ul>
+      </li>
+      <li>Set the CanUsb callback to CanDriver.cpp::recvDevice</li>
+      <li>Get bitrate and error_topic information
+        <ul>
+          <li>Each channel is fetched individually and placed in a vector. bitrate[0] is modified by the launch parameter “bitrate_1”, like so:
+            <remap from="can_bus_1" to="can_bus_1"></remap>
 
-===DBC EXAMPLE===
+  		<param name="bitrate_1" value="250000"> <!-- 250kbit/s -->
+  		<param name="channel_1_mask_0" value="0x80000000">
+  		<param name="channel_1_match_0" value="0x80000000"> 
+  	* Same for filter_masks and matches.
+          </li>
+        </ul>
+      </li>
+      <li>Open the CAN driver (run CanUsb.cpp::open)</li>
+      <li>Read version number and channel count</li>
+      <li>For each channel, print the filter masks, and filter matches to the console</li>
+      <li>For each channel, attempt to set the bitrates, then print to console</li>
+      <li>If all channel bitrates are set successfully, set up ROS pub/subs:
+  	* For each channel with nonzero bitrate, create a node (can_bus_#)
+  		* Create a subscriber (can_tx) to receive messages to send to the device
+  		* Create a publisher (can_rx) to send messages whenever the device sends data
+  		* Create an error publisher (can_err) if argument is set</li>
+      <li>Whenever data is received from the device, publish a can_msgs::Frame to the appropriate channel
+  	* can_msgs is a standard message type: http://docs.ros.org/kinetic/api/can_msgs/html/msg/Frame.html
+  	Contains a unique ID, data length code (dlc), and data (up to 8 bytes)</li>
+    </ul>
+  </li>
+</ul>
+
+<p>===dbc_node===</p>
+<ul>
+  <li>START: dbc_node.cpp
+    <ul>
+      <li>Create a Node and NodeHandle</li>
+      <li>Get dbc_file parameter; if it doesn’t exist, exit.</li>
+      <li>Create a CanExtractor.cpp object, passing the dbc_file value</li>
+      <li>Create a subscriber to can_rx (which is published by can_node)
+        <ul>
+          <li>When a can_msgs::Frame message is received, get the ID (OR it with 0x80000000 if it’s an extended msg) and put it in a RosCanMsgStruct</li>
+          <li>Run CanExtractor::getMessage(RosCanMsgStruct), which returns true/false
+            <ul>
+              <li>If true, run CanExtractor::initPublishers(RosCanMsgStruct, NodeHandle)</li>
+            </ul>
+          </li>
+          <li>Run CanExtractor::pubMessage(can_msgs::Frame), which posts the data to the appropriate ROS topic</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>CanExtractor.cpp
+    <ul>
+      <li>dbc_
+        <ul>
+          <li>A DBCIterator.cpp object</li>
+        </ul>
+      </li>
+      <li>msgs_
+        <ul>
+          <li>A map between CAN message IDs and RosCanMsgStructs</li>
+        </ul>
+      </li>
+      <li>getMessage(RosCanMsgStruct)
+        <ul>
+          <li>Check if the RosCanMsgStruct is already in the msgs_ map.</li>
+          <li>If it is, set the RosCanMsgStruct reference to the stored one, and return false (the message type has already been processed).</li>
+          <li>If it isn’t, iterate over dbc_, searching for the CAN ID.
+            <ul>
+              <li>For each matching DBCMessage::Message found, create a RosCanSigStruct based on it and append it to the RosCanMsgStruct</li>
+              <li>Then store the RosCanMsgStruct and return it</li>
+            </ul>
+          </li>
+          <li>Either way, the result is a RosCanMsgStruct, containing a CAN ID, and message name.</li>
+          <li>RosCanMsgStruct contains a can_msgs::Frame publisher which sends whenever a message is received, and a vector of RosCanSigStructs, each containing a publisher which sends individual fields whenever a message is received.</li>
+        </ul>
+      </li>
+      <li>initPublishers(RosCanMsgStruct, NodeHandle)
+        <ul>
+          <li>Creates a publisher for the message as a whole (can_msgs::Frame) and attaches it to RosCanMsgStruct</li>
+          <li>Creates publishers for each signal with registerCanSignalPublisher(RosCanSigStruct NodeHandle)</li>
+        </ul>
+      </li>
+      <li>registerCanSignalPublisher(RosCanSigStruct NodeHandle)
+        <ul>
+          <li>Creates an std_msgs::Int/Float64/Bool publisher (signed/unsigned/size based on RosCanSigStruct)</li>
+          <li>Attaches the publisher to the RosCanSigStruct</li>
+        </ul>
+      </li>
+      <li>pubMessage()
+        <ul>
+          <li>Retrieve the RosCanMsgStruct from the msgs_ map based on message ID.
+            <ul>
+              <li>If the messageID isn’t in the msgs_ map, return.</li>
+            </ul>
+          </li>
+          <li>An 8-byte integer (uint64) stores all message data.</li>
+          <li>TO CHANGE: Loop through the list of signals for a signal multiplexor enum value that is MULTIPLEXOR. Save this value and break if found, set to -1 otherwise.</li>
+          <li>For each signal, the data is retrieved based on the start bit and length (signed or unsigned).</li>
+          <li>TO CHANGE: For each signal, if the multiplexor is not -1, use an if conditional to check if the signal’s multiplexor enum is MULTIPLEXED; if it is, check if the multiplexNum is equal to the multiplexor value from the loop above; only publish if the values match.</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>DBCIterator.cpp
+    <ul>
+      <li>messageList: Vector of DBCMessage.Message objects</li>
+      <li>init
+        <ul>
+          <li>TO CHANGE: Support multiple file streams</li>
+          <li>Open the file stream</li>
+          <li>DBCMessage::Message overrides the » operator, and uses this to take a stream (up to the next )</li>
+          <li>If the process fails and the stream errors out, clear it (which will cause the loop to exit)</li>
+          <li>Else, add the message to the messageList.</li>
+          <li>DBCIterator iterates the file’s messages, DBCMessage iterates the message’s signals</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>DBCMessage.cpp
+    <ul>
+      <li>If the line does not start in BO_, throw an error to get the parent iterator to clear to the next line.</li>
+      <li>If it does, fetch the BO data:
+  BO_ <id> <messagename> <bytelength> <sender></sender></bytelength></messagename></id>
+</li>
+      <li>Then, iterate over the next lines;</li>
+      <li>While the stream is creating valid signal objects, » create more DbcSignal.cpp objects.</li>
+    </ul>
+  </li>
+  <li>DBCSignal.cpp
+    <ul>
+      <li>Get the next line, if (after cleanup) the line is empty or does not start with SG_, throw an error to get the parent iterator to finish parsing signals.</li>
+      <li>If it does, fetch the signal data:
+  SG_ <fieldname> <multiplexor> : <startbit>|<bitlength>@<order><signed> (<factor>,<offset>) [<minimum>|<maximum>] "<unit>" <receivers></receivers></unit></maximum></minimum></offset></factor></signed></order></bitlength></startbit></multiplexor></fieldname>
+</li>
+      <li>Multiplexor may be blank (meaning value always appears in the message), in which case there will be no value between the Fieldname and the :</li>
+      <li>If Multiplexor is not blank, it is either:
+        <ul>
+          <li>‘M’, meaning the value is the multiplexor</li>
+          <li>‘m###’, with numbers, meaning the signal only appears in the message when the multiplexor value is equal to that of the multiplexed signal</li>
+        </ul>
+      </li>
+      <li>Byteorder is either Motorola (big-endian/network) (0) or Intel (little-endian/math) (1)</li>
+      <li>Signed is either + (unsigned value) or - (signed value)</li>
+      <li>phys = digits * factor + offset</li>
+    </ul>
+  </li>
+</ul>
+
+<p>===DBC EXAMPLE===
 BO_ 126 License: 8 EPAS
- SG_ EXPIRED : 10|1@1+ (1,0) [0|0] ""  MAB
- SG_ MUX M : 0|8@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_TRIALS_USED m0 : 32|16@1+ (1,0) [0|0] ""  MAB
- SG_ DATE1 m129 : 24|8@1+ (1,0) [0|0] ""  MAB
+ SG_ EXPIRED : 10|1@1+ (1,0) [0|0] “”  MAB
+ SG_ MUX M : 0|8@1+ (1,0) [0|0] “”  MAB
+ SG_ FEAT_BASE_TRIALS_USED m0 : 32|16@1+ (1,0) [0|0] “”  MAB
+ SG_ DATE1 m129 : 24|8@1+ (1,0) [0|0] “”  MAB</p>
 
- 
- SG_ FEAT_BASE_TRIALS_REMAINING m0 : 48|16@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_TRIAL m0 : 17|1@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_ENABLED m0 : 16|1@1+ (1,0) [0|0] ""  MAB
- SG_ TRIAL : 9|1@1+ (1,0) [0|0] ""  MAB
- SG_ READY : 8|1@1+ (1,0) [0|0] ""  MAB
- SG_ DATE0 m129 : 16|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN16 m133 : 48|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN15 m133 : 40|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN14 m133 : 32|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN01 m131 : 24|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN00 m131 : 16|8@1+ (1,0) [0|0] ""  MAB
-
-</code></pre></div></div>
+<p>File truncated at 100 lines <a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/ros2/dataspeed_can_tools">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -1665,10 +1780,7 @@ dependent packages)</li>
 
 <h2 id="100-2016-09-28">1.0.0 (2016-09-28)</h2>
 
-<ul>
-  <li>Initial release</li>
-  <li>Contributors: Kevin Hallenbeck, Micho Radovnikovich</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/ros2/dataspeed_can_tools">see the full file</a></p>
 </div>
             
           </div>
@@ -1972,900 +2084,6 @@ jQuery(function() {
     <div class="container-fluid">
       
           <div class="alert alert-warning">No version for distro <strong>rolling</strong>. Known supported distros are highlighted in the buttons above.</div>
-      
-    </div>
-  </div>
-
-  <div class="distro distro-noetic">
-    <div class="container-fluid">
-      
-        
-        
-        
-
-        <div class="row">
-          <div class="col-md-10">
-            
-
-<div class="well well-sm">
-  <table class="table">
-    <tr>
-      <td width="100px" class="text-center">
-        <img style="width: 80px" src="/assets/package.png"  alt="Package symbol">
-      </td>
-      <td>
-        <h3 style="margin-top: 5px">
-          <a style="text-decoration:none" href="/p/dataspeed_can_tools">dataspeed_can_tools</a> <small>package from <a style="text-decoration:none" href="/r/dataspeed_can/bitbucket-dataspeedinc-dataspeed_can">dataspeed_can</a> repo</small>
-        </h3>
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/dataspeed_can">dataspeed_can</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/dataspeed_can_msg_filters">dataspeed_can_msg_filters</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/dataspeed_can_msgs">dataspeed_can_msgs</a>
-            
-          
-            
-            
-              <span class="label label-default pkg-label">dataspeed_can_tools</span>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/dataspeed_can_usb">dataspeed_can_usb</a>
-            
-          
-      </td>
-    </tr>
-  </table>
-</div>
-
-            <div class="visible-xs visible-sm">
-              
-              
-              
-
-
-
-<div class="list-group list-group-sm list-group-horizontal list-group-justified">
-  <a class="list-group-item text-center"
-     target="_blank"
-     href="http://docs.ros.org/en/noetic/api/dataspeed_can_tools/html/"
-     title="View API documentation on docs.ros.org"
-     >
-       <span style="margin-right: 5px;" class="glyphicon glyphicon-file"></span>
-       <br>
-       API Docs
-  </a>
-  <a class="list-group-item text-center"
-     target="_blank"
-     href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/master/dataspeed_can_tools"
-     title="View source code on repository">
-       <span class="glyphicon glyphicon-folder-open" style="margin-right:5px;"></span>
-       <br>
-       Browse Code
-  </a>
-  
-  
-  
-  
-  
-  <a class="list-group-item text-center "
-     target="_blank"
-     href="http://wiki.ros.org/dataspeed_can_tools?distro=noetic"
-     title="View this package on wiki.ros.org">
-       <span style="margin-right: 5px;" class="glyphicon glyphicon-info-sign"></span>
-       <br>
-       Wiki
-  </a>
-  
-  
-</div>
-
-            </div>
-            
-
-
-
-<ul class="nav nav-tabs nav-justified" id="noetic-tabs" style="margin-bottom:20px">
-  <li class="better-tabs active">
-    <a href="#noetic-overview" data-toggle="tab">Overview</a>
-  </li>
-  <li class="better-tabs">
-    
-    
-    
-    
-    
-    <a href="#noetic-assets" data-toggle="tab"><span class="label label-default">0</span> Assets</a>
-  </li>
-  <li class="better-tabs">
-    
-    
-    
-    
-    <a href="#noetic-deps" data-toggle="tab"><span class="label label-primary">8</span> Dependencies</a>
-  </li>
-  <li class="better-tabs">
-    
-    <a href="#noetic-tutorials" data-toggle="tab"><span class="label label-default">0</span> Tutorials</a>
-  </li>
-  <li class="better-tabs">
-    <a href="#noetic-questions" data-toggle="tab"><span id="noetic-questions-count" class="label label-primary">0</span> Q & A</a>
-  </li>
-</ul>
-
-<div class="tab-content">
-  <div class="tab-pane active" id="noetic-overview">
-    
-    <div class="row">
-      <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
-        <div class="panel panel-default">
-          <div class="panel-heading"><h4 class="panel-title">Package Summary</h4></div>
-          <div class="panel-body">
-            <table class="table table-condensed">
-              <tr>
-                <td style="width:100px;" class="text-right"><strong>Tags</strong></td>
-                <td>
-                  
-                  
-                    <em>No category tags.</em>
-                  
-                </td>
-              </tr>
-              <tr>
-                <td class="text-right"><strong>Version</strong></td>
-                <td>1.1.0</td>
-              </tr>
-              <tr>
-                <td class="text-right"><strong>License</strong></td>
-                <td>BSD</td>
-              </tr>
-              <tr>
-                <td class="text-right"><strong>Build type</strong></td>
-                <td>
-                  
-                    <span class="label label-info">
-                  
-                    CATKIN</span>
-                </td>
-              </tr>
-              <tr>
-                <td class="text-right"><strong>Use</strong></td>
-                <td>
-                
-                  <span class="label label-success">RECOMMENDED</span>
-                
-                </td>
-              </tr>
-            </table>
-          </div>
-          <div class="panel-heading"><h3 class="panel-title">Repository Summary</h3></div>
-          <div class="panel-body">
-            
-            
-            
-  <link rel="stylesheet" href="/css/ci-status.css">
-  <table class="table table-condensed">
-    <tr>
-      <td style="width:100px;" class="text-right"><b>Checkout URI</b></td>
-      <td><a class="label label-default" href="https://bitbucket.org/dataspeedinc/dataspeed_can.git">https://bitbucket.org/dataspeedinc/dataspeed_can.git</a></td>
-    </tr>
-    <tr>
-      <td class="text-right"><b>VCS Type</b></td>
-      <td><span class="label label-default">git</span></td>
-    </tr>
-    <tr>
-      <td class="text-right"><b>VCS Version</b></td>
-      <td><span class="label label-default">master</span></td>
-    </tr>
-    <tr>
-      <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
-      <td>
-        
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-02-03
-        </span>
-      </td>
-    </tr>
-    <tr>
-      <td class="text-right"><b>Dev Status</b></td>
-      <td>
-        
-          
-            <span class="label label-success">
-          
-          DEVELOPED
-        </span>
-      </td>
-    </tr>
-              <tr>
-                <td class="text-right"><b>CI status</b></td>
-                <td class="ci-status">
-                  
-                  
-                    
-                      <div class="dropdown">
-                        <button type="button" data-toggle="dropdown" class="btn label label-primary dropdown-toggle ci-result-success" title="Latest build information: Fri, 03 Feb 2023 15:12:50 GMT
-  Total tests: 47
-  Succeeded: 47
-  Skipped: 0
-  Failed: 0
-Click to show more build history.">
-                          <span class="glyphicon glyphicon-check"></span>
-                          Continuous Integration
-                          
-                            : 47 / 47
-                          
-                          <span class="caret"></span>
-                        </button>
-                        <ul class="dropdown-menu" role="menu">
-                          <li class="dropdown-header">Latest build history: Fri, 03 Feb 2023 15:12:50 GMT (last 2 of 2 builds)</li>
-                          
-                            <li class="ci-build-info ci-result-success">
-                              <a href="http://build.ros.org/job/Ndev__dataspeed_can__ubuntu_focal_amd64/3/" target="_blank">
-                                <span class="glyphicon glyphicon-ok"></span>
-                                <span><strong>#3</strong></span>
-                                <span>03-Feb-2023 15:06</span>
-                                <span>47 / 47</span>
-                              </a>
-                            </li>
-                          
-                            <li class="ci-build-info ci-result-success">
-                              <a href="http://build.ros.org/job/Ndev__dataspeed_can__ubuntu_focal_amd64/2/" target="_blank">
-                                <span class="glyphicon glyphicon-ok"></span>
-                                <span><strong>#2</strong></span>
-                                <span>01-Nov-2021 21:06</span>
-                                <span>47 / 47</span>
-                              </a>
-                            </li>
-                          
-                        </ul>
-                      </div>
-                    
-                  
-                </td>
-              </tr>
-    <tr>
-      <td class="text-right"><b>Released</b></td>
-      <td>
-        
-          <span class="label label-primary"><span class="glyphicon glyphicon-flash"></span> RELEASED
-        </span>
-      </td>
-    </tr>
-    <tr>
-      <td class="text-right"><b>Tags</b></td>
-      <td>
-        
-        
-          <em>No category tags.</em>
-        
-      </td>
-    </tr>
-    <tr>
-      <td class="text-right"><b>Contributing</b></td>
-      <td>
-        <a class="label label-primary" href="/r/dataspeed_can/#noetic-contribute-lists-help-wanted">
-          Help Wanted (<span class="contribute-lists-help-wanted-count">0</span>)
-        </a>
-        <br>
-        <a class="label label-primary" href="/r/dataspeed_can/#noetic-contribute-lists-good-first-issue">
-          Good First Issues (<span class="contribute-lists-good-first-issue-count">0</span>)
-        </a>
-        <br>
-        <a class="label label-primary" href="/r/dataspeed_can/#noetic-contribute-lists-pull-requests">
-          Pull Requests to Review (<span class="contribute-lists-pull-requests-count">0</span>)
-        </a>
-      </td>
-    </tr>
-  </table>
-
-          </div>
-        </div>
-      </div>
-      <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
-        <div class="panel panel-default">
-          <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
-          <div class="panel-body">
-            
-    CAN bus introspection
-  
-          </div>
-          <div class="panel-heading"><h4 class="panel-title">Additional Links</h4></div>
-          <div class="panel-body">
-            
-            
-              <ul class="list-unstyled">
-                
-                  <li><a href="http://dataspeedinc.com">Website</a></li>
-                
-                  <li><a href="https://bitbucket.org/dataspeedinc/dataspeed_can">Repository</a></li>
-                
-                  <li><a href="https://bitbucket.org/dataspeedinc/dataspeed_can/issues">Bugtracker</a></li>
-                
-              </ul>
-            
-          </div>
-          <div class="panel-heading"><h4 class="panel-title">Maintainers</h4></div>
-          <div class="panel-body">
-            
-            
-              <ul class="list-unstyled">
-                
-                  <li>Micho Radovnikovich</li>
-                
-              </ul>
-            
-          </div>
-          <div class="panel-heading"><h4 class="panel-title">Authors</h4></div>
-          <div class="panel-body">
-            
-            
-              <ul class="list-unstyled">
-                
-                  <li>Micho Radovnikovich</li>
-                
-              </ul>
-            
-          </div>
-        </div>
-      </div>
-    </div>
-    
-      
-        <div class="row">
-          <div class="col-xs-12">
-            <div class="panel panel-default">
-              <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/master/dataspeed_can_tools/README.txt" title="Open in git repository">dataspeed_can_tools/README.txt</a></div>
-              <div class="panel-body">
-                    <div class="rendered-markdown">
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-===can_node===
-* START: node.cpp
-	* Create a CanDriver.cpp instance
-* CanDriver.cpp
-	* TO CHANGE: Add Sync Time support
-	* Create a CanUsb.cpp instance
-		* This creates a reference to a data stream which provides a callback whenever USB data is read from the CAN device.
-	* Set the CanUsb callback to CanDriver.cpp::recvDevice
-	* Get bitrate and error_topic information
-		* Each channel is fetched individually and placed in a vector. bitrate[0] is modified by the launch parameter "bitrate_1", like so:
-			&lt;remap from="can_bus_1" to="can_bus_1"/&gt;
-    		&lt;param name="bitrate_1" value="250000" /&gt; &lt;!-- 250kbit/s --&gt;
-    		&lt;param name="channel_1_mask_0"  value="0x80000000" /&gt;
-    		&lt;param name="channel_1_match_0" value="0x80000000" /&gt; 
-    	* Same for filter_masks and matches.
-    * Open the CAN driver (run CanUsb.cpp::open)
-    * Read version number and channel count
-    * For each channel, print the filter masks, and filter matches to the console
-    * For each channel, attempt to set the bitrates, then print to console
-    * If all channel bitrates are set successfully, set up ROS pub/subs:
-    	* For each channel with nonzero bitrate, create a node (can_bus_#)
-    		* Create a subscriber (can_tx) to receive messages to send to the device
-    		* Create a publisher (can_rx) to send messages whenever the device sends data
-    		* Create an error publisher (can_err) if argument is set
-    * Whenever data is received from the device, publish a can_msgs::Frame to the appropriate channel
-    	* can_msgs is a standard message type: http://docs.ros.org/kinetic/api/can_msgs/html/msg/Frame.html
-    	Contains a unique ID, data length code (dlc), and data (up to 8 bytes)
-
-===dbc_node===
-* START: dbc_node.cpp
-	* Create a Node and NodeHandle
-	* Get dbc_file parameter; if it doesn't exist, exit.
-	* Create a CanExtractor.cpp object, passing the dbc_file value
-	* Create a subscriber to can_rx (which is published by can_node)
-		* When a can_msgs::Frame message is received, get the ID (OR it with 0x80000000 if it's an extended msg) and put it in a RosCanMsgStruct
-		* Run CanExtractor::getMessage(RosCanMsgStruct), which returns true/false
-			* If true, run CanExtractor::initPublishers(RosCanMsgStruct, NodeHandle)
-		* Run CanExtractor::pubMessage(can_msgs::Frame), which posts the data to the appropriate ROS topic 
-* CanExtractor.cpp
-	* dbc_
-		* A DBCIterator.cpp object
-	* msgs_
-		* A map between CAN message IDs and RosCanMsgStructs
-	* getMessage(RosCanMsgStruct)
-		* Check if the RosCanMsgStruct is already in the msgs_ map.
-		* If it is, set the RosCanMsgStruct reference to the stored one, and return false (the message type has already been processed).
-		* If it isn't, iterate over dbc_, searching for the CAN ID.
-			* For each matching DBCMessage::Message found, create a RosCanSigStruct based on it and append it to the RosCanMsgStruct
-			* Then store the RosCanMsgStruct and return it
-		* Either way, the result is a RosCanMsgStruct, containing a CAN ID, and message name.
-		* RosCanMsgStruct contains a can_msgs::Frame publisher which sends whenever a message is received, and a vector of RosCanSigStructs, each containing a publisher which sends individual fields whenever a message is received.
-	* initPublishers(RosCanMsgStruct, NodeHandle)
-		* Creates a publisher for the message as a whole (can_msgs::Frame) and attaches it to RosCanMsgStruct
-		* Creates publishers for each signal with registerCanSignalPublisher(RosCanSigStruct NodeHandle)
-	* registerCanSignalPublisher(RosCanSigStruct NodeHandle)
-		* Creates an std_msgs::Int/Float64/Bool publisher (signed/unsigned/size based on RosCanSigStruct)
-		* Attaches the publisher to the RosCanSigStruct
-	* pubMessage()
-		* Retrieve the RosCanMsgStruct from the msgs_ map based on message ID.
-			* If the messageID isn't in the msgs_ map, return.
-		* An 8-byte integer (uint64) stores all message data.
-		* TO CHANGE: Loop through the list of signals for a signal multiplexor enum value that is MULTIPLEXOR. Save this value and break if found, set to -1 otherwise.
-		* For each signal, the data is retrieved based on the start bit and length (signed or unsigned).
-		* TO CHANGE: For each signal, if the multiplexor is not -1, use an if conditional to check if the signal's multiplexor enum is MULTIPLEXED; if it is, check if the multiplexNum is equal to the multiplexor value from the loop above; only publish if the values match.
-* DBCIterator.cpp
-	* messageList: Vector of DBCMessage.Message objects
-	* init
-		* TO CHANGE: Support multiple file streams
-		* Open the file stream
-		* DBCMessage::Message overrides the &gt;&gt; operator, and uses this to take a stream (up to the next )
-		* If the process fails and the stream errors out, clear it (which will cause the loop to exit)
-		* Else, add the message to the messageList.
-		* DBCIterator iterates the file's messages, DBCMessage iterates the message's signals
-* DBCMessage.cpp
-	* If the line does not start in BO_, throw an error to get the parent iterator to clear to the next line.
-	* If it does, fetch the BO data:
-		BO_ &lt;ID&gt; &lt;Messagename&gt; &lt;ByteLength&gt; &lt;Sender&gt;
-	* Then, iterate over the next lines;
-	* While the stream is creating valid signal objects, &gt;&gt; create more DbcSignal.cpp objects.
-* DBCSignal.cpp
-	* Get the next line, if (after cleanup) the line is empty or does not start with SG_, throw an error to get the parent iterator to finish parsing signals.
-	* If it does, fetch the signal data:
-		SG_ &lt;Fieldname&gt; &lt;Multiplexor&gt; : &lt;StartBit&gt;|&lt;BitLength&gt;@&lt;Order&gt;&lt;Signed&gt; (&lt;Factor&gt;,&lt;Offset&gt;) [&lt;Minimum&gt;|&lt;Maximum&gt;] "&lt;Unit&gt;" &lt;Receivers&gt;
-	* Multiplexor may be blank (meaning value always appears in the message), in which case there will be no value between the Fieldname and the :
-	* If Multiplexor is not blank, it is either:
-		* 'M', meaning the value is the multiplexor
-		* 'm###', with numbers, meaning the signal only appears in the message when the multiplexor value is equal to that of the multiplexed signal
-	* Byteorder is either Motorola (big-endian/network) (0) or Intel (little-endian/math) (1)
-	* Signed is either + (unsigned value) or - (signed value)
-	* phys = digits * factor + offset
-
-===DBC EXAMPLE===
-BO_ 126 License: 8 EPAS
- SG_ EXPIRED : 10|1@1+ (1,0) [0|0] ""  MAB
- SG_ MUX M : 0|8@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_TRIALS_USED m0 : 32|16@1+ (1,0) [0|0] ""  MAB
- SG_ DATE1 m129 : 24|8@1+ (1,0) [0|0] ""  MAB
-
- 
- SG_ FEAT_BASE_TRIALS_REMAINING m0 : 48|16@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_TRIAL m0 : 17|1@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_ENABLED m0 : 16|1@1+ (1,0) [0|0] ""  MAB
- SG_ TRIAL : 9|1@1+ (1,0) [0|0] ""  MAB
- SG_ READY : 8|1@1+ (1,0) [0|0] ""  MAB
- SG_ DATE0 m129 : 16|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN16 m133 : 48|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN15 m133 : 40|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN14 m133 : 32|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN01 m131 : 24|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN00 m131 : 16|8@1+ (1,0) [0|0] ""  MAB
-
-</code></pre></div></div>
-</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      
-    
-    <div class="row">
-      <div class="col-xs-12">
-        <div class="panel panel-default">
-          <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
-          <div class="panel-body">
-            
-              <div class="rendered-markdown">
-<h1 id="changelog-for-package-dataspeed_can_tools">Changelog for package dataspeed_can_tools</h1>
-
-<h2 id="110-2023-02-03">1.1.0 (2023-02-03)</h2>
-
-<ul>
-  <li>Add CAN-FD message support</li>
-  <li>Contributors: Nicholas Jankowski</li>
-</ul>
-
-<h2 id="1016-2020-07-07">1.0.16 (2020-07-07)</h2>
-
-<ul>
-  <li>Increase CMake minimum version to 3.0.2 to avoid warning about
-CMP0048
-<a href="http://wiki.ros.org/noetic/Migration#Increase_required_CMake_version_to_avoid_author_warning">http://wiki.ros.org/noetic/Migration#Increase_required_CMake_version_to_avoid_author_warning</a>
-</li>
-  <li>Fix processing bags with DBC files for extended CAN IDs</li>
-  <li>Contributors: Kevin Hallenbeck</li>
-</ul>
-
-<h2 id="1015-2020-01-24">1.0.15 (2020-01-24)</h2>
-
-<ul>
-  <li>Use %zu for portable printf() size type</li>
-  <li>Contributors: Kevin Hallenbeck</li>
-</ul>
-
-<h2 id="1014-2020-01-16">1.0.14 (2020-01-16)</h2>
-
-<h2 id="1013-2019-01-08">1.0.13 (2019-01-08)</h2>
-
-<ul>
-  <li>Added advance compiler error checking and fixed newly exposed errors</li>
-  <li>Contributors: Kevin Hallenbeck, Lincoln Lorenz</li>
-</ul>
-
-<h2 id="1012-2018-12-19">1.0.12 (2018-12-19)</h2>
-
-<h2 id="1011-2018-09-06">1.0.11 (2018-09-06)</h2>
-
-<ul>
-  <li>Added support for multiple DBC files</li>
-  <li>Added support for multiplexed signals</li>
-  <li>Many changes to the command line arguments</li>
-  <li>Fixed bug with signals greater than 31 bits</li>
-  <li>Set CXX_STANDARD to C++11 when necessary</li>
-  <li>Contributors: Kevin Hallenbeck, Eric Myllyoja</li>
-</ul>
-
-<h2 id="1010-2018-06-13">1.0.10 (2018-06-13)</h2>
-
-<h2 id="109-2018-06-12">1.0.9 (2018-06-12)</h2>
-
-<ul>
-  <li>Preliminary support for extended IDs</li>
-  <li>Contributors: Kevin Hallenbeck</li>
-</ul>
-
-<h2 id="108-2018-04-09">1.0.8 (2018-04-09)</h2>
-
-<ul>
-  <li>Added timestamp</li>
-  <li>Added option to expand dbc signals or not</li>
-  <li>Handle messages not defined in the dbc file</li>
-  <li>Contributors: Kevin Hallenbeck</li>
-</ul>
-
-<h2 id="107-2017-10-19">1.0.7 (2017-10-19)</h2>
-
-<h2 id="106-2017-09-07">1.0.6 (2017-09-07)</h2>
-
-<ul>
-  <li>Migrated from dataspeed_can_msgs to can_msgs (this will break
-dependent packages)</li>
-  <li>Contributors: Kevin Hallenbeck</li>
-</ul>
-
-<h2 id="105-2017-08-21">1.0.5 (2017-08-21)</h2>
-
-<ul>
-  <li>Updated nodelets to the PLUGINLIB_EXPORT_CLASS macro</li>
-  <li>Contributors: Kevin Hallenbeck</li>
-</ul>
-
-<h2 id="104-2017-05-08">1.0.4 (2017-05-08)</h2>
-
-<h2 id="103-2017-04-25">1.0.3 (2017-04-25)</h2>
-
-<ul>
-  <li>Updated package.xml format to version 2</li>
-  <li>Contributors: Kevin Hallenbeck</li>
-</ul>
-
-<h2 id="102-2017-01-24">1.0.2 (2017-01-24)</h2>
-
-<h2 id="101-2016-11-17">1.0.1 (2016-11-17)</h2>
-
-<h2 id="100-2016-09-28">1.0.0 (2016-09-28)</h2>
-
-<ul>
-  <li>Initial release</li>
-  <li>Contributors: Kevin Hallenbeck, Micho Radovnikovich</li>
-</ul>
-</div>
-            
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="tab-pane" id="noetic-tutorials">
-    <div class="panel panel-default">
-      <div class="panel-heading">
-        <h3 class="panel-title">Wiki Tutorials</h3>
-      </div>
-      <div class="panel-body">
-        
-        <em>This package does not provide any links to tutorials in it's <a href="https://index.ros.org/contribute/metadata/">rosindex metadata</a>.</em>
-        <em>You can check on the <a href="http://wiki.ros.org/dataspeed_can_tools/Tutorials" target="_blank">ROS Wiki Tutorials</a> page for the package.</em>
-        
-      </div>
-    </div>
-  </div>
-
-  <div class="tab-pane" id="noetic-deps">
-    <div class="row">
-      <div class="col-sm-6">
-        <div class="panel panel-default">
-          <div class="panel-heading">
-            <h3 class="panel-title">Package Dependencies</h3>
-          </div>
-          <div class="panel-body">
-            
-              <table class="table table-condensed table-striped">
-                <thead>
-                  <th class="text-center">Deps</th>
-                  <th style="width: 100%">Name</th>
-                </thead>
-                <tbody>
-                  
-                    
-                    
-                      <tr>
-                        <td class="text-center">
-                          
-                          <a href="/p/catkin#noetic-deps" class="endoftree">
-                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
-                          </a>
-                        </td>
-                        <td><a href="/p/catkin#noetic">catkin  </a></td>
-                      </tr>
-                    
-                  
-                    
-                    
-                      <tr>
-                        <td class="text-center">
-                          
-                          <a href="/p/rostest#noetic-deps" >
-                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
-                          </a>
-                        </td>
-                        <td><a href="/p/rostest#noetic">rostest  </a></td>
-                      </tr>
-                    
-                  
-                    
-                    
-                      <tr>
-                        <td class="text-center">
-                          
-                          <a href="/p/rosbag#noetic-deps" >
-                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
-                          </a>
-                        </td>
-                        <td><a href="/p/rosbag#noetic">rosbag  </a></td>
-                      </tr>
-                    
-                  
-                    
-                    
-                      <tr>
-                        <td class="text-center">
-                          
-                          <a href="/p/roscpp#noetic-deps" >
-                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
-                          </a>
-                        </td>
-                        <td><a href="/p/roscpp#noetic">roscpp  </a></td>
-                      </tr>
-                    
-                  
-                    
-                    
-                      <tr>
-                        <td class="text-center">
-                          
-                          <a href="/p/roslib#noetic-deps" >
-                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
-                          </a>
-                        </td>
-                        <td><a href="/p/roslib#noetic">roslib  </a></td>
-                      </tr>
-                    
-                  
-                    
-                    
-                      <tr>
-                        <td class="text-center">
-                          
-                          <a href="/p/std_msgs#noetic-deps" >
-                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
-                          </a>
-                        </td>
-                        <td><a href="/p/std_msgs#noetic">std_msgs  </a></td>
-                      </tr>
-                    
-                  
-                    
-                    
-                      <tr>
-                        <td class="text-center">
-                          
-                          <a href="/p/can_msgs#noetic-deps" >
-                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
-                          </a>
-                        </td>
-                        <td><a href="/p/can_msgs#noetic">can_msgs  </a></td>
-                      </tr>
-                    
-                  
-                    
-                    
-                      <tr>
-                        <td class="text-center">
-                          
-                          <a href="/p/dataspeed_can_msgs#noetic-deps" >
-                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
-                          </a>
-                        </td>
-                        <td><a href="/p/dataspeed_can_msgs#noetic">dataspeed_can_msgs  </a></td>
-                      </tr>
-                    
-                  
-                </tbody>
-              </table>
-            
-          </div>
-          <div class="panel-heading">
-            <h3 class="panel-title">System Dependencies</h3>
-          </div>
-          <div class="panel-body">
-            
-              <em>No direct system dependencies.</em>
-            
-          </div>
-        </div>
-      </div>
-
-      <div class="col-sm-6">
-        <div class="panel panel-default">
-          <div class="panel-heading">
-            <h3 class="panel-title">Dependant Packages</h3>
-          </div>
-          <div class="panel-body">
-            
-              <table class="table table-condensed table-striped">
-                <thead>
-                  <th>Name</th>
-                  <th class="text-center">Deps</th>
-                </thead>
-                <tbody>
-                  
-                    
-                    
-                    <tr>
-                      <td><a href="/p/dataspeed_can#noetic">dataspeed_can</a></td>
-                      <td class="text-center">
-                        
-                        <a href="/p/dataspeed_can#noetic-deps" class="endoftree">
-                          <span class="glyphicon glyphicon-arrow-right"></span>
-                        </a>
-                      </td>
-                    </tr>
-                    
-                  
-                </tbody>
-              </table>
-            
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="tab-pane" id="noetic-assets">
-    <div class="panel panel-default">
-      <div class="panel-heading">
-        <h3 class="panel-title">Launch files</h3>
-      </div>
-      <div class="panel-body">
-        
-          <em>No launch files found</em>
-        
-      </div>
-    </div>
-
-    <div class="panel panel-default">
-      <div class="panel-heading">
-        <h3 class="panel-title">Messages</h3>
-      </div>
-      <div class="panel-body">
-        
-          <em>No message files found.</em>
-        
-      </div>
-    </div>
-
-    <div class="panel panel-default">
-      <div class="panel-heading">
-        <h3 class="panel-title">Services</h3>
-      </div>
-      <div class="panel-body">
-        
-          <em>No service files found</em>
-        
-      </div>
-    </div>
-
-    <div class="panel panel-default">
-      <div class="panel-heading">
-        <h3 class="panel-title">Plugins</h3>
-      </div>
-      <div class="panel-body">
-        
-          <em>No plugins found.</em>
-        
-      </div>
-    </div>
-  </div>
-
-  <div class="tab-pane" id="noetic-questions">
-    <div class="panel panel-default">
-      <div class="panel-heading">
-        <h3 class="panel-title">Recent questions tagged <kbd>dataspeed_can_tools</kbd> at <strong><a href="https://robotics.stackexchange.com/" target="_blank">Robotics Stack Exchange</a></strong></h3>      </div>
-      <div id="noetic-question-list" class="panel-body" style="display: none;"></div>
-      <div id="noetic-no-question-list" class="panel-body" style="display: none;">
-        <p>No questions yet, <a href="https://robotics.stackexchange.com/questions/tagged/dataspeed_can_tools+noetic">you can ask one on Robotics Stack Exchange</a>.</p>
-      </div>
-      <div id="noetic-get-question-fail" class="panel-body alert alert-warning" style="display: none;">
-        <p>Failed to get question list, <a href="https://github.com/ros-infrastructure/rosindex/issues/new" target="_blank" class="alert-link">you can ticket an issue on the github issue tracker</a>.</p>
-      </div>
-    </div>
-  </div>
-</div>
-
-<script type="text/javascript" src="/js/package_body_tabs.js"></script>
-
-<script src=/js/contribution_suggestions.js></script>
-<script type="text/javascript">
-jQuery(function() {
-    // Update the count on the links to the contribution suggestions
-    updateContributionSuggestionsCountOnPackage('https://bitbucket.org/dataspeedinc/dataspeed_can.git');
-});
-</script>
-
-          </div>
-          <div class="col-md-2 hidden-xs hidden-sm">
-            
-            
-            
-
-
-
-<div class="list-group list-group-sm ">
-  <a class="list-group-item"
-     target="_blank"
-     href="http://docs.ros.org/en/noetic/api/dataspeed_can_tools/html/"
-     title="View API documentation on docs.ros.org"
-     >
-       <span style="margin-right: 5px;" class="glyphicon glyphicon-file"></span>
-       
-       API Docs
-  </a>
-  <a class="list-group-item"
-     target="_blank"
-     href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/master/dataspeed_can_tools"
-     title="View source code on repository">
-       <span class="glyphicon glyphicon-folder-open" style="margin-right:5px;"></span>
-       
-       Browse Code
-  </a>
-  
-  
-  
-  
-  
-  <a class="list-group-item "
-     target="_blank"
-     href="http://wiki.ros.org/dataspeed_can_tools?distro=noetic"
-     title="View this package on wiki.ros.org">
-       <span style="margin-right: 5px;" class="glyphicon glyphicon-info-sign"></span>
-       
-       Wiki
-  </a>
-  
-  
-</div>
-
-          </div>
-        </div>
       
     </div>
   </div>
@@ -3222,119 +2440,178 @@ jQuery(function() {
               <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/ros2/dataspeed_can_tools/README.txt" title="Open in git repository">dataspeed_can_tools/README.txt</a></div>
               <div class="panel-body">
                     <div class="rendered-markdown">
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-===can_node===
-* START: node.cpp
-	* Create a CanDriver.cpp instance
-* CanDriver.cpp
-	* TO CHANGE: Add Sync Time support
-	* Create a CanUsb.cpp instance
-		* This creates a reference to a data stream which provides a callback whenever USB data is read from the CAN device.
-	* Set the CanUsb callback to CanDriver.cpp::recvDevice
-	* Get bitrate and error_topic information
-		* Each channel is fetched individually and placed in a vector. bitrate[0] is modified by the launch parameter "bitrate_1", like so:
-			&lt;remap from="can_bus_1" to="can_bus_1"/&gt;
-    		&lt;param name="bitrate_1" value="250000" /&gt; &lt;!-- 250kbit/s --&gt;
-    		&lt;param name="channel_1_mask_0"  value="0x80000000" /&gt;
-    		&lt;param name="channel_1_match_0" value="0x80000000" /&gt; 
-    	* Same for filter_masks and matches.
-    * Open the CAN driver (run CanUsb.cpp::open)
-    * Read version number and channel count
-    * For each channel, print the filter masks, and filter matches to the console
-    * For each channel, attempt to set the bitrates, then print to console
-    * If all channel bitrates are set successfully, set up ROS pub/subs:
-    	* For each channel with nonzero bitrate, create a node (can_bus_#)
-    		* Create a subscriber (can_tx) to receive messages to send to the device
-    		* Create a publisher (can_rx) to send messages whenever the device sends data
-    		* Create an error publisher (can_err) if argument is set
-    * Whenever data is received from the device, publish a can_msgs::Frame to the appropriate channel
-    	* can_msgs is a standard message type: http://docs.ros.org/kinetic/api/can_msgs/html/msg/Frame.html
-    	Contains a unique ID, data length code (dlc), and data (up to 8 bytes)
+<p>```</p>
 
-===dbc_node===
-* START: dbc_node.cpp
-	* Create a Node and NodeHandle
-	* Get dbc_file parameter; if it doesn't exist, exit.
-	* Create a CanExtractor.cpp object, passing the dbc_file value
-	* Create a subscriber to can_rx (which is published by can_node)
-		* When a can_msgs::Frame message is received, get the ID (OR it with 0x80000000 if it's an extended msg) and put it in a RosCanMsgStruct
-		* Run CanExtractor::getMessage(RosCanMsgStruct), which returns true/false
-			* If true, run CanExtractor::initPublishers(RosCanMsgStruct, NodeHandle)
-		* Run CanExtractor::pubMessage(can_msgs::Frame), which posts the data to the appropriate ROS topic 
-* CanExtractor.cpp
-	* dbc_
-		* A DBCIterator.cpp object
-	* msgs_
-		* A map between CAN message IDs and RosCanMsgStructs
-	* getMessage(RosCanMsgStruct)
-		* Check if the RosCanMsgStruct is already in the msgs_ map.
-		* If it is, set the RosCanMsgStruct reference to the stored one, and return false (the message type has already been processed).
-		* If it isn't, iterate over dbc_, searching for the CAN ID.
-			* For each matching DBCMessage::Message found, create a RosCanSigStruct based on it and append it to the RosCanMsgStruct
-			* Then store the RosCanMsgStruct and return it
-		* Either way, the result is a RosCanMsgStruct, containing a CAN ID, and message name.
-		* RosCanMsgStruct contains a can_msgs::Frame publisher which sends whenever a message is received, and a vector of RosCanSigStructs, each containing a publisher which sends individual fields whenever a message is received.
-	* initPublishers(RosCanMsgStruct, NodeHandle)
-		* Creates a publisher for the message as a whole (can_msgs::Frame) and attaches it to RosCanMsgStruct
-		* Creates publishers for each signal with registerCanSignalPublisher(RosCanSigStruct NodeHandle)
-	* registerCanSignalPublisher(RosCanSigStruct NodeHandle)
-		* Creates an std_msgs::Int/Float64/Bool publisher (signed/unsigned/size based on RosCanSigStruct)
-		* Attaches the publisher to the RosCanSigStruct
-	* pubMessage()
-		* Retrieve the RosCanMsgStruct from the msgs_ map based on message ID.
-			* If the messageID isn't in the msgs_ map, return.
-		* An 8-byte integer (uint64) stores all message data.
-		* TO CHANGE: Loop through the list of signals for a signal multiplexor enum value that is MULTIPLEXOR. Save this value and break if found, set to -1 otherwise.
-		* For each signal, the data is retrieved based on the start bit and length (signed or unsigned).
-		* TO CHANGE: For each signal, if the multiplexor is not -1, use an if conditional to check if the signal's multiplexor enum is MULTIPLEXED; if it is, check if the multiplexNum is equal to the multiplexor value from the loop above; only publish if the values match.
-* DBCIterator.cpp
-	* messageList: Vector of DBCMessage.Message objects
-	* init
-		* TO CHANGE: Support multiple file streams
-		* Open the file stream
-		* DBCMessage::Message overrides the &gt;&gt; operator, and uses this to take a stream (up to the next )
-		* If the process fails and the stream errors out, clear it (which will cause the loop to exit)
-		* Else, add the message to the messageList.
-		* DBCIterator iterates the file's messages, DBCMessage iterates the message's signals
-* DBCMessage.cpp
-	* If the line does not start in BO_, throw an error to get the parent iterator to clear to the next line.
-	* If it does, fetch the BO data:
-		BO_ &lt;ID&gt; &lt;Messagename&gt; &lt;ByteLength&gt; &lt;Sender&gt;
-	* Then, iterate over the next lines;
-	* While the stream is creating valid signal objects, &gt;&gt; create more DbcSignal.cpp objects.
-* DBCSignal.cpp
-	* Get the next line, if (after cleanup) the line is empty or does not start with SG_, throw an error to get the parent iterator to finish parsing signals.
-	* If it does, fetch the signal data:
-		SG_ &lt;Fieldname&gt; &lt;Multiplexor&gt; : &lt;StartBit&gt;|&lt;BitLength&gt;@&lt;Order&gt;&lt;Signed&gt; (&lt;Factor&gt;,&lt;Offset&gt;) [&lt;Minimum&gt;|&lt;Maximum&gt;] "&lt;Unit&gt;" &lt;Receivers&gt;
-	* Multiplexor may be blank (meaning value always appears in the message), in which case there will be no value between the Fieldname and the :
-	* If Multiplexor is not blank, it is either:
-		* 'M', meaning the value is the multiplexor
-		* 'm###', with numbers, meaning the signal only appears in the message when the multiplexor value is equal to that of the multiplexed signal
-	* Byteorder is either Motorola (big-endian/network) (0) or Intel (little-endian/math) (1)
-	* Signed is either + (unsigned value) or - (signed value)
-	* phys = digits * factor + offset
+<p>===can_node===</p>
+<ul>
+  <li>START: node.cpp
+    <ul>
+      <li>Create a CanDriver.cpp instance</li>
+    </ul>
+  </li>
+  <li>CanDriver.cpp
+    <ul>
+      <li>TO CHANGE: Add Sync Time support</li>
+      <li>Create a CanUsb.cpp instance
+        <ul>
+          <li>This creates a reference to a data stream which provides a callback whenever USB data is read from the CAN device.</li>
+        </ul>
+      </li>
+      <li>Set the CanUsb callback to CanDriver.cpp::recvDevice</li>
+      <li>Get bitrate and error_topic information
+        <ul>
+          <li>Each channel is fetched individually and placed in a vector. bitrate[0] is modified by the launch parameter “bitrate_1”, like so:
+            <remap from="can_bus_1" to="can_bus_1"></remap>
 
-===DBC EXAMPLE===
+  		<param name="bitrate_1" value="250000"> <!-- 250kbit/s -->
+  		<param name="channel_1_mask_0" value="0x80000000">
+  		<param name="channel_1_match_0" value="0x80000000"> 
+  	* Same for filter_masks and matches.
+          </li>
+        </ul>
+      </li>
+      <li>Open the CAN driver (run CanUsb.cpp::open)</li>
+      <li>Read version number and channel count</li>
+      <li>For each channel, print the filter masks, and filter matches to the console</li>
+      <li>For each channel, attempt to set the bitrates, then print to console</li>
+      <li>If all channel bitrates are set successfully, set up ROS pub/subs:
+  	* For each channel with nonzero bitrate, create a node (can_bus_#)
+  		* Create a subscriber (can_tx) to receive messages to send to the device
+  		* Create a publisher (can_rx) to send messages whenever the device sends data
+  		* Create an error publisher (can_err) if argument is set</li>
+      <li>Whenever data is received from the device, publish a can_msgs::Frame to the appropriate channel
+  	* can_msgs is a standard message type: http://docs.ros.org/kinetic/api/can_msgs/html/msg/Frame.html
+  	Contains a unique ID, data length code (dlc), and data (up to 8 bytes)</li>
+    </ul>
+  </li>
+</ul>
+
+<p>===dbc_node===</p>
+<ul>
+  <li>START: dbc_node.cpp
+    <ul>
+      <li>Create a Node and NodeHandle</li>
+      <li>Get dbc_file parameter; if it doesn’t exist, exit.</li>
+      <li>Create a CanExtractor.cpp object, passing the dbc_file value</li>
+      <li>Create a subscriber to can_rx (which is published by can_node)
+        <ul>
+          <li>When a can_msgs::Frame message is received, get the ID (OR it with 0x80000000 if it’s an extended msg) and put it in a RosCanMsgStruct</li>
+          <li>Run CanExtractor::getMessage(RosCanMsgStruct), which returns true/false
+            <ul>
+              <li>If true, run CanExtractor::initPublishers(RosCanMsgStruct, NodeHandle)</li>
+            </ul>
+          </li>
+          <li>Run CanExtractor::pubMessage(can_msgs::Frame), which posts the data to the appropriate ROS topic</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>CanExtractor.cpp
+    <ul>
+      <li>dbc_
+        <ul>
+          <li>A DBCIterator.cpp object</li>
+        </ul>
+      </li>
+      <li>msgs_
+        <ul>
+          <li>A map between CAN message IDs and RosCanMsgStructs</li>
+        </ul>
+      </li>
+      <li>getMessage(RosCanMsgStruct)
+        <ul>
+          <li>Check if the RosCanMsgStruct is already in the msgs_ map.</li>
+          <li>If it is, set the RosCanMsgStruct reference to the stored one, and return false (the message type has already been processed).</li>
+          <li>If it isn’t, iterate over dbc_, searching for the CAN ID.
+            <ul>
+              <li>For each matching DBCMessage::Message found, create a RosCanSigStruct based on it and append it to the RosCanMsgStruct</li>
+              <li>Then store the RosCanMsgStruct and return it</li>
+            </ul>
+          </li>
+          <li>Either way, the result is a RosCanMsgStruct, containing a CAN ID, and message name.</li>
+          <li>RosCanMsgStruct contains a can_msgs::Frame publisher which sends whenever a message is received, and a vector of RosCanSigStructs, each containing a publisher which sends individual fields whenever a message is received.</li>
+        </ul>
+      </li>
+      <li>initPublishers(RosCanMsgStruct, NodeHandle)
+        <ul>
+          <li>Creates a publisher for the message as a whole (can_msgs::Frame) and attaches it to RosCanMsgStruct</li>
+          <li>Creates publishers for each signal with registerCanSignalPublisher(RosCanSigStruct NodeHandle)</li>
+        </ul>
+      </li>
+      <li>registerCanSignalPublisher(RosCanSigStruct NodeHandle)
+        <ul>
+          <li>Creates an std_msgs::Int/Float64/Bool publisher (signed/unsigned/size based on RosCanSigStruct)</li>
+          <li>Attaches the publisher to the RosCanSigStruct</li>
+        </ul>
+      </li>
+      <li>pubMessage()
+        <ul>
+          <li>Retrieve the RosCanMsgStruct from the msgs_ map based on message ID.
+            <ul>
+              <li>If the messageID isn’t in the msgs_ map, return.</li>
+            </ul>
+          </li>
+          <li>An 8-byte integer (uint64) stores all message data.</li>
+          <li>TO CHANGE: Loop through the list of signals for a signal multiplexor enum value that is MULTIPLEXOR. Save this value and break if found, set to -1 otherwise.</li>
+          <li>For each signal, the data is retrieved based on the start bit and length (signed or unsigned).</li>
+          <li>TO CHANGE: For each signal, if the multiplexor is not -1, use an if conditional to check if the signal’s multiplexor enum is MULTIPLEXED; if it is, check if the multiplexNum is equal to the multiplexor value from the loop above; only publish if the values match.</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>DBCIterator.cpp
+    <ul>
+      <li>messageList: Vector of DBCMessage.Message objects</li>
+      <li>init
+        <ul>
+          <li>TO CHANGE: Support multiple file streams</li>
+          <li>Open the file stream</li>
+          <li>DBCMessage::Message overrides the » operator, and uses this to take a stream (up to the next )</li>
+          <li>If the process fails and the stream errors out, clear it (which will cause the loop to exit)</li>
+          <li>Else, add the message to the messageList.</li>
+          <li>DBCIterator iterates the file’s messages, DBCMessage iterates the message’s signals</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>DBCMessage.cpp
+    <ul>
+      <li>If the line does not start in BO_, throw an error to get the parent iterator to clear to the next line.</li>
+      <li>If it does, fetch the BO data:
+  BO_ <id> <messagename> <bytelength> <sender></sender></bytelength></messagename></id>
+</li>
+      <li>Then, iterate over the next lines;</li>
+      <li>While the stream is creating valid signal objects, » create more DbcSignal.cpp objects.</li>
+    </ul>
+  </li>
+  <li>DBCSignal.cpp
+    <ul>
+      <li>Get the next line, if (after cleanup) the line is empty or does not start with SG_, throw an error to get the parent iterator to finish parsing signals.</li>
+      <li>If it does, fetch the signal data:
+  SG_ <fieldname> <multiplexor> : <startbit>|<bitlength>@<order><signed> (<factor>,<offset>) [<minimum>|<maximum>] "<unit>" <receivers></receivers></unit></maximum></minimum></offset></factor></signed></order></bitlength></startbit></multiplexor></fieldname>
+</li>
+      <li>Multiplexor may be blank (meaning value always appears in the message), in which case there will be no value between the Fieldname and the :</li>
+      <li>If Multiplexor is not blank, it is either:
+        <ul>
+          <li>‘M’, meaning the value is the multiplexor</li>
+          <li>‘m###’, with numbers, meaning the signal only appears in the message when the multiplexor value is equal to that of the multiplexed signal</li>
+        </ul>
+      </li>
+      <li>Byteorder is either Motorola (big-endian/network) (0) or Intel (little-endian/math) (1)</li>
+      <li>Signed is either + (unsigned value) or - (signed value)</li>
+      <li>phys = digits * factor + offset</li>
+    </ul>
+  </li>
+</ul>
+
+<p>===DBC EXAMPLE===
 BO_ 126 License: 8 EPAS
- SG_ EXPIRED : 10|1@1+ (1,0) [0|0] ""  MAB
- SG_ MUX M : 0|8@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_TRIALS_USED m0 : 32|16@1+ (1,0) [0|0] ""  MAB
- SG_ DATE1 m129 : 24|8@1+ (1,0) [0|0] ""  MAB
+ SG_ EXPIRED : 10|1@1+ (1,0) [0|0] “”  MAB
+ SG_ MUX M : 0|8@1+ (1,0) [0|0] “”  MAB
+ SG_ FEAT_BASE_TRIALS_USED m0 : 32|16@1+ (1,0) [0|0] “”  MAB
+ SG_ DATE1 m129 : 24|8@1+ (1,0) [0|0] “”  MAB</p>
 
- 
- SG_ FEAT_BASE_TRIALS_REMAINING m0 : 48|16@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_TRIAL m0 : 17|1@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_ENABLED m0 : 16|1@1+ (1,0) [0|0] ""  MAB
- SG_ TRIAL : 9|1@1+ (1,0) [0|0] ""  MAB
- SG_ READY : 8|1@1+ (1,0) [0|0] ""  MAB
- SG_ DATE0 m129 : 16|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN16 m133 : 48|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN15 m133 : 40|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN14 m133 : 32|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN01 m131 : 24|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN00 m131 : 16|8@1+ (1,0) [0|0] ""  MAB
-
-</code></pre></div></div>
+<p>File truncated at 100 lines <a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/ros2/dataspeed_can_tools">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -3479,10 +2756,7 @@ dependent packages)</li>
 
 <h2 id="100-2016-09-28">1.0.0 (2016-09-28)</h2>
 
-<ul>
-  <li>Initial release</li>
-  <li>Contributors: Kevin Hallenbeck, Micho Radovnikovich</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/ros2/dataspeed_can_tools">see the full file</a></p>
 </div>
             
           </div>
@@ -4134,119 +3408,178 @@ No test statistics available for this package.">
               <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/master/dataspeed_can_tools/README.txt" title="Open in git repository">dataspeed_can_tools/README.txt</a></div>
               <div class="panel-body">
                     <div class="rendered-markdown">
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-===can_node===
-* START: node.cpp
-	* Create a CanDriver.cpp instance
-* CanDriver.cpp
-	* TO CHANGE: Add Sync Time support
-	* Create a CanUsb.cpp instance
-		* This creates a reference to a data stream which provides a callback whenever USB data is read from the CAN device.
-	* Set the CanUsb callback to CanDriver.cpp::recvDevice
-	* Get bitrate and error_topic information
-		* Each channel is fetched individually and placed in a vector. bitrate[0] is modified by the launch parameter "bitrate_1", like so:
-			&lt;remap from="can_bus_1" to="can_bus_1"/&gt;
-    		&lt;param name="bitrate_1" value="250000" /&gt; &lt;!-- 250kbit/s --&gt;
-    		&lt;param name="channel_1_mask_0"  value="0x80000000" /&gt;
-    		&lt;param name="channel_1_match_0" value="0x80000000" /&gt; 
-    	* Same for filter_masks and matches.
-    * Open the CAN driver (run CanUsb.cpp::open)
-    * Read version number and channel count
-    * For each channel, print the filter masks, and filter matches to the console
-    * For each channel, attempt to set the bitrates, then print to console
-    * If all channel bitrates are set successfully, set up ROS pub/subs:
-    	* For each channel with nonzero bitrate, create a node (can_bus_#)
-    		* Create a subscriber (can_tx) to receive messages to send to the device
-    		* Create a publisher (can_rx) to send messages whenever the device sends data
-    		* Create an error publisher (can_err) if argument is set
-    * Whenever data is received from the device, publish a can_msgs::Frame to the appropriate channel
-    	* can_msgs is a standard message type: http://docs.ros.org/kinetic/api/can_msgs/html/msg/Frame.html
-    	Contains a unique ID, data length code (dlc), and data (up to 8 bytes)
+<p>```</p>
 
-===dbc_node===
-* START: dbc_node.cpp
-	* Create a Node and NodeHandle
-	* Get dbc_file parameter; if it doesn't exist, exit.
-	* Create a CanExtractor.cpp object, passing the dbc_file value
-	* Create a subscriber to can_rx (which is published by can_node)
-		* When a can_msgs::Frame message is received, get the ID (OR it with 0x80000000 if it's an extended msg) and put it in a RosCanMsgStruct
-		* Run CanExtractor::getMessage(RosCanMsgStruct), which returns true/false
-			* If true, run CanExtractor::initPublishers(RosCanMsgStruct, NodeHandle)
-		* Run CanExtractor::pubMessage(can_msgs::Frame), which posts the data to the appropriate ROS topic 
-* CanExtractor.cpp
-	* dbc_
-		* A DBCIterator.cpp object
-	* msgs_
-		* A map between CAN message IDs and RosCanMsgStructs
-	* getMessage(RosCanMsgStruct)
-		* Check if the RosCanMsgStruct is already in the msgs_ map.
-		* If it is, set the RosCanMsgStruct reference to the stored one, and return false (the message type has already been processed).
-		* If it isn't, iterate over dbc_, searching for the CAN ID.
-			* For each matching DBCMessage::Message found, create a RosCanSigStruct based on it and append it to the RosCanMsgStruct
-			* Then store the RosCanMsgStruct and return it
-		* Either way, the result is a RosCanMsgStruct, containing a CAN ID, and message name.
-		* RosCanMsgStruct contains a can_msgs::Frame publisher which sends whenever a message is received, and a vector of RosCanSigStructs, each containing a publisher which sends individual fields whenever a message is received.
-	* initPublishers(RosCanMsgStruct, NodeHandle)
-		* Creates a publisher for the message as a whole (can_msgs::Frame) and attaches it to RosCanMsgStruct
-		* Creates publishers for each signal with registerCanSignalPublisher(RosCanSigStruct NodeHandle)
-	* registerCanSignalPublisher(RosCanSigStruct NodeHandle)
-		* Creates an std_msgs::Int/Float64/Bool publisher (signed/unsigned/size based on RosCanSigStruct)
-		* Attaches the publisher to the RosCanSigStruct
-	* pubMessage()
-		* Retrieve the RosCanMsgStruct from the msgs_ map based on message ID.
-			* If the messageID isn't in the msgs_ map, return.
-		* An 8-byte integer (uint64) stores all message data.
-		* TO CHANGE: Loop through the list of signals for a signal multiplexor enum value that is MULTIPLEXOR. Save this value and break if found, set to -1 otherwise.
-		* For each signal, the data is retrieved based on the start bit and length (signed or unsigned).
-		* TO CHANGE: For each signal, if the multiplexor is not -1, use an if conditional to check if the signal's multiplexor enum is MULTIPLEXED; if it is, check if the multiplexNum is equal to the multiplexor value from the loop above; only publish if the values match.
-* DBCIterator.cpp
-	* messageList: Vector of DBCMessage.Message objects
-	* init
-		* TO CHANGE: Support multiple file streams
-		* Open the file stream
-		* DBCMessage::Message overrides the &gt;&gt; operator, and uses this to take a stream (up to the next )
-		* If the process fails and the stream errors out, clear it (which will cause the loop to exit)
-		* Else, add the message to the messageList.
-		* DBCIterator iterates the file's messages, DBCMessage iterates the message's signals
-* DBCMessage.cpp
-	* If the line does not start in BO_, throw an error to get the parent iterator to clear to the next line.
-	* If it does, fetch the BO data:
-		BO_ &lt;ID&gt; &lt;Messagename&gt; &lt;ByteLength&gt; &lt;Sender&gt;
-	* Then, iterate over the next lines;
-	* While the stream is creating valid signal objects, &gt;&gt; create more DbcSignal.cpp objects.
-* DBCSignal.cpp
-	* Get the next line, if (after cleanup) the line is empty or does not start with SG_, throw an error to get the parent iterator to finish parsing signals.
-	* If it does, fetch the signal data:
-		SG_ &lt;Fieldname&gt; &lt;Multiplexor&gt; : &lt;StartBit&gt;|&lt;BitLength&gt;@&lt;Order&gt;&lt;Signed&gt; (&lt;Factor&gt;,&lt;Offset&gt;) [&lt;Minimum&gt;|&lt;Maximum&gt;] "&lt;Unit&gt;" &lt;Receivers&gt;
-	* Multiplexor may be blank (meaning value always appears in the message), in which case there will be no value between the Fieldname and the :
-	* If Multiplexor is not blank, it is either:
-		* 'M', meaning the value is the multiplexor
-		* 'm###', with numbers, meaning the signal only appears in the message when the multiplexor value is equal to that of the multiplexed signal
-	* Byteorder is either Motorola (big-endian/network) (0) or Intel (little-endian/math) (1)
-	* Signed is either + (unsigned value) or - (signed value)
-	* phys = digits * factor + offset
+<p>===can_node===</p>
+<ul>
+  <li>START: node.cpp
+    <ul>
+      <li>Create a CanDriver.cpp instance</li>
+    </ul>
+  </li>
+  <li>CanDriver.cpp
+    <ul>
+      <li>TO CHANGE: Add Sync Time support</li>
+      <li>Create a CanUsb.cpp instance
+        <ul>
+          <li>This creates a reference to a data stream which provides a callback whenever USB data is read from the CAN device.</li>
+        </ul>
+      </li>
+      <li>Set the CanUsb callback to CanDriver.cpp::recvDevice</li>
+      <li>Get bitrate and error_topic information
+        <ul>
+          <li>Each channel is fetched individually and placed in a vector. bitrate[0] is modified by the launch parameter “bitrate_1”, like so:
+            <remap from="can_bus_1" to="can_bus_1"></remap>
 
-===DBC EXAMPLE===
+  		<param name="bitrate_1" value="250000"> <!-- 250kbit/s -->
+  		<param name="channel_1_mask_0" value="0x80000000">
+  		<param name="channel_1_match_0" value="0x80000000"> 
+  	* Same for filter_masks and matches.
+          </li>
+        </ul>
+      </li>
+      <li>Open the CAN driver (run CanUsb.cpp::open)</li>
+      <li>Read version number and channel count</li>
+      <li>For each channel, print the filter masks, and filter matches to the console</li>
+      <li>For each channel, attempt to set the bitrates, then print to console</li>
+      <li>If all channel bitrates are set successfully, set up ROS pub/subs:
+  	* For each channel with nonzero bitrate, create a node (can_bus_#)
+  		* Create a subscriber (can_tx) to receive messages to send to the device
+  		* Create a publisher (can_rx) to send messages whenever the device sends data
+  		* Create an error publisher (can_err) if argument is set</li>
+      <li>Whenever data is received from the device, publish a can_msgs::Frame to the appropriate channel
+  	* can_msgs is a standard message type: http://docs.ros.org/kinetic/api/can_msgs/html/msg/Frame.html
+  	Contains a unique ID, data length code (dlc), and data (up to 8 bytes)</li>
+    </ul>
+  </li>
+</ul>
+
+<p>===dbc_node===</p>
+<ul>
+  <li>START: dbc_node.cpp
+    <ul>
+      <li>Create a Node and NodeHandle</li>
+      <li>Get dbc_file parameter; if it doesn’t exist, exit.</li>
+      <li>Create a CanExtractor.cpp object, passing the dbc_file value</li>
+      <li>Create a subscriber to can_rx (which is published by can_node)
+        <ul>
+          <li>When a can_msgs::Frame message is received, get the ID (OR it with 0x80000000 if it’s an extended msg) and put it in a RosCanMsgStruct</li>
+          <li>Run CanExtractor::getMessage(RosCanMsgStruct), which returns true/false
+            <ul>
+              <li>If true, run CanExtractor::initPublishers(RosCanMsgStruct, NodeHandle)</li>
+            </ul>
+          </li>
+          <li>Run CanExtractor::pubMessage(can_msgs::Frame), which posts the data to the appropriate ROS topic</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>CanExtractor.cpp
+    <ul>
+      <li>dbc_
+        <ul>
+          <li>A DBCIterator.cpp object</li>
+        </ul>
+      </li>
+      <li>msgs_
+        <ul>
+          <li>A map between CAN message IDs and RosCanMsgStructs</li>
+        </ul>
+      </li>
+      <li>getMessage(RosCanMsgStruct)
+        <ul>
+          <li>Check if the RosCanMsgStruct is already in the msgs_ map.</li>
+          <li>If it is, set the RosCanMsgStruct reference to the stored one, and return false (the message type has already been processed).</li>
+          <li>If it isn’t, iterate over dbc_, searching for the CAN ID.
+            <ul>
+              <li>For each matching DBCMessage::Message found, create a RosCanSigStruct based on it and append it to the RosCanMsgStruct</li>
+              <li>Then store the RosCanMsgStruct and return it</li>
+            </ul>
+          </li>
+          <li>Either way, the result is a RosCanMsgStruct, containing a CAN ID, and message name.</li>
+          <li>RosCanMsgStruct contains a can_msgs::Frame publisher which sends whenever a message is received, and a vector of RosCanSigStructs, each containing a publisher which sends individual fields whenever a message is received.</li>
+        </ul>
+      </li>
+      <li>initPublishers(RosCanMsgStruct, NodeHandle)
+        <ul>
+          <li>Creates a publisher for the message as a whole (can_msgs::Frame) and attaches it to RosCanMsgStruct</li>
+          <li>Creates publishers for each signal with registerCanSignalPublisher(RosCanSigStruct NodeHandle)</li>
+        </ul>
+      </li>
+      <li>registerCanSignalPublisher(RosCanSigStruct NodeHandle)
+        <ul>
+          <li>Creates an std_msgs::Int/Float64/Bool publisher (signed/unsigned/size based on RosCanSigStruct)</li>
+          <li>Attaches the publisher to the RosCanSigStruct</li>
+        </ul>
+      </li>
+      <li>pubMessage()
+        <ul>
+          <li>Retrieve the RosCanMsgStruct from the msgs_ map based on message ID.
+            <ul>
+              <li>If the messageID isn’t in the msgs_ map, return.</li>
+            </ul>
+          </li>
+          <li>An 8-byte integer (uint64) stores all message data.</li>
+          <li>TO CHANGE: Loop through the list of signals for a signal multiplexor enum value that is MULTIPLEXOR. Save this value and break if found, set to -1 otherwise.</li>
+          <li>For each signal, the data is retrieved based on the start bit and length (signed or unsigned).</li>
+          <li>TO CHANGE: For each signal, if the multiplexor is not -1, use an if conditional to check if the signal’s multiplexor enum is MULTIPLEXED; if it is, check if the multiplexNum is equal to the multiplexor value from the loop above; only publish if the values match.</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>DBCIterator.cpp
+    <ul>
+      <li>messageList: Vector of DBCMessage.Message objects</li>
+      <li>init
+        <ul>
+          <li>TO CHANGE: Support multiple file streams</li>
+          <li>Open the file stream</li>
+          <li>DBCMessage::Message overrides the » operator, and uses this to take a stream (up to the next )</li>
+          <li>If the process fails and the stream errors out, clear it (which will cause the loop to exit)</li>
+          <li>Else, add the message to the messageList.</li>
+          <li>DBCIterator iterates the file’s messages, DBCMessage iterates the message’s signals</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>DBCMessage.cpp
+    <ul>
+      <li>If the line does not start in BO_, throw an error to get the parent iterator to clear to the next line.</li>
+      <li>If it does, fetch the BO data:
+  BO_ <id> <messagename> <bytelength> <sender></sender></bytelength></messagename></id>
+</li>
+      <li>Then, iterate over the next lines;</li>
+      <li>While the stream is creating valid signal objects, » create more DbcSignal.cpp objects.</li>
+    </ul>
+  </li>
+  <li>DBCSignal.cpp
+    <ul>
+      <li>Get the next line, if (after cleanup) the line is empty or does not start with SG_, throw an error to get the parent iterator to finish parsing signals.</li>
+      <li>If it does, fetch the signal data:
+  SG_ <fieldname> <multiplexor> : <startbit>|<bitlength>@<order><signed> (<factor>,<offset>) [<minimum>|<maximum>] "<unit>" <receivers></receivers></unit></maximum></minimum></offset></factor></signed></order></bitlength></startbit></multiplexor></fieldname>
+</li>
+      <li>Multiplexor may be blank (meaning value always appears in the message), in which case there will be no value between the Fieldname and the :</li>
+      <li>If Multiplexor is not blank, it is either:
+        <ul>
+          <li>‘M’, meaning the value is the multiplexor</li>
+          <li>‘m###’, with numbers, meaning the signal only appears in the message when the multiplexor value is equal to that of the multiplexed signal</li>
+        </ul>
+      </li>
+      <li>Byteorder is either Motorola (big-endian/network) (0) or Intel (little-endian/math) (1)</li>
+      <li>Signed is either + (unsigned value) or - (signed value)</li>
+      <li>phys = digits * factor + offset</li>
+    </ul>
+  </li>
+</ul>
+
+<p>===DBC EXAMPLE===
 BO_ 126 License: 8 EPAS
- SG_ EXPIRED : 10|1@1+ (1,0) [0|0] ""  MAB
- SG_ MUX M : 0|8@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_TRIALS_USED m0 : 32|16@1+ (1,0) [0|0] ""  MAB
- SG_ DATE1 m129 : 24|8@1+ (1,0) [0|0] ""  MAB
+ SG_ EXPIRED : 10|1@1+ (1,0) [0|0] “”  MAB
+ SG_ MUX M : 0|8@1+ (1,0) [0|0] “”  MAB
+ SG_ FEAT_BASE_TRIALS_USED m0 : 32|16@1+ (1,0) [0|0] “”  MAB
+ SG_ DATE1 m129 : 24|8@1+ (1,0) [0|0] “”  MAB</p>
 
- 
- SG_ FEAT_BASE_TRIALS_REMAINING m0 : 48|16@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_TRIAL m0 : 17|1@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_ENABLED m0 : 16|1@1+ (1,0) [0|0] ""  MAB
- SG_ TRIAL : 9|1@1+ (1,0) [0|0] ""  MAB
- SG_ READY : 8|1@1+ (1,0) [0|0] ""  MAB
- SG_ DATE0 m129 : 16|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN16 m133 : 48|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN15 m133 : 40|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN14 m133 : 32|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN01 m131 : 24|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN00 m131 : 16|8@1+ (1,0) [0|0] ""  MAB
-
-</code></pre></div></div>
+<p>File truncated at 100 lines <a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/master/dataspeed_can_tools">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -5028,119 +4361,178 @@ Click to show more build history.">
               <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/master/dataspeed_can_tools/README.txt" title="Open in git repository">dataspeed_can_tools/README.txt</a></div>
               <div class="panel-body">
                     <div class="rendered-markdown">
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>
-===can_node===
-* START: node.cpp
-	* Create a CanDriver.cpp instance
-* CanDriver.cpp
-	* TO CHANGE: Add Sync Time support
-	* Create a CanUsb.cpp instance
-		* This creates a reference to a data stream which provides a callback whenever USB data is read from the CAN device.
-	* Set the CanUsb callback to CanDriver.cpp::recvDevice
-	* Get bitrate and error_topic information
-		* Each channel is fetched individually and placed in a vector. bitrate[0] is modified by the launch parameter "bitrate_1", like so:
-			&lt;remap from="can_bus_1" to="can_bus_1"/&gt;
-    		&lt;param name="bitrate_1" value="250000" /&gt; &lt;!-- 250kbit/s --&gt;
-    		&lt;param name="channel_1_mask_0"  value="0x80000000" /&gt;
-    		&lt;param name="channel_1_match_0" value="0x80000000" /&gt; 
-    	* Same for filter_masks and matches.
-    * Open the CAN driver (run CanUsb.cpp::open)
-    * Read version number and channel count
-    * For each channel, print the filter masks, and filter matches to the console
-    * For each channel, attempt to set the bitrates, then print to console
-    * If all channel bitrates are set successfully, set up ROS pub/subs:
-    	* For each channel with nonzero bitrate, create a node (can_bus_#)
-    		* Create a subscriber (can_tx) to receive messages to send to the device
-    		* Create a publisher (can_rx) to send messages whenever the device sends data
-    		* Create an error publisher (can_err) if argument is set
-    * Whenever data is received from the device, publish a can_msgs::Frame to the appropriate channel
-    	* can_msgs is a standard message type: http://docs.ros.org/kinetic/api/can_msgs/html/msg/Frame.html
-    	Contains a unique ID, data length code (dlc), and data (up to 8 bytes)
+<p>```</p>
 
-===dbc_node===
-* START: dbc_node.cpp
-	* Create a Node and NodeHandle
-	* Get dbc_file parameter; if it doesn't exist, exit.
-	* Create a CanExtractor.cpp object, passing the dbc_file value
-	* Create a subscriber to can_rx (which is published by can_node)
-		* When a can_msgs::Frame message is received, get the ID (OR it with 0x80000000 if it's an extended msg) and put it in a RosCanMsgStruct
-		* Run CanExtractor::getMessage(RosCanMsgStruct), which returns true/false
-			* If true, run CanExtractor::initPublishers(RosCanMsgStruct, NodeHandle)
-		* Run CanExtractor::pubMessage(can_msgs::Frame), which posts the data to the appropriate ROS topic 
-* CanExtractor.cpp
-	* dbc_
-		* A DBCIterator.cpp object
-	* msgs_
-		* A map between CAN message IDs and RosCanMsgStructs
-	* getMessage(RosCanMsgStruct)
-		* Check if the RosCanMsgStruct is already in the msgs_ map.
-		* If it is, set the RosCanMsgStruct reference to the stored one, and return false (the message type has already been processed).
-		* If it isn't, iterate over dbc_, searching for the CAN ID.
-			* For each matching DBCMessage::Message found, create a RosCanSigStruct based on it and append it to the RosCanMsgStruct
-			* Then store the RosCanMsgStruct and return it
-		* Either way, the result is a RosCanMsgStruct, containing a CAN ID, and message name.
-		* RosCanMsgStruct contains a can_msgs::Frame publisher which sends whenever a message is received, and a vector of RosCanSigStructs, each containing a publisher which sends individual fields whenever a message is received.
-	* initPublishers(RosCanMsgStruct, NodeHandle)
-		* Creates a publisher for the message as a whole (can_msgs::Frame) and attaches it to RosCanMsgStruct
-		* Creates publishers for each signal with registerCanSignalPublisher(RosCanSigStruct NodeHandle)
-	* registerCanSignalPublisher(RosCanSigStruct NodeHandle)
-		* Creates an std_msgs::Int/Float64/Bool publisher (signed/unsigned/size based on RosCanSigStruct)
-		* Attaches the publisher to the RosCanSigStruct
-	* pubMessage()
-		* Retrieve the RosCanMsgStruct from the msgs_ map based on message ID.
-			* If the messageID isn't in the msgs_ map, return.
-		* An 8-byte integer (uint64) stores all message data.
-		* TO CHANGE: Loop through the list of signals for a signal multiplexor enum value that is MULTIPLEXOR. Save this value and break if found, set to -1 otherwise.
-		* For each signal, the data is retrieved based on the start bit and length (signed or unsigned).
-		* TO CHANGE: For each signal, if the multiplexor is not -1, use an if conditional to check if the signal's multiplexor enum is MULTIPLEXED; if it is, check if the multiplexNum is equal to the multiplexor value from the loop above; only publish if the values match.
-* DBCIterator.cpp
-	* messageList: Vector of DBCMessage.Message objects
-	* init
-		* TO CHANGE: Support multiple file streams
-		* Open the file stream
-		* DBCMessage::Message overrides the &gt;&gt; operator, and uses this to take a stream (up to the next )
-		* If the process fails and the stream errors out, clear it (which will cause the loop to exit)
-		* Else, add the message to the messageList.
-		* DBCIterator iterates the file's messages, DBCMessage iterates the message's signals
-* DBCMessage.cpp
-	* If the line does not start in BO_, throw an error to get the parent iterator to clear to the next line.
-	* If it does, fetch the BO data:
-		BO_ &lt;ID&gt; &lt;Messagename&gt; &lt;ByteLength&gt; &lt;Sender&gt;
-	* Then, iterate over the next lines;
-	* While the stream is creating valid signal objects, &gt;&gt; create more DbcSignal.cpp objects.
-* DBCSignal.cpp
-	* Get the next line, if (after cleanup) the line is empty or does not start with SG_, throw an error to get the parent iterator to finish parsing signals.
-	* If it does, fetch the signal data:
-		SG_ &lt;Fieldname&gt; &lt;Multiplexor&gt; : &lt;StartBit&gt;|&lt;BitLength&gt;@&lt;Order&gt;&lt;Signed&gt; (&lt;Factor&gt;,&lt;Offset&gt;) [&lt;Minimum&gt;|&lt;Maximum&gt;] "&lt;Unit&gt;" &lt;Receivers&gt;
-	* Multiplexor may be blank (meaning value always appears in the message), in which case there will be no value between the Fieldname and the :
-	* If Multiplexor is not blank, it is either:
-		* 'M', meaning the value is the multiplexor
-		* 'm###', with numbers, meaning the signal only appears in the message when the multiplexor value is equal to that of the multiplexed signal
-	* Byteorder is either Motorola (big-endian/network) (0) or Intel (little-endian/math) (1)
-	* Signed is either + (unsigned value) or - (signed value)
-	* phys = digits * factor + offset
+<p>===can_node===</p>
+<ul>
+  <li>START: node.cpp
+    <ul>
+      <li>Create a CanDriver.cpp instance</li>
+    </ul>
+  </li>
+  <li>CanDriver.cpp
+    <ul>
+      <li>TO CHANGE: Add Sync Time support</li>
+      <li>Create a CanUsb.cpp instance
+        <ul>
+          <li>This creates a reference to a data stream which provides a callback whenever USB data is read from the CAN device.</li>
+        </ul>
+      </li>
+      <li>Set the CanUsb callback to CanDriver.cpp::recvDevice</li>
+      <li>Get bitrate and error_topic information
+        <ul>
+          <li>Each channel is fetched individually and placed in a vector. bitrate[0] is modified by the launch parameter “bitrate_1”, like so:
+            <remap from="can_bus_1" to="can_bus_1"></remap>
 
-===DBC EXAMPLE===
+  		<param name="bitrate_1" value="250000"> <!-- 250kbit/s -->
+  		<param name="channel_1_mask_0" value="0x80000000">
+  		<param name="channel_1_match_0" value="0x80000000"> 
+  	* Same for filter_masks and matches.
+          </li>
+        </ul>
+      </li>
+      <li>Open the CAN driver (run CanUsb.cpp::open)</li>
+      <li>Read version number and channel count</li>
+      <li>For each channel, print the filter masks, and filter matches to the console</li>
+      <li>For each channel, attempt to set the bitrates, then print to console</li>
+      <li>If all channel bitrates are set successfully, set up ROS pub/subs:
+  	* For each channel with nonzero bitrate, create a node (can_bus_#)
+  		* Create a subscriber (can_tx) to receive messages to send to the device
+  		* Create a publisher (can_rx) to send messages whenever the device sends data
+  		* Create an error publisher (can_err) if argument is set</li>
+      <li>Whenever data is received from the device, publish a can_msgs::Frame to the appropriate channel
+  	* can_msgs is a standard message type: http://docs.ros.org/kinetic/api/can_msgs/html/msg/Frame.html
+  	Contains a unique ID, data length code (dlc), and data (up to 8 bytes)</li>
+    </ul>
+  </li>
+</ul>
+
+<p>===dbc_node===</p>
+<ul>
+  <li>START: dbc_node.cpp
+    <ul>
+      <li>Create a Node and NodeHandle</li>
+      <li>Get dbc_file parameter; if it doesn’t exist, exit.</li>
+      <li>Create a CanExtractor.cpp object, passing the dbc_file value</li>
+      <li>Create a subscriber to can_rx (which is published by can_node)
+        <ul>
+          <li>When a can_msgs::Frame message is received, get the ID (OR it with 0x80000000 if it’s an extended msg) and put it in a RosCanMsgStruct</li>
+          <li>Run CanExtractor::getMessage(RosCanMsgStruct), which returns true/false
+            <ul>
+              <li>If true, run CanExtractor::initPublishers(RosCanMsgStruct, NodeHandle)</li>
+            </ul>
+          </li>
+          <li>Run CanExtractor::pubMessage(can_msgs::Frame), which posts the data to the appropriate ROS topic</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>CanExtractor.cpp
+    <ul>
+      <li>dbc_
+        <ul>
+          <li>A DBCIterator.cpp object</li>
+        </ul>
+      </li>
+      <li>msgs_
+        <ul>
+          <li>A map between CAN message IDs and RosCanMsgStructs</li>
+        </ul>
+      </li>
+      <li>getMessage(RosCanMsgStruct)
+        <ul>
+          <li>Check if the RosCanMsgStruct is already in the msgs_ map.</li>
+          <li>If it is, set the RosCanMsgStruct reference to the stored one, and return false (the message type has already been processed).</li>
+          <li>If it isn’t, iterate over dbc_, searching for the CAN ID.
+            <ul>
+              <li>For each matching DBCMessage::Message found, create a RosCanSigStruct based on it and append it to the RosCanMsgStruct</li>
+              <li>Then store the RosCanMsgStruct and return it</li>
+            </ul>
+          </li>
+          <li>Either way, the result is a RosCanMsgStruct, containing a CAN ID, and message name.</li>
+          <li>RosCanMsgStruct contains a can_msgs::Frame publisher which sends whenever a message is received, and a vector of RosCanSigStructs, each containing a publisher which sends individual fields whenever a message is received.</li>
+        </ul>
+      </li>
+      <li>initPublishers(RosCanMsgStruct, NodeHandle)
+        <ul>
+          <li>Creates a publisher for the message as a whole (can_msgs::Frame) and attaches it to RosCanMsgStruct</li>
+          <li>Creates publishers for each signal with registerCanSignalPublisher(RosCanSigStruct NodeHandle)</li>
+        </ul>
+      </li>
+      <li>registerCanSignalPublisher(RosCanSigStruct NodeHandle)
+        <ul>
+          <li>Creates an std_msgs::Int/Float64/Bool publisher (signed/unsigned/size based on RosCanSigStruct)</li>
+          <li>Attaches the publisher to the RosCanSigStruct</li>
+        </ul>
+      </li>
+      <li>pubMessage()
+        <ul>
+          <li>Retrieve the RosCanMsgStruct from the msgs_ map based on message ID.
+            <ul>
+              <li>If the messageID isn’t in the msgs_ map, return.</li>
+            </ul>
+          </li>
+          <li>An 8-byte integer (uint64) stores all message data.</li>
+          <li>TO CHANGE: Loop through the list of signals for a signal multiplexor enum value that is MULTIPLEXOR. Save this value and break if found, set to -1 otherwise.</li>
+          <li>For each signal, the data is retrieved based on the start bit and length (signed or unsigned).</li>
+          <li>TO CHANGE: For each signal, if the multiplexor is not -1, use an if conditional to check if the signal’s multiplexor enum is MULTIPLEXED; if it is, check if the multiplexNum is equal to the multiplexor value from the loop above; only publish if the values match.</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>DBCIterator.cpp
+    <ul>
+      <li>messageList: Vector of DBCMessage.Message objects</li>
+      <li>init
+        <ul>
+          <li>TO CHANGE: Support multiple file streams</li>
+          <li>Open the file stream</li>
+          <li>DBCMessage::Message overrides the » operator, and uses this to take a stream (up to the next )</li>
+          <li>If the process fails and the stream errors out, clear it (which will cause the loop to exit)</li>
+          <li>Else, add the message to the messageList.</li>
+          <li>DBCIterator iterates the file’s messages, DBCMessage iterates the message’s signals</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>DBCMessage.cpp
+    <ul>
+      <li>If the line does not start in BO_, throw an error to get the parent iterator to clear to the next line.</li>
+      <li>If it does, fetch the BO data:
+  BO_ <id> <messagename> <bytelength> <sender></sender></bytelength></messagename></id>
+</li>
+      <li>Then, iterate over the next lines;</li>
+      <li>While the stream is creating valid signal objects, » create more DbcSignal.cpp objects.</li>
+    </ul>
+  </li>
+  <li>DBCSignal.cpp
+    <ul>
+      <li>Get the next line, if (after cleanup) the line is empty or does not start with SG_, throw an error to get the parent iterator to finish parsing signals.</li>
+      <li>If it does, fetch the signal data:
+  SG_ <fieldname> <multiplexor> : <startbit>|<bitlength>@<order><signed> (<factor>,<offset>) [<minimum>|<maximum>] "<unit>" <receivers></receivers></unit></maximum></minimum></offset></factor></signed></order></bitlength></startbit></multiplexor></fieldname>
+</li>
+      <li>Multiplexor may be blank (meaning value always appears in the message), in which case there will be no value between the Fieldname and the :</li>
+      <li>If Multiplexor is not blank, it is either:
+        <ul>
+          <li>‘M’, meaning the value is the multiplexor</li>
+          <li>‘m###’, with numbers, meaning the signal only appears in the message when the multiplexor value is equal to that of the multiplexed signal</li>
+        </ul>
+      </li>
+      <li>Byteorder is either Motorola (big-endian/network) (0) or Intel (little-endian/math) (1)</li>
+      <li>Signed is either + (unsigned value) or - (signed value)</li>
+      <li>phys = digits * factor + offset</li>
+    </ul>
+  </li>
+</ul>
+
+<p>===DBC EXAMPLE===
 BO_ 126 License: 8 EPAS
- SG_ EXPIRED : 10|1@1+ (1,0) [0|0] ""  MAB
- SG_ MUX M : 0|8@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_TRIALS_USED m0 : 32|16@1+ (1,0) [0|0] ""  MAB
- SG_ DATE1 m129 : 24|8@1+ (1,0) [0|0] ""  MAB
+ SG_ EXPIRED : 10|1@1+ (1,0) [0|0] “”  MAB
+ SG_ MUX M : 0|8@1+ (1,0) [0|0] “”  MAB
+ SG_ FEAT_BASE_TRIALS_USED m0 : 32|16@1+ (1,0) [0|0] “”  MAB
+ SG_ DATE1 m129 : 24|8@1+ (1,0) [0|0] “”  MAB</p>
 
- 
- SG_ FEAT_BASE_TRIALS_REMAINING m0 : 48|16@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_TRIAL m0 : 17|1@1+ (1,0) [0|0] ""  MAB
- SG_ FEAT_BASE_ENABLED m0 : 16|1@1+ (1,0) [0|0] ""  MAB
- SG_ TRIAL : 9|1@1+ (1,0) [0|0] ""  MAB
- SG_ READY : 8|1@1+ (1,0) [0|0] ""  MAB
- SG_ DATE0 m129 : 16|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN16 m133 : 48|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN15 m133 : 40|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN14 m133 : 32|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN01 m131 : 24|8@1+ (1,0) [0|0] ""  MAB
- SG_ VIN00 m131 : 16|8@1+ (1,0) [0|0] ""  MAB
-
-</code></pre></div></div>
+<p>File truncated at 100 lines <a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/master/dataspeed_can_tools">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -5571,6 +4963,959 @@ jQuery(function() {
     </div>
   </div>
 
+  <div class="distro distro-noetic">
+    <div class="container-fluid">
+      
+        
+        
+        
+
+        <div class="row">
+          <div class="col-md-10">
+            
+
+<div class="well well-sm">
+  <table class="table">
+    <tr>
+      <td width="100px" class="text-center">
+        <img style="width: 80px" src="/assets/package.png"  alt="Package symbol">
+      </td>
+      <td>
+        <h3 style="margin-top: 5px">
+          <a style="text-decoration:none" href="/p/dataspeed_can_tools">dataspeed_can_tools</a> <small>package from <a style="text-decoration:none" href="/r/dataspeed_can/bitbucket-dataspeedinc-dataspeed_can">dataspeed_can</a> repo</small>
+        </h3>
+          
+            
+            
+              <a class="label label-primary pkg-label" href="/p/dataspeed_can">dataspeed_can</a>
+            
+          
+            
+            
+              <a class="label label-primary pkg-label" href="/p/dataspeed_can_msg_filters">dataspeed_can_msg_filters</a>
+            
+          
+            
+            
+              <a class="label label-primary pkg-label" href="/p/dataspeed_can_msgs">dataspeed_can_msgs</a>
+            
+          
+            
+            
+              <span class="label label-default pkg-label">dataspeed_can_tools</span>
+            
+          
+            
+            
+              <a class="label label-primary pkg-label" href="/p/dataspeed_can_usb">dataspeed_can_usb</a>
+            
+          
+      </td>
+    </tr>
+  </table>
+</div>
+
+            <div class="visible-xs visible-sm">
+              
+              
+              
+
+
+
+<div class="list-group list-group-sm list-group-horizontal list-group-justified">
+  <a class="list-group-item text-center"
+     target="_blank"
+     href="http://docs.ros.org/en/noetic/api/dataspeed_can_tools/html/"
+     title="View API documentation on docs.ros.org"
+     >
+       <span style="margin-right: 5px;" class="glyphicon glyphicon-file"></span>
+       <br>
+       API Docs
+  </a>
+  <a class="list-group-item text-center"
+     target="_blank"
+     href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/master/dataspeed_can_tools"
+     title="View source code on repository">
+       <span class="glyphicon glyphicon-folder-open" style="margin-right:5px;"></span>
+       <br>
+       Browse Code
+  </a>
+  
+  
+  
+  
+  
+  <a class="list-group-item text-center "
+     target="_blank"
+     href="http://wiki.ros.org/dataspeed_can_tools?distro=noetic"
+     title="View this package on wiki.ros.org">
+       <span style="margin-right: 5px;" class="glyphicon glyphicon-info-sign"></span>
+       <br>
+       Wiki
+  </a>
+  
+  
+</div>
+
+            </div>
+            
+
+
+
+<ul class="nav nav-tabs nav-justified" id="noetic-tabs" style="margin-bottom:20px">
+  <li class="better-tabs active">
+    <a href="#noetic-overview" data-toggle="tab">Overview</a>
+  </li>
+  <li class="better-tabs">
+    
+    
+    
+    
+    
+    <a href="#noetic-assets" data-toggle="tab"><span class="label label-default">0</span> Assets</a>
+  </li>
+  <li class="better-tabs">
+    
+    
+    
+    
+    <a href="#noetic-deps" data-toggle="tab"><span class="label label-primary">8</span> Dependencies</a>
+  </li>
+  <li class="better-tabs">
+    
+    <a href="#noetic-tutorials" data-toggle="tab"><span class="label label-default">0</span> Tutorials</a>
+  </li>
+  <li class="better-tabs">
+    <a href="#noetic-questions" data-toggle="tab"><span id="noetic-questions-count" class="label label-primary">0</span> Q & A</a>
+  </li>
+</ul>
+
+<div class="tab-content">
+  <div class="tab-pane active" id="noetic-overview">
+    
+    <div class="row">
+      <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
+        <div class="panel panel-default">
+          <div class="panel-heading"><h4 class="panel-title">Package Summary</h4></div>
+          <div class="panel-body">
+            <table class="table table-condensed">
+              <tr>
+                <td style="width:100px;" class="text-right"><strong>Tags</strong></td>
+                <td>
+                  
+                  
+                    <em>No category tags.</em>
+                  
+                </td>
+              </tr>
+              <tr>
+                <td class="text-right"><strong>Version</strong></td>
+                <td>1.1.0</td>
+              </tr>
+              <tr>
+                <td class="text-right"><strong>License</strong></td>
+                <td>BSD</td>
+              </tr>
+              <tr>
+                <td class="text-right"><strong>Build type</strong></td>
+                <td>
+                  
+                    <span class="label label-info">
+                  
+                    CATKIN</span>
+                </td>
+              </tr>
+              <tr>
+                <td class="text-right"><strong>Use</strong></td>
+                <td>
+                
+                  <span class="label label-success">RECOMMENDED</span>
+                
+                </td>
+              </tr>
+            </table>
+          </div>
+          <div class="panel-heading"><h3 class="panel-title">Repository Summary</h3></div>
+          <div class="panel-body">
+            
+            
+            
+  <link rel="stylesheet" href="/css/ci-status.css">
+  <table class="table table-condensed">
+    <tr>
+      <td style="width:100px;" class="text-right"><b>Checkout URI</b></td>
+      <td><a class="label label-default" href="https://bitbucket.org/dataspeedinc/dataspeed_can.git">https://bitbucket.org/dataspeedinc/dataspeed_can.git</a></td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>VCS Type</b></td>
+      <td><span class="label label-default">git</span></td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>VCS Version</b></td>
+      <td><span class="label label-default">master</span></td>
+    </tr>
+    <tr>
+      <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
+      <td>
+        
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2023-02-03
+        </span>
+      </td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>Dev Status</b></td>
+      <td>
+        
+          
+            <span class="label label-success">
+          
+          DEVELOPED
+        </span>
+      </td>
+    </tr>
+              <tr>
+                <td class="text-right"><b>CI status</b></td>
+                <td class="ci-status">
+                  
+                  
+                    
+                      <div class="dropdown">
+                        <button type="button" data-toggle="dropdown" class="btn label label-primary dropdown-toggle ci-result-success" title="Latest build information: Fri, 03 Feb 2023 15:12:50 GMT
+  Total tests: 47
+  Succeeded: 47
+  Skipped: 0
+  Failed: 0
+Click to show more build history.">
+                          <span class="glyphicon glyphicon-check"></span>
+                          Continuous Integration
+                          
+                            : 47 / 47
+                          
+                          <span class="caret"></span>
+                        </button>
+                        <ul class="dropdown-menu" role="menu">
+                          <li class="dropdown-header">Latest build history: Fri, 03 Feb 2023 15:12:50 GMT (last 2 of 2 builds)</li>
+                          
+                            <li class="ci-build-info ci-result-success">
+                              <a href="http://build.ros.org/job/Ndev__dataspeed_can__ubuntu_focal_amd64/3/" target="_blank">
+                                <span class="glyphicon glyphicon-ok"></span>
+                                <span><strong>#3</strong></span>
+                                <span>03-Feb-2023 15:06</span>
+                                <span>47 / 47</span>
+                              </a>
+                            </li>
+                          
+                            <li class="ci-build-info ci-result-success">
+                              <a href="http://build.ros.org/job/Ndev__dataspeed_can__ubuntu_focal_amd64/2/" target="_blank">
+                                <span class="glyphicon glyphicon-ok"></span>
+                                <span><strong>#2</strong></span>
+                                <span>01-Nov-2021 21:06</span>
+                                <span>47 / 47</span>
+                              </a>
+                            </li>
+                          
+                        </ul>
+                      </div>
+                    
+                  
+                </td>
+              </tr>
+    <tr>
+      <td class="text-right"><b>Released</b></td>
+      <td>
+        
+          <span class="label label-primary"><span class="glyphicon glyphicon-flash"></span> RELEASED
+        </span>
+      </td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>Tags</b></td>
+      <td>
+        
+        
+          <em>No category tags.</em>
+        
+      </td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>Contributing</b></td>
+      <td>
+        <a class="label label-primary" href="/r/dataspeed_can/#noetic-contribute-lists-help-wanted">
+          Help Wanted (<span class="contribute-lists-help-wanted-count">0</span>)
+        </a>
+        <br>
+        <a class="label label-primary" href="/r/dataspeed_can/#noetic-contribute-lists-good-first-issue">
+          Good First Issues (<span class="contribute-lists-good-first-issue-count">0</span>)
+        </a>
+        <br>
+        <a class="label label-primary" href="/r/dataspeed_can/#noetic-contribute-lists-pull-requests">
+          Pull Requests to Review (<span class="contribute-lists-pull-requests-count">0</span>)
+        </a>
+      </td>
+    </tr>
+  </table>
+
+          </div>
+        </div>
+      </div>
+      <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
+        <div class="panel panel-default">
+          <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
+          <div class="panel-body">
+            
+    CAN bus introspection
+  
+          </div>
+          <div class="panel-heading"><h4 class="panel-title">Additional Links</h4></div>
+          <div class="panel-body">
+            
+            
+              <ul class="list-unstyled">
+                
+                  <li><a href="http://dataspeedinc.com">Website</a></li>
+                
+                  <li><a href="https://bitbucket.org/dataspeedinc/dataspeed_can">Repository</a></li>
+                
+                  <li><a href="https://bitbucket.org/dataspeedinc/dataspeed_can/issues">Bugtracker</a></li>
+                
+              </ul>
+            
+          </div>
+          <div class="panel-heading"><h4 class="panel-title">Maintainers</h4></div>
+          <div class="panel-body">
+            
+            
+              <ul class="list-unstyled">
+                
+                  <li>Micho Radovnikovich</li>
+                
+              </ul>
+            
+          </div>
+          <div class="panel-heading"><h4 class="panel-title">Authors</h4></div>
+          <div class="panel-body">
+            
+            
+              <ul class="list-unstyled">
+                
+                  <li>Micho Radovnikovich</li>
+                
+              </ul>
+            
+          </div>
+        </div>
+      </div>
+    </div>
+    
+      
+        <div class="row">
+          <div class="col-xs-12">
+            <div class="panel panel-default">
+              <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/master/dataspeed_can_tools/README.txt" title="Open in git repository">dataspeed_can_tools/README.txt</a></div>
+              <div class="panel-body">
+                    <div class="rendered-markdown">
+<p>```</p>
+
+<p>===can_node===</p>
+<ul>
+  <li>START: node.cpp
+    <ul>
+      <li>Create a CanDriver.cpp instance</li>
+    </ul>
+  </li>
+  <li>CanDriver.cpp
+    <ul>
+      <li>TO CHANGE: Add Sync Time support</li>
+      <li>Create a CanUsb.cpp instance
+        <ul>
+          <li>This creates a reference to a data stream which provides a callback whenever USB data is read from the CAN device.</li>
+        </ul>
+      </li>
+      <li>Set the CanUsb callback to CanDriver.cpp::recvDevice</li>
+      <li>Get bitrate and error_topic information
+        <ul>
+          <li>Each channel is fetched individually and placed in a vector. bitrate[0] is modified by the launch parameter “bitrate_1”, like so:
+            <remap from="can_bus_1" to="can_bus_1"></remap>
+
+  		<param name="bitrate_1" value="250000"> <!-- 250kbit/s -->
+  		<param name="channel_1_mask_0" value="0x80000000">
+  		<param name="channel_1_match_0" value="0x80000000"> 
+  	* Same for filter_masks and matches.
+          </li>
+        </ul>
+      </li>
+      <li>Open the CAN driver (run CanUsb.cpp::open)</li>
+      <li>Read version number and channel count</li>
+      <li>For each channel, print the filter masks, and filter matches to the console</li>
+      <li>For each channel, attempt to set the bitrates, then print to console</li>
+      <li>If all channel bitrates are set successfully, set up ROS pub/subs:
+  	* For each channel with nonzero bitrate, create a node (can_bus_#)
+  		* Create a subscriber (can_tx) to receive messages to send to the device
+  		* Create a publisher (can_rx) to send messages whenever the device sends data
+  		* Create an error publisher (can_err) if argument is set</li>
+      <li>Whenever data is received from the device, publish a can_msgs::Frame to the appropriate channel
+  	* can_msgs is a standard message type: http://docs.ros.org/kinetic/api/can_msgs/html/msg/Frame.html
+  	Contains a unique ID, data length code (dlc), and data (up to 8 bytes)</li>
+    </ul>
+  </li>
+</ul>
+
+<p>===dbc_node===</p>
+<ul>
+  <li>START: dbc_node.cpp
+    <ul>
+      <li>Create a Node and NodeHandle</li>
+      <li>Get dbc_file parameter; if it doesn’t exist, exit.</li>
+      <li>Create a CanExtractor.cpp object, passing the dbc_file value</li>
+      <li>Create a subscriber to can_rx (which is published by can_node)
+        <ul>
+          <li>When a can_msgs::Frame message is received, get the ID (OR it with 0x80000000 if it’s an extended msg) and put it in a RosCanMsgStruct</li>
+          <li>Run CanExtractor::getMessage(RosCanMsgStruct), which returns true/false
+            <ul>
+              <li>If true, run CanExtractor::initPublishers(RosCanMsgStruct, NodeHandle)</li>
+            </ul>
+          </li>
+          <li>Run CanExtractor::pubMessage(can_msgs::Frame), which posts the data to the appropriate ROS topic</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>CanExtractor.cpp
+    <ul>
+      <li>dbc_
+        <ul>
+          <li>A DBCIterator.cpp object</li>
+        </ul>
+      </li>
+      <li>msgs_
+        <ul>
+          <li>A map between CAN message IDs and RosCanMsgStructs</li>
+        </ul>
+      </li>
+      <li>getMessage(RosCanMsgStruct)
+        <ul>
+          <li>Check if the RosCanMsgStruct is already in the msgs_ map.</li>
+          <li>If it is, set the RosCanMsgStruct reference to the stored one, and return false (the message type has already been processed).</li>
+          <li>If it isn’t, iterate over dbc_, searching for the CAN ID.
+            <ul>
+              <li>For each matching DBCMessage::Message found, create a RosCanSigStruct based on it and append it to the RosCanMsgStruct</li>
+              <li>Then store the RosCanMsgStruct and return it</li>
+            </ul>
+          </li>
+          <li>Either way, the result is a RosCanMsgStruct, containing a CAN ID, and message name.</li>
+          <li>RosCanMsgStruct contains a can_msgs::Frame publisher which sends whenever a message is received, and a vector of RosCanSigStructs, each containing a publisher which sends individual fields whenever a message is received.</li>
+        </ul>
+      </li>
+      <li>initPublishers(RosCanMsgStruct, NodeHandle)
+        <ul>
+          <li>Creates a publisher for the message as a whole (can_msgs::Frame) and attaches it to RosCanMsgStruct</li>
+          <li>Creates publishers for each signal with registerCanSignalPublisher(RosCanSigStruct NodeHandle)</li>
+        </ul>
+      </li>
+      <li>registerCanSignalPublisher(RosCanSigStruct NodeHandle)
+        <ul>
+          <li>Creates an std_msgs::Int/Float64/Bool publisher (signed/unsigned/size based on RosCanSigStruct)</li>
+          <li>Attaches the publisher to the RosCanSigStruct</li>
+        </ul>
+      </li>
+      <li>pubMessage()
+        <ul>
+          <li>Retrieve the RosCanMsgStruct from the msgs_ map based on message ID.
+            <ul>
+              <li>If the messageID isn’t in the msgs_ map, return.</li>
+            </ul>
+          </li>
+          <li>An 8-byte integer (uint64) stores all message data.</li>
+          <li>TO CHANGE: Loop through the list of signals for a signal multiplexor enum value that is MULTIPLEXOR. Save this value and break if found, set to -1 otherwise.</li>
+          <li>For each signal, the data is retrieved based on the start bit and length (signed or unsigned).</li>
+          <li>TO CHANGE: For each signal, if the multiplexor is not -1, use an if conditional to check if the signal’s multiplexor enum is MULTIPLEXED; if it is, check if the multiplexNum is equal to the multiplexor value from the loop above; only publish if the values match.</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>DBCIterator.cpp
+    <ul>
+      <li>messageList: Vector of DBCMessage.Message objects</li>
+      <li>init
+        <ul>
+          <li>TO CHANGE: Support multiple file streams</li>
+          <li>Open the file stream</li>
+          <li>DBCMessage::Message overrides the » operator, and uses this to take a stream (up to the next )</li>
+          <li>If the process fails and the stream errors out, clear it (which will cause the loop to exit)</li>
+          <li>Else, add the message to the messageList.</li>
+          <li>DBCIterator iterates the file’s messages, DBCMessage iterates the message’s signals</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li>DBCMessage.cpp
+    <ul>
+      <li>If the line does not start in BO_, throw an error to get the parent iterator to clear to the next line.</li>
+      <li>If it does, fetch the BO data:
+  BO_ <id> <messagename> <bytelength> <sender></sender></bytelength></messagename></id>
+</li>
+      <li>Then, iterate over the next lines;</li>
+      <li>While the stream is creating valid signal objects, » create more DbcSignal.cpp objects.</li>
+    </ul>
+  </li>
+  <li>DBCSignal.cpp
+    <ul>
+      <li>Get the next line, if (after cleanup) the line is empty or does not start with SG_, throw an error to get the parent iterator to finish parsing signals.</li>
+      <li>If it does, fetch the signal data:
+  SG_ <fieldname> <multiplexor> : <startbit>|<bitlength>@<order><signed> (<factor>,<offset>) [<minimum>|<maximum>] "<unit>" <receivers></receivers></unit></maximum></minimum></offset></factor></signed></order></bitlength></startbit></multiplexor></fieldname>
+</li>
+      <li>Multiplexor may be blank (meaning value always appears in the message), in which case there will be no value between the Fieldname and the :</li>
+      <li>If Multiplexor is not blank, it is either:
+        <ul>
+          <li>‘M’, meaning the value is the multiplexor</li>
+          <li>‘m###’, with numbers, meaning the signal only appears in the message when the multiplexor value is equal to that of the multiplexed signal</li>
+        </ul>
+      </li>
+      <li>Byteorder is either Motorola (big-endian/network) (0) or Intel (little-endian/math) (1)</li>
+      <li>Signed is either + (unsigned value) or - (signed value)</li>
+      <li>phys = digits * factor + offset</li>
+    </ul>
+  </li>
+</ul>
+
+<p>===DBC EXAMPLE===
+BO_ 126 License: 8 EPAS
+ SG_ EXPIRED : 10|1@1+ (1,0) [0|0] “”  MAB
+ SG_ MUX M : 0|8@1+ (1,0) [0|0] “”  MAB
+ SG_ FEAT_BASE_TRIALS_USED m0 : 32|16@1+ (1,0) [0|0] “”  MAB
+ SG_ DATE1 m129 : 24|8@1+ (1,0) [0|0] “”  MAB</p>
+
+<p>File truncated at 100 lines <a href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/master/dataspeed_can_tools">see the full file</a></p>
+</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      
+    
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="panel panel-default">
+          <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
+          <div class="panel-body">
+            
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-dataspeed_can_tools">Changelog for package dataspeed_can_tools</h1>
+
+<h2 id="110-2023-02-03">1.1.0 (2023-02-03)</h2>
+
+<ul>
+  <li>Add CAN-FD message support</li>
+  <li>Contributors: Nicholas Jankowski</li>
+</ul>
+
+<h2 id="1016-2020-07-07">1.0.16 (2020-07-07)</h2>
+
+<ul>
+  <li>Increase CMake minimum version to 3.0.2 to avoid warning about
+CMP0048
+<a href="http://wiki.ros.org/noetic/Migration#Increase_required_CMake_version_to_avoid_author_warning">http://wiki.ros.org/noetic/Migration#Increase_required_CMake_version_to_avoid_author_warning</a>
+</li>
+  <li>Fix processing bags with DBC files for extended CAN IDs</li>
+  <li>Contributors: Kevin Hallenbeck</li>
+</ul>
+
+<h2 id="1015-2020-01-24">1.0.15 (2020-01-24)</h2>
+
+<ul>
+  <li>Use %zu for portable printf() size type</li>
+  <li>Contributors: Kevin Hallenbeck</li>
+</ul>
+
+<h2 id="1014-2020-01-16">1.0.14 (2020-01-16)</h2>
+
+<h2 id="1013-2019-01-08">1.0.13 (2019-01-08)</h2>
+
+<ul>
+  <li>Added advance compiler error checking and fixed newly exposed errors</li>
+  <li>Contributors: Kevin Hallenbeck, Lincoln Lorenz</li>
+</ul>
+
+<h2 id="1012-2018-12-19">1.0.12 (2018-12-19)</h2>
+
+<h2 id="1011-2018-09-06">1.0.11 (2018-09-06)</h2>
+
+<ul>
+  <li>Added support for multiple DBC files</li>
+  <li>Added support for multiplexed signals</li>
+  <li>Many changes to the command line arguments</li>
+  <li>Fixed bug with signals greater than 31 bits</li>
+  <li>Set CXX_STANDARD to C++11 when necessary</li>
+  <li>Contributors: Kevin Hallenbeck, Eric Myllyoja</li>
+</ul>
+
+<h2 id="1010-2018-06-13">1.0.10 (2018-06-13)</h2>
+
+<h2 id="109-2018-06-12">1.0.9 (2018-06-12)</h2>
+
+<ul>
+  <li>Preliminary support for extended IDs</li>
+  <li>Contributors: Kevin Hallenbeck</li>
+</ul>
+
+<h2 id="108-2018-04-09">1.0.8 (2018-04-09)</h2>
+
+<ul>
+  <li>Added timestamp</li>
+  <li>Added option to expand dbc signals or not</li>
+  <li>Handle messages not defined in the dbc file</li>
+  <li>Contributors: Kevin Hallenbeck</li>
+</ul>
+
+<h2 id="107-2017-10-19">1.0.7 (2017-10-19)</h2>
+
+<h2 id="106-2017-09-07">1.0.6 (2017-09-07)</h2>
+
+<ul>
+  <li>Migrated from dataspeed_can_msgs to can_msgs (this will break
+dependent packages)</li>
+  <li>Contributors: Kevin Hallenbeck</li>
+</ul>
+
+<h2 id="105-2017-08-21">1.0.5 (2017-08-21)</h2>
+
+<ul>
+  <li>Updated nodelets to the PLUGINLIB_EXPORT_CLASS macro</li>
+  <li>Contributors: Kevin Hallenbeck</li>
+</ul>
+
+<h2 id="104-2017-05-08">1.0.4 (2017-05-08)</h2>
+
+<h2 id="103-2017-04-25">1.0.3 (2017-04-25)</h2>
+
+<ul>
+  <li>Updated package.xml format to version 2</li>
+  <li>Contributors: Kevin Hallenbeck</li>
+</ul>
+
+<h2 id="102-2017-01-24">1.0.2 (2017-01-24)</h2>
+
+<h2 id="101-2016-11-17">1.0.1 (2016-11-17)</h2>
+
+<h2 id="100-2016-09-28">1.0.0 (2016-09-28)</h2>
+
+<ul>
+  <li>Initial release</li>
+  <li>Contributors: Kevin Hallenbeck, Micho Radovnikovich</li>
+</ul>
+</div>
+            
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="noetic-tutorials">
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Wiki Tutorials</h3>
+      </div>
+      <div class="panel-body">
+        
+        <em>This package does not provide any links to tutorials in it's <a href="https://index.ros.org/contribute/metadata/">rosindex metadata</a>.</em>
+        <em>You can check on the <a href="http://wiki.ros.org/dataspeed_can_tools/Tutorials" target="_blank">ROS Wiki Tutorials</a> page for the package.</em>
+        
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="noetic-deps">
+    <div class="row">
+      <div class="col-sm-6">
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <h3 class="panel-title">Package Dependencies</h3>
+          </div>
+          <div class="panel-body">
+            
+              <table class="table table-condensed table-striped">
+                <thead>
+                  <th class="text-center">Deps</th>
+                  <th style="width: 100%">Name</th>
+                </thead>
+                <tbody>
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/catkin#noetic-deps" class="endoftree">
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/catkin#noetic">catkin  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rostest#noetic-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rostest#noetic">rostest  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rosbag#noetic-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rosbag#noetic">rosbag  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/roscpp#noetic-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/roscpp#noetic">roscpp  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/roslib#noetic-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/roslib#noetic">roslib  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/std_msgs#noetic-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/std_msgs#noetic">std_msgs  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/can_msgs#noetic-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/can_msgs#noetic">can_msgs  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/dataspeed_can_msgs#noetic-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/dataspeed_can_msgs#noetic">dataspeed_can_msgs  </a></td>
+                      </tr>
+                    
+                  
+                </tbody>
+              </table>
+            
+          </div>
+          <div class="panel-heading">
+            <h3 class="panel-title">System Dependencies</h3>
+          </div>
+          <div class="panel-body">
+            
+              <em>No direct system dependencies.</em>
+            
+          </div>
+        </div>
+      </div>
+
+      <div class="col-sm-6">
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <h3 class="panel-title">Dependant Packages</h3>
+          </div>
+          <div class="panel-body">
+            
+              <table class="table table-condensed table-striped">
+                <thead>
+                  <th>Name</th>
+                  <th class="text-center">Deps</th>
+                </thead>
+                <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/dataspeed_can#noetic">dataspeed_can</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/dataspeed_can#noetic-deps" class="endoftree">
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                </tbody>
+              </table>
+            
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="noetic-assets">
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Launch files</h3>
+      </div>
+      <div class="panel-body">
+        
+          <em>No launch files found</em>
+        
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Messages</h3>
+      </div>
+      <div class="panel-body">
+        
+          <em>No message files found.</em>
+        
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Services</h3>
+      </div>
+      <div class="panel-body">
+        
+          <em>No service files found</em>
+        
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Plugins</h3>
+      </div>
+      <div class="panel-body">
+        
+          <em>No plugins found.</em>
+        
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="noetic-questions">
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Recent questions tagged <kbd>dataspeed_can_tools</kbd> at <strong><a href="https://robotics.stackexchange.com/" target="_blank">Robotics Stack Exchange</a></strong></h3>      </div>
+      <div id="noetic-question-list" class="panel-body" style="display: none;"></div>
+      <div id="noetic-no-question-list" class="panel-body" style="display: none;">
+        <p>No questions yet, <a href="https://robotics.stackexchange.com/questions/tagged/dataspeed_can_tools+noetic">you can ask one on Robotics Stack Exchange</a>.</p>
+      </div>
+      <div id="noetic-get-question-fail" class="panel-body alert alert-warning" style="display: none;">
+        <p>Failed to get question list, <a href="https://github.com/ros-infrastructure/rosindex/issues/new" target="_blank" class="alert-link">you can ticket an issue on the github issue tracker</a>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="text/javascript" src="/js/package_body_tabs.js"></script>
+
+<script src=/js/contribution_suggestions.js></script>
+<script type="text/javascript">
+jQuery(function() {
+    // Update the count on the links to the contribution suggestions
+    updateContributionSuggestionsCountOnPackage('https://bitbucket.org/dataspeedinc/dataspeed_can.git');
+});
+</script>
+
+          </div>
+          <div class="col-md-2 hidden-xs hidden-sm">
+            
+            
+            
+
+
+
+<div class="list-group list-group-sm ">
+  <a class="list-group-item"
+     target="_blank"
+     href="http://docs.ros.org/en/noetic/api/dataspeed_can_tools/html/"
+     title="View API documentation on docs.ros.org"
+     >
+       <span style="margin-right: 5px;" class="glyphicon glyphicon-file"></span>
+       
+       API Docs
+  </a>
+  <a class="list-group-item"
+     target="_blank"
+     href="https://bitbucket.org//dataspeedinc/dataspeed_can.git/src/master/dataspeed_can_tools"
+     title="View source code on repository">
+       <span class="glyphicon glyphicon-folder-open" style="margin-right:5px;"></span>
+       
+       Browse Code
+  </a>
+  
+  
+  
+  
+  
+  <a class="list-group-item "
+     target="_blank"
+     href="http://wiki.ros.org/dataspeed_can_tools?distro=noetic"
+     title="View this package on wiki.ros.org">
+       <span style="margin-right: 5px;" class="glyphicon glyphicon-info-sign"></span>
+       
+       Wiki
+  </a>
+  
+  
+</div>
+
+          </div>
+        </div>
+      
+    </div>
+  </div>
+
 
 
 <script id="question-list-template" type="text/html">
@@ -5673,14 +6018,6 @@ jQuery(function() {
         jQuery("#rolling-no-question-list").show();
       }
       jQuery("#rolling-questions-count").text(question_count_str);
-      
-      if (feed.items.length > 0) {
-        jQuery("#noetic-question-list").html(rendered);
-        jQuery("#noetic-question-list").show();
-      } else {
-        jQuery("#noetic-no-question-list").show();
-      }
-      jQuery("#noetic-questions-count").text(question_count_str);
       
       if (feed.items.length > 0) {
         jQuery("#ardent-question-list").html(rendered);
@@ -5794,6 +6131,14 @@ jQuery(function() {
       }
       jQuery("#melodic-questions-count").text(question_count_str);
       
+      if (feed.items.length > 0) {
+        jQuery("#noetic-question-list").html(rendered);
+        jQuery("#noetic-question-list").show();
+      } else {
+        jQuery("#noetic-no-question-list").show();
+      }
+      jQuery("#noetic-questions-count").text(question_count_str);
+      
     })
     .fail(function(jqxhr, textStatus, error) {
       console.error("Failed to get question data: " + jqxhr.responseText);
@@ -5805,8 +6150,6 @@ jQuery(function() {
       jQuery("#kilted-get-question-fail").show();
       
       jQuery("#rolling-get-question-fail").show();
-      
-      jQuery("#noetic-get-question-fail").show();
       
       jQuery("#ardent-get-question-fail").show();
       
@@ -5836,6 +6179,8 @@ jQuery(function() {
       
       jQuery("#melodic-get-question-fail").show();
       
+      jQuery("#noetic-get-question-fail").show();
+      
     });
   });
 </script>
@@ -5864,7 +6209,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2025-05-18</em>
+        <em class="hidden-xs">| generated on 2025-06-11</em>
       
       </div>
       <div style="float:right;">

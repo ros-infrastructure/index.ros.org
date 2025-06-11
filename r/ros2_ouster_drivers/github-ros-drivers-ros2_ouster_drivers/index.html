@@ -167,10 +167,6 @@
       <input type="radio" name="options" id="rolling-radio" autocomplete="off"> rolling
     </label>
   
-    <label id="noetic-option" class="distro-button btn btn-xs btn-default" href="#noetic" data="noetic">
-      <input type="radio" name="options" id="noetic-radio" autocomplete="off"> noetic
-    </label>
-  
 
   <!-- Older distros -->
   <div class="btn-group dropdown">
@@ -235,6 +231,10 @@
       
         <li data="melodic" id="melodic-option" class="disabled older-distro-option"  href="#melodic">
           <a href="#melodic" data="melodic" id="melodic-button">melodic</a>
+        </li>
+      
+        <li data="noetic" id="noetic-option" class="disabled older-distro-option"  href="#noetic">
+          <a href="#noetic" data="noetic" id="noetic-button">noetic</a>
         </li>
       
     </ul>
@@ -622,264 +622,7 @@ varies. Accuracy is +/- &lt;50 us from the 1588 master.</p>
 
 <h4 id="time_from_ros_reception"><code class="language-plaintext highlighter-rouge">TIME_FROM_ROS_RECEPTION</code></h4>
 
-<p>The sensor will run in <code class="language-plaintext highlighter-rouge">TIME_FROM_INTERNAL_OSC</code> time mode but data are stamped with the ROS time when they are received. The inherent latency
-between when the data were sampled by the LiDAR and when the data were received
-by this ROS node is not modelled. This approach may be acceptable to get up and
-running quickly or for static applications. However, for mobile robots,
-particularly those traveling at higher speeds, it is not recommended to use
-this <code class="language-plaintext highlighter-rouge">timestamp_mode</code>. When running in this mode, the on-LiDAR <code class="language-plaintext highlighter-rouge">timestamp_mode</code>
-will not be set by this driver.</p>
-
-<h3 id="parameterizing-the-active-data-processors">Parameterizing the Active Data Processors</h3>
-
-<p>The <code class="language-plaintext highlighter-rouge">os1_proc_mask</code> parameter is set to a mask-like-string used to define the
-data processors that should be activated upon startup of the driver. This will
-determine the topics that are available for client applications to consume. The
-<em>de facto</em> reference for these values are defined in
-<a href="https://github.com/ros-drivers/ros2_ouster_drivers/tree/ros2/ros2_ouster/include/ros2_ouster/processors/processor_factories.hpp">processor_factories.hpp</a>. It
-is recommended to only use the processors that you require for your application.</p>
-
-<p>The available data processors are:</p>
-
-<ul>
-  <li>
-<strong>IMG</strong> Provides 8-bit image topics encoding the noise, range, intensity, and
-reflectivitiy from a scan.</li>
-  <li>
-<strong>PCL</strong> Provides a point cloud encoding of a LiDAR scan</li>
-  <li>
-<strong>IMU</strong> Provides a data stream from the LiDAR’s integral IMU</li>
-  <li>
-<strong>SCAN</strong> Provides a 2D LaserScan from the closest to 0-degree azimuth ring</li>
-</ul>
-
-<p>To construct a valid string for the <code class="language-plaintext highlighter-rouge">os1_proc_mask</code> parameter, join the tokens
-from above (in any combination) with the pipe character (<code class="language-plaintext highlighter-rouge">|</code>). For example,
-valid strings include but are not limited to: <code class="language-plaintext highlighter-rouge">IMG|PCL</code>, <code class="language-plaintext highlighter-rouge">IMG|PCL|IMU</code>, <code class="language-plaintext highlighter-rouge">PCL</code>,
-etc. The default value is <code class="language-plaintext highlighter-rouge">IMG|PCL|IMU|SCAN</code>.</p>
-
-<p>More details about data processors in the driver is provided in the <a href="https://github.com/ros-drivers/ros2_ouster_drivers/tree/ros2/#additional-lidar-processing">Additional
-Lidar Processing</a> section below.</p>
-
-<h2 id="extensions">Extensions</h2>
-
-<p>This package was intentionally designed for new capabilities to be added. Whether that being supporting new classes of Ouster lidars (sensor-custom, OS2, …) or supporting new ways of processing the data packets.</p>
-
-<h3 id="additional-lidar-processing">Additional Lidar Processing</h3>
-<p>It can be imagined that if you have a stream of lidar or IMU packets, you may want to process them differently. If you’re working with a high speed vehicle, you may want the packets projected into a pointcloud and published with little batching inside the driver. If you’re working with pointclouds for machine learning, you may only want the pointcloud to include the <code class="language-plaintext highlighter-rouge">XYZ</code> information and not the intensity, reflectivity, and noise information to reduce dimensionality.</p>
-
-<p>In any case, I provide a set of logical default processing implementations on the lidar and IMU packets. These are implementations of the <code class="language-plaintext highlighter-rouge">ros2_ouster::DataProcessorInterface</code> class in the <code class="language-plaintext highlighter-rouge">interfaces</code> directory. To create your own processor to change the pointcloud type, buffering methodology, or some new cool thing, you must create an implementation of a data processor.</p>
-
-<p>After creating your implementation, that will take in a <code class="language-plaintext highlighter-rouge">uint8_t *</code> of a data packet and accomplish your task, you will need to create a factory method for it in <code class="language-plaintext highlighter-rouge">processor_factories.hpp</code> and add it to the list of processors to be created in the <code class="language-plaintext highlighter-rouge">createProcessors</code> method.</p>
-
-<p>I encourage you to contribute back any new processor methods to this project! The default processors will buffer 1 full rotation of data of the pointcloud and publish the pointcloud with the X, Y, Z, range, intensity, reflectivity, ring, and noise information. It will also buffer a full rotation and publish the noise, intensity, and reflectivity images. Finally, it will publish the IMU data at transmission frequency.</p>
-
-<p>Some examples:</p>
-<ul>
-  <li>If you wanted the points at transmission frequency to reduce aliasing</li>
-  <li>Different types of pointclouds published containing a subset or additional information.</li>
-  <li>If you wanted the information in another format (ei 1 data image with 3 channels of the range, intensity, and noise)</li>
-  <li>Downsample the data at a driver level to only take every <code class="language-plaintext highlighter-rouge">N</code>th ring.</li>
-</ul>
-
-<h3 id="additional-lidar-units">Additional Lidar Units</h3>
-<p>To create a new lidar for this driver, you only need to make an implementation of the <code class="language-plaintext highlighter-rouge">ros2_ouster::SensorInterface</code> class and include any required SDKs. Then, in the <code class="language-plaintext highlighter-rouge">driver_types.hpp</code> file, add your new interface as a template of the <code class="language-plaintext highlighter-rouge">OusterDriver</code> and you’re good to go.</p>
-
-<p>You may need to add an additional <code class="language-plaintext highlighter-rouge">main</code> method for the new templated program, depending if you’re using components. If it uses another underlying SDK other than <code class="language-plaintext highlighter-rouge">sensor</code> you will also need to create new processors for it as the processors are bound to a specific unit as the data formatting may be different. If they are the same, you can reuse the <code class="language-plaintext highlighter-rouge">sensor</code> processors.</p>
-
-<h2 id="lifecycle">Lifecycle</h2>
-
-<p>This ROS2 driver makes use of Lifecycle nodes. If you’re not familiar with lifecycle, or managed nodes, please familiarize yourself with the <a href="https://design.ros2.org/articles/node_lifecycle.html">ROS2 design</a> document on it.</p>
-
-<p>The lifecycle node allow for the driver to have a deterministic setup and tear down and is a new feature in ROS2. The launch script will need to use a lifecycle node launcher to transition into the active state to start processing data.</p>
-
-<h2 id="component">Component</h2>
-
-<p>This ROS2 driver makes use of Component nodes. If you’re not familiar with component nodes please familiarize yourself with the <a href="https://index.ros.org/doc/ros2/Tutorials/Composition">ROS2 design</a> document on it.</p>
-
-<p>The component node allow for the driver and its processing nodes to be launched into the same process and is a new feature in ROS2. This allows the sensor and its data clients to operate without serialization or copying between nodes sharing a memory pool.</p>
-
-<p>There’s a little work in ROS2 Eloquent to launch a component-lifecycle node using only the roslaunch API. It may be necessary to include the Ouster driver in your lifecycle manager to transition into the active state when loading the driver into a process as a component. Example using the ROS2 component manager:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># component manager for dynamic loading (also may be done through launch)</span>
-ros2 run rclcpp_components component_container
-<span class="c"># load this component</span>
-ros2 component load /ComponentManager ros2_ouster ros2_ouster::OS1Driver
-<span class="c"># Set parameters</span>
-ros2 param <span class="nb">set </span>OusterDriver lidar_ip 10.5.5.86
-ros2 param <span class="nb">set </span>OusterDriver computer_ip 10.5.5.1
-<span class="c"># transition to configuring lifecycle stage</span>
-ros2 lifecycle <span class="nb">set </span>OusterDriver 1
-<span class="c"># transition to active lifecycle stage (will now stream data)</span>
-ros2 lifecycle <span class="nb">set </span>OusterDriver 3
-
-</code></pre></div></div>
-
-<h1 id="ouster-messages">Ouster Messages</h1>
-
-<p>A message <code class="language-plaintext highlighter-rouge">Metadata</code> was created to describe the metadata of the lidars. In addition the <code class="language-plaintext highlighter-rouge">GetMetadata</code> service type will be used to get the metadata from a running driver.</p>
-
-<h1 id="setup-and-networking">Setup and Networking</h1>
-
-<p>Ouster gives you some tools to set up a direct connection to the sensor from you computer. I’d argue these are a bit obtuse and they should really provide a set of scripts to set this up automatically as a daemon. However, since I am also using this as a development tool, I don’t want this always running in the background on my machines so I provide the directions below to setup the network connection.</p>
-
-<h3 id="one-time-setup-with-ipv4">One time setup with IPv4</h3>
-
-<p>These are bash commands in Linux to setup the connection. These steps only need to happen the first time you set up the laser. After the first time, when you establish the network connection to the sensor, you can just select this created network profile. <strong>Ensure the sensor is powered off and disconnected at this point.</strong></p>
-
-<p>The <code class="language-plaintext highlighter-rouge">[eth name]</code> is the nework interface you’re connecting to. On older Linux systems, that’s <code class="language-plaintext highlighter-rouge">eth0</code> or similar. In newer versions, its <code class="language-plaintext highlighter-rouge">enp...</code> or <code class="language-plaintext highlighter-rouge">enx...</code> when you look at the output of <code class="language-plaintext highlighter-rouge">ifconfig</code>.</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code> ip addr flush dev <span class="o">[</span>eth name]
- ip addr show dev <span class="o">[</span>eth name]
-
-</code></pre></div></div>
-
-<p>The output you see from <code class="language-plaintext highlighter-rouge">show</code> should look something like <code class="language-plaintext highlighter-rouge">[eth name] ... state DOWN ...</code>. Its only important that you see <code class="language-plaintext highlighter-rouge">DOWN</code> and not <code class="language-plaintext highlighter-rouge">UP</code>. Next, lets setup a static IP address for your machine so you can rely on this in the future. Ouster uses the 10.5.5.* range, and I don’t see a compelling reason to argue with it.</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>ip addr add 10.5.5.1/24 dev <span class="o">[</span>eth name]
-
-</code></pre></div></div>
-
-<p>Now, lets setup the connection. At this point you may now plug in and power on your sensor.</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>ip <span class="nb">link set</span> <span class="o">[</span>eth name] up
-<span class="nb">sudo </span>addr show dev <span class="o">[</span>eth name]
-
-</code></pre></div></div>
-
-<p>The output you see from <code class="language-plaintext highlighter-rouge">show</code> should look something like <code class="language-plaintext highlighter-rouge">[eth name] ... state UP ...</code>. Its only important that you see <code class="language-plaintext highlighter-rouge">UP</code> now and not <code class="language-plaintext highlighter-rouge">DOWN</code>. At this point, you’ve setup the networking needed for the one time setup.</p>
-
-<h3 id="connection-with-ipv4">Connection with IPv4</h3>
-
-<p>We can setup the network connection to the sensor now with the proper settings. Note: This command could take up to 30 seconds to setup, be patient. If after a minute you see no results, then you probably have an issue. Start the instructions above over. Lets set up the network</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>dnsmasq <span class="nt">-C</span> /dev/null <span class="nt">-kd</span> <span class="nt">-F</span> 10.5.5.50,10.5.5.100 <span class="nt">-i</span> <span class="o">[</span>eth name] <span class="nt">--bind-dynamic</span>
-
-</code></pre></div></div>
-
-<p>Instantly you should see something similar to:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>dnsmasq: started, version 2.75 cachesize 150
-dnsmasq: compile <span class="nb">time </span>options: IPv6 GNU-getopt DBus i18n IDN DHCP DHCPv6 no-Lua TFTP conntrack ipset auth DNSSEC loop-detect inotify
-dnsmasq-dhcp: DHCP, IP range 10.5.5.50 <span class="nt">--</span> 10.5.5.100, lease <span class="nb">time </span>1h
-dnsmasq-dhcp: DHCP, sockets bound exclusively to interface enxa0cec8c012f8
-dnsmasq: reading /etc/resolv.conf
-dnsmasq: using nameserver 127.0.1.1#53
-dnsmasq: <span class="nb">read</span> /etc/hosts - 10 addresses
-
-</code></pre></div></div>
-
-<p>You need to wait until you see something like:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>dnsmasq-dhcp: DHCPDISCOVER<span class="o">(</span>enxa0cec8c012f8<span class="o">)</span> <span class="o">[</span>HWaddr]
-dnsmasq-dhcp: DHCPOFFER<span class="o">(</span>enxa0cec8c012f8<span class="o">)</span> 10.5.5.87 <span class="o">[</span>HWaddr]
-dnsmasq-dhcp: DHCPREQUEST<span class="o">(</span>enxa0cec8c012f8<span class="o">)</span> 10.5.5.87 <span class="o">[</span>HWaddr]
-dnsmasq-dhcp: DHCPACK<span class="o">(</span>enxa0cec8c012f8<span class="o">)</span> 10.5.5.87 <span class="o">[</span>HWaddr] os1-SerialNumXX
-
-</code></pre></div></div>
-
-<p>Now you’re ready for business. Lets see what IP address it’s on (10.5.5.87). Lets ping it</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ping 10.5.5.87
-
-</code></pre></div></div>
-
-<p>and we’re good to go!</p>
-
-<h3 id="using-ipv6-with-link-local">Using IPv6 with link local</h3>
-
-<p>Instead of having to configure <code class="language-plaintext highlighter-rouge">dnsmasq</code> and static addresses in the previous section, you can use link local IPv6 addresses.</p>
-
-<ol>
-  <li>Find the link local address of the Ouster. With avahi-browse, we can find the address of the ouster by browsing all non-local services and resolving them.</li>
-</ol>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nv">$ </span>avahi-browse <span class="nt">-arlt</span>
-+   eth2 IPv6 Ouster Sensor 992109000xxx                    _roger._tcp          <span class="nb">local</span>
-+   eth2 IPv4 Ouster Sensor 992109000xxx                    _roger._tcp          <span class="nb">local</span>
-<span class="o">=</span>   eth2 IPv6 Ouster Sensor 992109000xxx                    _roger._tcp          <span class="nb">local
-   hostname</span> <span class="o">=</span> <span class="o">[</span>os-992109000xxx.local]
-   address <span class="o">=</span> <span class="o">[</span>fe80::be0f:a7ff:fe00:2861]
-   port <span class="o">=</span> <span class="o">[</span>7501]
-   txt <span class="o">=</span> <span class="o">[</span><span class="s2">"fw=ousteros-image-prod-aries-v2.0.0+20201124065024"</span> <span class="s2">"sn=992109000xxx"</span> <span class="s2">"pn=840-102144-D"</span><span class="o">]</span>
-<span class="o">=</span>   eth2 IPv4 Ouster Sensor 992109000xxx                    _roger._tcp          <span class="nb">local
-   hostname</span> <span class="o">=</span> <span class="o">[</span>os-992109000xxx.local]
-   address <span class="o">=</span> <span class="o">[</span>192.168.90.2]
-   port <span class="o">=</span> <span class="o">[</span>7501]
-   txt <span class="o">=</span> <span class="o">[</span><span class="s2">"fw=ousteros-image-prod-aries-v2.0.0+20201124065024"</span> <span class="s2">"sn=992109000xxx"</span> <span class="s2">"pn=840-102144-D"</span><span class="o">]</span>
-
-
-</code></pre></div></div>
-<p>As shown above, on interface <code class="language-plaintext highlighter-rouge">eth2</code>, the ouster has an IPv6 link local address of <code class="language-plaintext highlighter-rouge">fe80::be0f:a7ff:fe00:2861</code>.</p>
-
-<p>To use link local addressing with IPv6, the standard way to add a scope ID is appended with a <code class="language-plaintext highlighter-rouge">%</code> character like so in <code class="language-plaintext highlighter-rouge">sensor.yaml</code>. Automatic detection for computer IP address can be used with an empty string.</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>lidar_ip: <span class="s2">"fe80::be0f:a7ff:fe00:2861%eth2"</span>
-computer_ip: <span class="s2">""</span>
-
-</code></pre></div></div>
-
-<p>Note that this feature is only available with the default driver version, configured by <code class="language-plaintext highlighter-rouge">driver_config.yaml</code>. When running the Tins-based driver (see the following sections), both the LiDAR and computer IP address must be specified in <code class="language-plaintext highlighter-rouge">tins_driver_config.yaml</code>.</p>
-
-<h3 id="usage-with-the-default-driver">Usage with the default driver</h3>
-
-<p>Now that we have a connection over the network, lets view some data. After building your colcon workspace with this package, source the install space, then run:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_ouster driver_launch.py
-
-</code></pre></div></div>
-
-<p>Make sure to update your parameters file if you don’t use the default IPs (10.5.5.1, 10.5.5.87). You may also use the <code class="language-plaintext highlighter-rouge">.local</code> version of your ouster lidar. To find your IPs, see the <code class="language-plaintext highlighter-rouge">dnsmasq</code> output or check with <code class="language-plaintext highlighter-rouge">nmap -SP 10.5.5.*/24</code>.
-An alternative tool is <a href="https://linux.die.net/man/1/avahi-browse">avahi-browse</a>:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>avahi-browse <span class="nt">-arlt</span>
-
-</code></pre></div></div>
-
-<p>Now that your connection is up, you can view this information in RViz. Open an RViz session and subscribe to the points, images, and IMU topics in the laser frame. When trying to visualize the point clouds, be sure to change the Fixed Frame under Global Options to “laser_data_frame” as this is the default parent frame of the point cloud headers.</p>
-
-<p>When the driver configures itself, it will automatically read the metadata parameters from the Ouster. If you wish to save these parameters and use them with captured data (see the next section) then you can save the data to a specific location using the <code class="language-plaintext highlighter-rouge">getMetadata</code> service that the driver offers. To use it, run the driver with a real Ouster LiDAR and then make the following service call:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ouster_driver/get_metadata ouster_msgs/srv/GetMetadata <span class="s2">"{metadata_filepath: "</span>/path/to/your/metadata.json<span class="s2">"}"</span>
-
-</code></pre></div></div>
-
-<p>The driver will then save all the required metadata to the specified file and dump the same metadata as a JSON string to the terminal. Alternatively, the service can be called without specifying a filepath (see below) in which case no file will be saved, and the metadata will still be printed to terminal. Copying this string and manually saving it to a .json file is also a valid way to generate a metadata file.</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ouster_driver/get_metadata ouster_msgs/srv/GetMetadata
-
-</code></pre></div></div>
-
-<p>Have fun!</p>
-
-<h3 id="usage-with-tins-based-driver">Usage with Tins-based driver</h3>
-
-<p>If you want to use the driver to read data from a pcap file, you can use the <code class="language-plaintext highlighter-rouge">Tins</code>-based driver. To do this, open the <code class="language-plaintext highlighter-rouge">tins_driver_config.yaml</code> file and edit the following parameter:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">ethernet_device</code>: Change this to a working ethernet device on your computer that you plan to replay data through (e.g. “eth1”).</li>
-</ul>
-
-<p>You can run the Tins driver with the command below. This will use the default <code class="language-plaintext highlighter-rouge">ouster_os0128_1024_metadata.json</code> file:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_ouster tins_driver_launch.py
-
-</code></pre></div></div>
-
-<p>Alternatively, you can change the metadata being used by specifying the metadata filepath as shown below. You can generate a metadata file using the <code class="language-plaintext highlighter-rouge">getMetadata</code> service as shown in the previous section. Or you can use one of the example metadata files provided, which come from an Ouster OS0-128 in either 1024x10 or 2048x10 mode.</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_ouster tins_driver_launch.py metadata_filepath:<span class="o">=</span>/path/to/metadata.json
-
-</code></pre></div></div>
-
-<p>After launching the driver, in a new terminal, you can replay a pcap file of recorded ouster data using the following command (as an example):</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>tcpreplay <span class="nt">--intf1</span><span class="o">=</span>eth1 saved_ouster_data.pcap
-
-</code></pre></div></div>
-
-<p>You may need to run this command with <code class="language-plaintext highlighter-rouge">sudo</code>. Note that this driver version will also work with a live Ouster sensor, provided the data is coming into the correct ethernet device, and the parameters in the metadata file match those of the sensor. However it is recommended that you run the default drive with a real sensor, as this will guarantee that the metadata settings are correct.</p>
+<p>File truncated at 100 lines <a href="https://github.com/ros-drivers/ros2_ouster_drivers/tree/ros2">see the full file</a></p>
 </div>
             
           </div>
@@ -1063,78 +806,6 @@ An alternative tool is <a href="https://linux.die.net/man/1/avahi-browse">avahi-
 
       
         <div class="alert alert-warning" role="alert">No version for distro <strong>rolling</strong>. Known supported distros are highlighted in the buttons above.</div>
-      
-    </div>
-  </div>
-
-  <div class="distro distro-noetic">
-    <div class="container-fluid">
-      <div class="well well-sm">
-  <div>
-    
-  </div>
-  
-  <table class="table">
-    <tr>
-      <td width="100px" class="text-center">
-        <img style="width: 80px;" src="/assets/repo.png" alt="Repo symbol">
-      </td>
-      <td>
-        <h3><a style="text-decoration:none;" href="/r/ros2_ouster_drivers">ros2_ouster_drivers</a> <small>repository</small></h3>
-        
-        
-
-      </td>
-    </tr>
-  </table>
-  <div class="top-buffer">
-    
-    
-<table class="table table-condensed instance-switch">
-  <tr>
-    <td>
-      <div id="repo-switch" class="btn-group btn-group-justified" role="group">
-        <div class="btn-group" style="width: 90%" role="group">
-          <div class="dropdown">
-            <!-- TODO: add disabled when only 1 version is known? -->
-            <button class="btn btn-xs btn-default dropdown-toggle" type="button" id="dropdownMenu1" data-toggle="dropdown" title="Select Instance">
-              <span class="pull-left" style="width: 100%; text-align: left">
-                <span class="pull-right"><span class="caret"></span></span> 
-              <span class="glyphicon glyphicon-none"></span>
-                  github-ros-drivers-ros2_ouster_drivers
-              </span>
-            </button>
-            <ul class="dropdown-menu" role="menu">
-              
-                <li role="presentation">
-                  <a id="github-SteveMacenski-ros2_ouster_drivers" role="menuitem" tabindex="-1" href="/r/ros2_ouster_drivers/github-SteveMacenski-ros2_ouster_drivers" data="github-SteveMacenski-ros2_ouster_drivers">
-                    <span class="glyphicon glyphicon-star"></span>
-                    github-SteveMacenski-ros2_ouster_drivers
-                  </a>
-                </li>
-              
-                <li role="presentation">
-                  <a id="github-ros-drivers-ros2_ouster_drivers" role="menuitem" tabindex="-1" href="/r/ros2_ouster_drivers/github-ros-drivers-ros2_ouster_drivers" data="github-ros-drivers-ros2_ouster_drivers">
-                    <span class="glyphicon glyphicon-none"></span>
-                    github-ros-drivers-ros2_ouster_drivers
-                  </a>
-                </li>
-              
-            </ul>
-          </div>
-        </div>
-      </div>
-    </td>
-  </tr>
-</table>
-
-  </div>
-  <div class="top-buffer">
-  </div>
-</div>
-
-      
-        <div class="alert alert-warning" role="alert">No version for distro <strong>noetic</strong>. Known supported distros are highlighted in the buttons above.</div>
       
     </div>
   </div>
@@ -2147,6 +1818,78 @@ An alternative tool is <a href="https://linux.die.net/man/1/avahi-browse">avahi-
     </div>
   </div>
 
+  <div class="distro distro-noetic">
+    <div class="container-fluid">
+      <div class="well well-sm">
+  <div>
+    
+  </div>
+  
+  <table class="table">
+    <tr>
+      <td width="100px" class="text-center">
+        <img style="width: 80px;" src="/assets/repo.png" alt="Repo symbol">
+      </td>
+      <td>
+        <h3><a style="text-decoration:none;" href="/r/ros2_ouster_drivers">ros2_ouster_drivers</a> <small>repository</small></h3>
+        
+        
+
+      </td>
+    </tr>
+  </table>
+  <div class="top-buffer">
+    
+    
+<table class="table table-condensed instance-switch">
+  <tr>
+    <td>
+      <div id="repo-switch" class="btn-group btn-group-justified" role="group">
+        <div class="btn-group" style="width: 90%" role="group">
+          <div class="dropdown">
+            <!-- TODO: add disabled when only 1 version is known? -->
+            <button class="btn btn-xs btn-default dropdown-toggle" type="button" id="dropdownMenu1" data-toggle="dropdown" title="Select Instance">
+              <span class="pull-left" style="width: 100%; text-align: left">
+                <span class="pull-right"><span class="caret"></span></span> 
+              <span class="glyphicon glyphicon-none"></span>
+                  github-ros-drivers-ros2_ouster_drivers
+              </span>
+            </button>
+            <ul class="dropdown-menu" role="menu">
+              
+                <li role="presentation">
+                  <a id="github-SteveMacenski-ros2_ouster_drivers" role="menuitem" tabindex="-1" href="/r/ros2_ouster_drivers/github-SteveMacenski-ros2_ouster_drivers" data="github-SteveMacenski-ros2_ouster_drivers">
+                    <span class="glyphicon glyphicon-star"></span>
+                    github-SteveMacenski-ros2_ouster_drivers
+                  </a>
+                </li>
+              
+                <li role="presentation">
+                  <a id="github-ros-drivers-ros2_ouster_drivers" role="menuitem" tabindex="-1" href="/r/ros2_ouster_drivers/github-ros-drivers-ros2_ouster_drivers" data="github-ros-drivers-ros2_ouster_drivers">
+                    <span class="glyphicon glyphicon-none"></span>
+                    github-ros-drivers-ros2_ouster_drivers
+                  </a>
+                </li>
+              
+            </ul>
+          </div>
+        </div>
+      </div>
+    </td>
+  </tr>
+</table>
+
+  </div>
+  <div class="top-buffer">
+  </div>
+</div>
+
+      
+        <div class="alert alert-warning" role="alert">No version for distro <strong>noetic</strong>. Known supported distros are highlighted in the buttons above.</div>
+      
+    </div>
+  </div>
+
 
 <script src=/js/contribution_suggestions.js></script>
 <script type="text/javascript">
@@ -2176,7 +1919,7 @@ An alternative tool is <a href="https://linux.die.net/man/1/avahi-browse">avahi-
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2025-05-18</em>
+        <em class="hidden-xs">| generated on 2025-06-11</em>
       
       </div>
       <div style="float:right;">

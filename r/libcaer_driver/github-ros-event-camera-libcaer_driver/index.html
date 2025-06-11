@@ -167,10 +167,6 @@
       <input type="radio" name="options" id="rolling-radio" autocomplete="off"> rolling
     </label>
   
-    <label id="noetic-option" class="distro-button btn btn-xs btn-default" href="#noetic" data="noetic">
-      <input type="radio" name="options" id="noetic-radio" autocomplete="off"> noetic
-    </label>
-  
 
   <!-- Older distros -->
   <div class="btn-group dropdown">
@@ -235,6 +231,10 @@
       
         <li data="melodic" id="melodic-option" class="disabled older-distro-option"  href="#melodic">
           <a href="#melodic" data="melodic" id="melodic-button">melodic</a>
+        </li>
+      
+        <li data="noetic" id="noetic-option" class="disabled older-distro-option"  href="#noetic">
+          <a href="#noetic" data="noetic" id="noetic-button">noetic</a>
         </li>
       
     </ul>
@@ -551,182 +551,9 @@ events to be aggregated in one ROS event message before message is sent. Default
 <code class="language-plaintext highlighter-rouge">imu_send_queue_size</code>: (defaults to 10) max number of ROS messages to be buffered in send queue.</li>
   <li>
 <code class="language-plaintext highlighter-rouge">master</code>: (defaults to True) whether the device is acting as synchronization master.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">serial</code>: specifies serial number of camera to open (useful if you have multiple cameras connected). You can learn the serial number via <code class="language-plaintext highlighter-rouge">lsusb -v -d 152a: | grep iSerial</code>, or just start the driver with the serial number left blank, and look at the console log.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">statistics_print_interval</code>: time in seconds between statistics printouts.o</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">time_reset_delay</code>:  integer time in seconds to wait before hardware resetting the sensor time. Defaults to 2.</li>
 </ul>
 
-<h2 id="how-to-use">How to use:</h2>
-
-<p>Use the standard ROS launch procedure to start the driver, for instance:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch libcaer_driver driver_node.launch.py device_type:=davis
-
-</code></pre></div></div>
-<p>Edit <code class="language-plaintext highlighter-rouge">driver_node.launch.py</code> to set various parameters, or use <code class="language-plaintext highlighter-rouge">rqt_reconfigure</code> to modify the parameters on the fly.</p>
-
-<p>For efficient recording of the events you need to run the
-driver and the recorder in the same address space using ROS2 composable
-nodes. For this you will need to install the
-<a href="https://github.com/berndpfrommer/rosbag2_composable_recorder">composable recorder</a>
-into your workspace as well (see below). There are some example launch files provided
-for launching the combined driver/recorder:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch libcaer_driver recording_dvxplorer_composition.launch.py # (run as composable node)
-
-</code></pre></div></div>
-<p>Once the combined driver/record is running, start the recording like so:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /start_recording std_srvs/srv/Trigger
-
-</code></pre></div></div>
-<p>To stop the recording you have to kill (Ctrl-C) the recording driver.</p>
-
-<p>To visualize the events, run a <code class="language-plaintext highlighter-rouge">renderer</code> node from the
-<a href="https://github.com/ros-event-camera/event_camera_renderer">event_camera_renderer</a> package:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch event_camera_renderer renderer.launch.py
-
-</code></pre></div></div>
-<p>The renderer node publishes an image that can be visualized with e.g. <code class="language-plaintext highlighter-rouge">rqt_image_view</code></p>
-
-<h2 id="clock-synchronized-camera-operation">Clock synchronized camera operation</h2>
-
-<p>1) Connect the output sync of the master to the input sync of the slave
-2) When launching the driver, <em>first</em> launch the slave camera,  <em>second</em> launch the master. Pass the corresonding parameter <code class="language-plaintext highlighter-rouge">master</code> to both drivers, set to True for the master, set to False for the slave.
-3) Check the time synchronization with the <code class="language-plaintext highlighter-rouge">sync_test</code> tool from the <code class="language-plaintext highlighter-rouge">event_camera_tools</code> package. The <code class="language-plaintext highlighter-rouge">base-stamp shift</code> value of both cameras should be small, and the two values should agree to within less than 1ms when both sensors are non-idle, i.e. produce events at a reasonable rate.</p>
-
-<h2 id="performance-comparison-to-the-ros1-driver">Performance comparison to the ROS1 driver</h2>
-
-<p>Here are some approximate performance numbers on a 16 thread (8-core) AMD Ryzen 7480h laptop with max clock speed of 2.9GHz. The below numbers were obtained with a DvXplorer (bias sensitivity set to 4, sensor illuminated uniformly with square wave at 600Hz, delivering about 130-145 MeVs, 1150MB/s). Note that at this data rate, the decoding of the USB packets by libcaer saturates the CPU, so some data is lost before it even reaches the driver. ROS <code class="language-plaintext highlighter-rouge">event_message_time_threshold</code> was set to 1ms.</p>
-
-<table>
-  <thead>
-    <tr>
-      <th>ROS</th>
-      <th>configuration</th>
-      <th>encoding</th>
-      <th>CPU load</th>
-      <th>event rate (*)</th>
-      <th>note</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>ROS2</td>
-      <td>driver no subscriber</td>
-      <td>libcaer_cmp</td>
-      <td>100%</td>
-      <td>139 Mev/s</td>
-      <td>topic not publ., libcaer saturates CPU</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (composable)</td>
-      <td>libcaer_cmp</td>
-      <td>188%</td>
-      <td>136 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (nodes)</td>
-      <td>libcaer_cmp</td>
-      <td>172%+25%</td>
-      <td>139 Mev/s</td>
-      <td>FASTRTPS rmw inter-process comm.</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (composable)</td>
-      <td>libcaer</td>
-      <td>253%</td>
-      <td>129 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (nodes)</td>
-      <td>libcaer</td>
-      <td>156%+156%</td>
-      <td>119 Mev/s</td>
-      <td>FASTRTPS rmw inter-process comm.</td>
-    </tr>
-    <tr>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-    </tr>
-    <tr>
-      <td>ROS1</td>
-      <td>driver no subscriber</td>
-      <td>dvs_msgs</td>
-      <td>200%</td>
-      <td>28 Mev/s</td>
-      <td>ROS1 libcaer + driver saturate CPU (**)</td>
-    </tr>
-    <tr>
-      <td>ROS1</td>
-      <td>driver + recorder (nodelet)</td>
-      <td>dvs_msgs</td>
-      <td>250%</td>
-      <td>26 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-  </tbody>
-</table>
-
-<p>Notes:</p>
-
-<p>(*) event rates are incoming event rates.
-(**) the ROS1 driver marshals a ROS message even if there are no subscribers</p>
-
-<p>Storage requirements:</p>
-<ul>
-  <li>ROS2 using <code class="language-plaintext highlighter-rouge">libcaer_cmp</code> encoding: about 0.615 bytes/event (uniform flicker) - 5.4 bytes/event (random noise)</li>
-  <li>ROS2 using <code class="language-plaintext highlighter-rouge">libcaer</code> encoding: 8 bytes/event</li>
-  <li>ROS1: 13 bytes/event</li>
-</ul>
-
-<h2 id="about-time-stamps">About time stamps</h2>
-
-<p>The libcaer event cameras have their own clock which will here be called <em>camera clock</em>.
-When the driver starts up, it sends a command to the camera to reset the <em>camera clock</em> to zero,
-but at the same time the driver also records the <em>host time</em> (ROS system clock).
-Subsequently it always adds that initial <em>host time</em> to the <em>camera clock</em>. This sum of host time and camera clock
-will be referred to as <em>sensor time</em>. Note that although initially <em>sensor time</em> and <em>host time</em> coincide, they can drift arbitrarily far away from each other due to clock skew.</p>
-
-<p>The time stamps in the different messages refer to different clocks as follows:</p>
-<ul>
-  <li>IMU message <code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>sensor time</em>
-</li>
-  <li>APS image message <code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>sensor time</em>
-</li>
-  <li>EventPacket message:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>host time</em> (host arrival time of first libcaer packet that was used to form the ROS message)</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">time_base</code>: <em>sensor time</em> (sensor time of first event in ROS message)</li>
-      <li>event time stamps: <em>sensor time</em>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Note that the <code class="language-plaintext highlighter-rouge">header.stamp</code> for EventPacket messages follows a different(!) convention than the header stamps for IMU and image messages. The reason is that <code class="language-plaintext highlighter-rouge">time_base</code> of the EventPacket message already has the <em>sensor time</em>, so <code class="language-plaintext highlighter-rouge">header.stamp</code> is used to capture the actual <em>host time</em>. This permits estimation of the clock drift between <em>sensor time</em> and <em>host time</em>, which in turn allows synchronization with data (captured from other sensors) that refers to <em>host time</em> only.</p>
-
-<p>In summary, IMU, image, and individual event times all refer <em>sensor time</em> and can be directly compared to each other. The header stamp in the event packets however <em>does not</em> refer to <em>sensor time</em>.</p>
-
-<h2 id="license">License</h2>
-
-<p>This software is issued under the Apache License Version 2.0.</p>
+<p>File truncated at 100 lines <a href="https://github.com/ros-event-camera/libcaer_driver/tree/humble">see the full file</a></p>
 </div>
             
           </div>
@@ -1108,182 +935,9 @@ events to be aggregated in one ROS event message before message is sent. Default
 <code class="language-plaintext highlighter-rouge">imu_send_queue_size</code>: (defaults to 10) max number of ROS messages to be buffered in send queue.</li>
   <li>
 <code class="language-plaintext highlighter-rouge">master</code>: (defaults to True) whether the device is acting as synchronization master.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">serial</code>: specifies serial number of camera to open (useful if you have multiple cameras connected). You can learn the serial number via <code class="language-plaintext highlighter-rouge">lsusb -v -d 152a: | grep iSerial</code>, or just start the driver with the serial number left blank, and look at the console log.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">statistics_print_interval</code>: time in seconds between statistics printouts.o</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">time_reset_delay</code>:  integer time in seconds to wait before hardware resetting the sensor time. Defaults to 2.</li>
 </ul>
 
-<h2 id="how-to-use">How to use:</h2>
-
-<p>Use the standard ROS launch procedure to start the driver, for instance:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch libcaer_driver driver_node.launch.py device_type:=davis
-
-</code></pre></div></div>
-<p>Edit <code class="language-plaintext highlighter-rouge">driver_node.launch.py</code> to set various parameters, or use <code class="language-plaintext highlighter-rouge">rqt_reconfigure</code> to modify the parameters on the fly.</p>
-
-<p>For efficient recording of the events you need to run the
-driver and the recorder in the same address space using ROS2 composable
-nodes. For this you will need to install the
-<a href="https://github.com/berndpfrommer/rosbag2_composable_recorder">composable recorder</a>
-into your workspace as well (see below). There are some example launch files provided
-for launching the combined driver/recorder:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch libcaer_driver recording_dvxplorer_composition.launch.py # (run as composable node)
-
-</code></pre></div></div>
-<p>Once the combined driver/record is running, start the recording like so:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /start_recording std_srvs/srv/Trigger
-
-</code></pre></div></div>
-<p>To stop the recording you have to kill (Ctrl-C) the recording driver.</p>
-
-<p>To visualize the events, run a <code class="language-plaintext highlighter-rouge">renderer</code> node from the
-<a href="https://github.com/ros-event-camera/event_camera_renderer">event_camera_renderer</a> package:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch event_camera_renderer renderer.launch.py
-
-</code></pre></div></div>
-<p>The renderer node publishes an image that can be visualized with e.g. <code class="language-plaintext highlighter-rouge">rqt_image_view</code></p>
-
-<h2 id="clock-synchronized-camera-operation">Clock synchronized camera operation</h2>
-
-<p>1) Connect the output sync of the master to the input sync of the slave
-2) When launching the driver, <em>first</em> launch the slave camera,  <em>second</em> launch the master. Pass the corresonding parameter <code class="language-plaintext highlighter-rouge">master</code> to both drivers, set to True for the master, set to False for the slave.
-3) Check the time synchronization with the <code class="language-plaintext highlighter-rouge">sync_test</code> tool from the <code class="language-plaintext highlighter-rouge">event_camera_tools</code> package. The <code class="language-plaintext highlighter-rouge">base-stamp shift</code> value of both cameras should be small, and the two values should agree to within less than 1ms when both sensors are non-idle, i.e. produce events at a reasonable rate.</p>
-
-<h2 id="performance-comparison-to-the-ros1-driver">Performance comparison to the ROS1 driver</h2>
-
-<p>Here are some approximate performance numbers on a 16 thread (8-core) AMD Ryzen 7480h laptop with max clock speed of 2.9GHz. The below numbers were obtained with a DvXplorer (bias sensitivity set to 4, sensor illuminated uniformly with square wave at 600Hz, delivering about 130-145 MeVs, 1150MB/s). Note that at this data rate, the decoding of the USB packets by libcaer saturates the CPU, so some data is lost before it even reaches the driver. ROS <code class="language-plaintext highlighter-rouge">event_message_time_threshold</code> was set to 1ms.</p>
-
-<table>
-  <thead>
-    <tr>
-      <th>ROS</th>
-      <th>configuration</th>
-      <th>encoding</th>
-      <th>CPU load</th>
-      <th>event rate (*)</th>
-      <th>note</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>ROS2</td>
-      <td>driver no subscriber</td>
-      <td>libcaer_cmp</td>
-      <td>100%</td>
-      <td>139 Mev/s</td>
-      <td>topic not publ., libcaer saturates CPU</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (composable)</td>
-      <td>libcaer_cmp</td>
-      <td>188%</td>
-      <td>136 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (nodes)</td>
-      <td>libcaer_cmp</td>
-      <td>172%+25%</td>
-      <td>139 Mev/s</td>
-      <td>FASTRTPS rmw inter-process comm.</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (composable)</td>
-      <td>libcaer</td>
-      <td>253%</td>
-      <td>129 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (nodes)</td>
-      <td>libcaer</td>
-      <td>156%+156%</td>
-      <td>119 Mev/s</td>
-      <td>FASTRTPS rmw inter-process comm.</td>
-    </tr>
-    <tr>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-    </tr>
-    <tr>
-      <td>ROS1</td>
-      <td>driver no subscriber</td>
-      <td>dvs_msgs</td>
-      <td>200%</td>
-      <td>28 Mev/s</td>
-      <td>ROS1 libcaer + driver saturate CPU (**)</td>
-    </tr>
-    <tr>
-      <td>ROS1</td>
-      <td>driver + recorder (nodelet)</td>
-      <td>dvs_msgs</td>
-      <td>250%</td>
-      <td>26 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-  </tbody>
-</table>
-
-<p>Notes:</p>
-
-<p>(*) event rates are incoming event rates.
-(**) the ROS1 driver marshals a ROS message even if there are no subscribers</p>
-
-<p>Storage requirements:</p>
-<ul>
-  <li>ROS2 using <code class="language-plaintext highlighter-rouge">libcaer_cmp</code> encoding: about 0.615 bytes/event (uniform flicker) - 5.4 bytes/event (random noise)</li>
-  <li>ROS2 using <code class="language-plaintext highlighter-rouge">libcaer</code> encoding: 8 bytes/event</li>
-  <li>ROS1: 13 bytes/event</li>
-</ul>
-
-<h2 id="about-time-stamps">About time stamps</h2>
-
-<p>The libcaer event cameras have their own clock which will here be called <em>camera clock</em>.
-When the driver starts up, it sends a command to the camera to reset the <em>camera clock</em> to zero,
-but at the same time the driver also records the <em>host time</em> (ROS system clock).
-Subsequently it always adds that initial <em>host time</em> to the <em>camera clock</em>. This sum of host time and camera clock
-will be referred to as <em>sensor time</em>. Note that although initially <em>sensor time</em> and <em>host time</em> coincide, they can drift arbitrarily far away from each other due to clock skew.</p>
-
-<p>The time stamps in the different messages refer to different clocks as follows:</p>
-<ul>
-  <li>IMU message <code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>sensor time</em>
-</li>
-  <li>APS image message <code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>sensor time</em>
-</li>
-  <li>EventPacket message:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>host time</em> (host arrival time of first libcaer packet that was used to form the ROS message)</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">time_base</code>: <em>sensor time</em> (sensor time of first event in ROS message)</li>
-      <li>event time stamps: <em>sensor time</em>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Note that the <code class="language-plaintext highlighter-rouge">header.stamp</code> for EventPacket messages follows a different(!) convention than the header stamps for IMU and image messages. The reason is that <code class="language-plaintext highlighter-rouge">time_base</code> of the EventPacket message already has the <em>sensor time</em>, so <code class="language-plaintext highlighter-rouge">header.stamp</code> is used to capture the actual <em>host time</em>. This permits estimation of the clock drift between <em>sensor time</em> and <em>host time</em>, which in turn allows synchronization with data (captured from other sensors) that refers to <em>host time</em> only.</p>
-
-<p>In summary, IMU, image, and individual event times all refer <em>sensor time</em> and can be directly compared to each other. The header stamp in the event packets however <em>does not</em> refer to <em>sensor time</em>.</p>
-
-<h2 id="license">License</h2>
-
-<p>This software is issued under the Apache License Version 2.0.</p>
+<p>File truncated at 100 lines <a href="https://github.com/ros-event-camera/libcaer_driver/tree/rolling">see the full file</a></p>
 </div>
             
           </div>
@@ -1665,182 +1319,9 @@ events to be aggregated in one ROS event message before message is sent. Default
 <code class="language-plaintext highlighter-rouge">imu_send_queue_size</code>: (defaults to 10) max number of ROS messages to be buffered in send queue.</li>
   <li>
 <code class="language-plaintext highlighter-rouge">master</code>: (defaults to True) whether the device is acting as synchronization master.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">serial</code>: specifies serial number of camera to open (useful if you have multiple cameras connected). You can learn the serial number via <code class="language-plaintext highlighter-rouge">lsusb -v -d 152a: | grep iSerial</code>, or just start the driver with the serial number left blank, and look at the console log.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">statistics_print_interval</code>: time in seconds between statistics printouts.o</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">time_reset_delay</code>:  integer time in seconds to wait before hardware resetting the sensor time. Defaults to 2.</li>
 </ul>
 
-<h2 id="how-to-use">How to use:</h2>
-
-<p>Use the standard ROS launch procedure to start the driver, for instance:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch libcaer_driver driver_node.launch.py device_type:=davis
-
-</code></pre></div></div>
-<p>Edit <code class="language-plaintext highlighter-rouge">driver_node.launch.py</code> to set various parameters, or use <code class="language-plaintext highlighter-rouge">rqt_reconfigure</code> to modify the parameters on the fly.</p>
-
-<p>For efficient recording of the events you need to run the
-driver and the recorder in the same address space using ROS2 composable
-nodes. For this you will need to install the
-<a href="https://github.com/berndpfrommer/rosbag2_composable_recorder">composable recorder</a>
-into your workspace as well (see below). There are some example launch files provided
-for launching the combined driver/recorder:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch libcaer_driver recording_dvxplorer_composition.launch.py # (run as composable node)
-
-</code></pre></div></div>
-<p>Once the combined driver/record is running, start the recording like so:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /start_recording std_srvs/srv/Trigger
-
-</code></pre></div></div>
-<p>To stop the recording you have to kill (Ctrl-C) the recording driver.</p>
-
-<p>To visualize the events, run a <code class="language-plaintext highlighter-rouge">renderer</code> node from the
-<a href="https://github.com/ros-event-camera/event_camera_renderer">event_camera_renderer</a> package:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch event_camera_renderer renderer.launch.py
-
-</code></pre></div></div>
-<p>The renderer node publishes an image that can be visualized with e.g. <code class="language-plaintext highlighter-rouge">rqt_image_view</code></p>
-
-<h2 id="clock-synchronized-camera-operation">Clock synchronized camera operation</h2>
-
-<p>1) Connect the output sync of the master to the input sync of the slave
-2) When launching the driver, <em>first</em> launch the slave camera,  <em>second</em> launch the master. Pass the corresonding parameter <code class="language-plaintext highlighter-rouge">master</code> to both drivers, set to True for the master, set to False for the slave.
-3) Check the time synchronization with the <code class="language-plaintext highlighter-rouge">sync_test</code> tool from the <code class="language-plaintext highlighter-rouge">event_camera_tools</code> package. The <code class="language-plaintext highlighter-rouge">base-stamp shift</code> value of both cameras should be small, and the two values should agree to within less than 1ms when both sensors are non-idle, i.e. produce events at a reasonable rate.</p>
-
-<h2 id="performance-comparison-to-the-ros1-driver">Performance comparison to the ROS1 driver</h2>
-
-<p>Here are some approximate performance numbers on a 16 thread (8-core) AMD Ryzen 7480h laptop with max clock speed of 2.9GHz. The below numbers were obtained with a DvXplorer (bias sensitivity set to 4, sensor illuminated uniformly with square wave at 600Hz, delivering about 130-145 MeVs, 1150MB/s). Note that at this data rate, the decoding of the USB packets by libcaer saturates the CPU, so some data is lost before it even reaches the driver. ROS <code class="language-plaintext highlighter-rouge">event_message_time_threshold</code> was set to 1ms.</p>
-
-<table>
-  <thead>
-    <tr>
-      <th>ROS</th>
-      <th>configuration</th>
-      <th>encoding</th>
-      <th>CPU load</th>
-      <th>event rate (*)</th>
-      <th>note</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>ROS2</td>
-      <td>driver no subscriber</td>
-      <td>libcaer_cmp</td>
-      <td>100%</td>
-      <td>139 Mev/s</td>
-      <td>topic not publ., libcaer saturates CPU</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (composable)</td>
-      <td>libcaer_cmp</td>
-      <td>188%</td>
-      <td>136 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (nodes)</td>
-      <td>libcaer_cmp</td>
-      <td>172%+25%</td>
-      <td>139 Mev/s</td>
-      <td>FASTRTPS rmw inter-process comm.</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (composable)</td>
-      <td>libcaer</td>
-      <td>253%</td>
-      <td>129 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (nodes)</td>
-      <td>libcaer</td>
-      <td>156%+156%</td>
-      <td>119 Mev/s</td>
-      <td>FASTRTPS rmw inter-process comm.</td>
-    </tr>
-    <tr>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-    </tr>
-    <tr>
-      <td>ROS1</td>
-      <td>driver no subscriber</td>
-      <td>dvs_msgs</td>
-      <td>200%</td>
-      <td>28 Mev/s</td>
-      <td>ROS1 libcaer + driver saturate CPU (**)</td>
-    </tr>
-    <tr>
-      <td>ROS1</td>
-      <td>driver + recorder (nodelet)</td>
-      <td>dvs_msgs</td>
-      <td>250%</td>
-      <td>26 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-  </tbody>
-</table>
-
-<p>Notes:</p>
-
-<p>(*) event rates are incoming event rates.
-(**) the ROS1 driver marshals a ROS message even if there are no subscribers</p>
-
-<p>Storage requirements:</p>
-<ul>
-  <li>ROS2 using <code class="language-plaintext highlighter-rouge">libcaer_cmp</code> encoding: about 0.615 bytes/event (uniform flicker) - 5.4 bytes/event (random noise)</li>
-  <li>ROS2 using <code class="language-plaintext highlighter-rouge">libcaer</code> encoding: 8 bytes/event</li>
-  <li>ROS1: 13 bytes/event</li>
-</ul>
-
-<h2 id="about-time-stamps">About time stamps</h2>
-
-<p>The libcaer event cameras have their own clock which will here be called <em>camera clock</em>.
-When the driver starts up, it sends a command to the camera to reset the <em>camera clock</em> to zero,
-but at the same time the driver also records the <em>host time</em> (ROS system clock).
-Subsequently it always adds that initial <em>host time</em> to the <em>camera clock</em>. This sum of host time and camera clock
-will be referred to as <em>sensor time</em>. Note that although initially <em>sensor time</em> and <em>host time</em> coincide, they can drift arbitrarily far away from each other due to clock skew.</p>
-
-<p>The time stamps in the different messages refer to different clocks as follows:</p>
-<ul>
-  <li>IMU message <code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>sensor time</em>
-</li>
-  <li>APS image message <code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>sensor time</em>
-</li>
-  <li>EventPacket message:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>host time</em> (host arrival time of first libcaer packet that was used to form the ROS message)</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">time_base</code>: <em>sensor time</em> (sensor time of first event in ROS message)</li>
-      <li>event time stamps: <em>sensor time</em>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Note that the <code class="language-plaintext highlighter-rouge">header.stamp</code> for EventPacket messages follows a different(!) convention than the header stamps for IMU and image messages. The reason is that <code class="language-plaintext highlighter-rouge">time_base</code> of the EventPacket message already has the <em>sensor time</em>, so <code class="language-plaintext highlighter-rouge">header.stamp</code> is used to capture the actual <em>host time</em>. This permits estimation of the clock drift between <em>sensor time</em> and <em>host time</em>, which in turn allows synchronization with data (captured from other sensors) that refers to <em>host time</em> only.</p>
-
-<p>In summary, IMU, image, and individual event times all refer <em>sensor time</em> and can be directly compared to each other. The header stamp in the event packets however <em>does not</em> refer to <em>sensor time</em>.</p>
-
-<h2 id="license">License</h2>
-
-<p>This software is issued under the Apache License Version 2.0.</p>
+<p>File truncated at 100 lines <a href="https://github.com/ros-event-camera/libcaer_driver/tree/rolling">see the full file</a></p>
 </div>
             
           </div>
@@ -2222,182 +1703,9 @@ events to be aggregated in one ROS event message before message is sent. Default
 <code class="language-plaintext highlighter-rouge">imu_send_queue_size</code>: (defaults to 10) max number of ROS messages to be buffered in send queue.</li>
   <li>
 <code class="language-plaintext highlighter-rouge">master</code>: (defaults to True) whether the device is acting as synchronization master.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">serial</code>: specifies serial number of camera to open (useful if you have multiple cameras connected). You can learn the serial number via <code class="language-plaintext highlighter-rouge">lsusb -v -d 152a: | grep iSerial</code>, or just start the driver with the serial number left blank, and look at the console log.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">statistics_print_interval</code>: time in seconds between statistics printouts.o</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">time_reset_delay</code>:  integer time in seconds to wait before hardware resetting the sensor time. Defaults to 2.</li>
 </ul>
 
-<h2 id="how-to-use">How to use:</h2>
-
-<p>Use the standard ROS launch procedure to start the driver, for instance:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch libcaer_driver driver_node.launch.py device_type:=davis
-
-</code></pre></div></div>
-<p>Edit <code class="language-plaintext highlighter-rouge">driver_node.launch.py</code> to set various parameters, or use <code class="language-plaintext highlighter-rouge">rqt_reconfigure</code> to modify the parameters on the fly.</p>
-
-<p>For efficient recording of the events you need to run the
-driver and the recorder in the same address space using ROS2 composable
-nodes. For this you will need to install the
-<a href="https://github.com/berndpfrommer/rosbag2_composable_recorder">composable recorder</a>
-into your workspace as well (see below). There are some example launch files provided
-for launching the combined driver/recorder:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch libcaer_driver recording_dvxplorer_composition.launch.py # (run as composable node)
-
-</code></pre></div></div>
-<p>Once the combined driver/record is running, start the recording like so:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /start_recording std_srvs/srv/Trigger
-
-</code></pre></div></div>
-<p>To stop the recording you have to kill (Ctrl-C) the recording driver.</p>
-
-<p>To visualize the events, run a <code class="language-plaintext highlighter-rouge">renderer</code> node from the
-<a href="https://github.com/ros-event-camera/event_camera_renderer">event_camera_renderer</a> package:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch event_camera_renderer renderer.launch.py
-
-</code></pre></div></div>
-<p>The renderer node publishes an image that can be visualized with e.g. <code class="language-plaintext highlighter-rouge">rqt_image_view</code></p>
-
-<h2 id="clock-synchronized-camera-operation">Clock synchronized camera operation</h2>
-
-<p>1) Connect the output sync of the master to the input sync of the slave
-2) When launching the driver, <em>first</em> launch the slave camera,  <em>second</em> launch the master. Pass the corresonding parameter <code class="language-plaintext highlighter-rouge">master</code> to both drivers, set to True for the master, set to False for the slave.
-3) Check the time synchronization with the <code class="language-plaintext highlighter-rouge">sync_test</code> tool from the <code class="language-plaintext highlighter-rouge">event_camera_tools</code> package. The <code class="language-plaintext highlighter-rouge">base-stamp shift</code> value of both cameras should be small, and the two values should agree to within less than 1ms when both sensors are non-idle, i.e. produce events at a reasonable rate.</p>
-
-<h2 id="performance-comparison-to-the-ros1-driver">Performance comparison to the ROS1 driver</h2>
-
-<p>Here are some approximate performance numbers on a 16 thread (8-core) AMD Ryzen 7480h laptop with max clock speed of 2.9GHz. The below numbers were obtained with a DvXplorer (bias sensitivity set to 4, sensor illuminated uniformly with square wave at 600Hz, delivering about 130-145 MeVs, 1150MB/s). Note that at this data rate, the decoding of the USB packets by libcaer saturates the CPU, so some data is lost before it even reaches the driver. ROS <code class="language-plaintext highlighter-rouge">event_message_time_threshold</code> was set to 1ms.</p>
-
-<table>
-  <thead>
-    <tr>
-      <th>ROS</th>
-      <th>configuration</th>
-      <th>encoding</th>
-      <th>CPU load</th>
-      <th>event rate (*)</th>
-      <th>note</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>ROS2</td>
-      <td>driver no subscriber</td>
-      <td>libcaer_cmp</td>
-      <td>100%</td>
-      <td>139 Mev/s</td>
-      <td>topic not publ., libcaer saturates CPU</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (composable)</td>
-      <td>libcaer_cmp</td>
-      <td>188%</td>
-      <td>136 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (nodes)</td>
-      <td>libcaer_cmp</td>
-      <td>172%+25%</td>
-      <td>139 Mev/s</td>
-      <td>FASTRTPS rmw inter-process comm.</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (composable)</td>
-      <td>libcaer</td>
-      <td>253%</td>
-      <td>129 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (nodes)</td>
-      <td>libcaer</td>
-      <td>156%+156%</td>
-      <td>119 Mev/s</td>
-      <td>FASTRTPS rmw inter-process comm.</td>
-    </tr>
-    <tr>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-    </tr>
-    <tr>
-      <td>ROS1</td>
-      <td>driver no subscriber</td>
-      <td>dvs_msgs</td>
-      <td>200%</td>
-      <td>28 Mev/s</td>
-      <td>ROS1 libcaer + driver saturate CPU (**)</td>
-    </tr>
-    <tr>
-      <td>ROS1</td>
-      <td>driver + recorder (nodelet)</td>
-      <td>dvs_msgs</td>
-      <td>250%</td>
-      <td>26 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-  </tbody>
-</table>
-
-<p>Notes:</p>
-
-<p>(*) event rates are incoming event rates.
-(**) the ROS1 driver marshals a ROS message even if there are no subscribers</p>
-
-<p>Storage requirements:</p>
-<ul>
-  <li>ROS2 using <code class="language-plaintext highlighter-rouge">libcaer_cmp</code> encoding: about 0.615 bytes/event (uniform flicker) - 5.4 bytes/event (random noise)</li>
-  <li>ROS2 using <code class="language-plaintext highlighter-rouge">libcaer</code> encoding: 8 bytes/event</li>
-  <li>ROS1: 13 bytes/event</li>
-</ul>
-
-<h2 id="about-time-stamps">About time stamps</h2>
-
-<p>The libcaer event cameras have their own clock which will here be called <em>camera clock</em>.
-When the driver starts up, it sends a command to the camera to reset the <em>camera clock</em> to zero,
-but at the same time the driver also records the <em>host time</em> (ROS system clock).
-Subsequently it always adds that initial <em>host time</em> to the <em>camera clock</em>. This sum of host time and camera clock
-will be referred to as <em>sensor time</em>. Note that although initially <em>sensor time</em> and <em>host time</em> coincide, they can drift arbitrarily far away from each other due to clock skew.</p>
-
-<p>The time stamps in the different messages refer to different clocks as follows:</p>
-<ul>
-  <li>IMU message <code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>sensor time</em>
-</li>
-  <li>APS image message <code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>sensor time</em>
-</li>
-  <li>EventPacket message:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>host time</em> (host arrival time of first libcaer packet that was used to form the ROS message)</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">time_base</code>: <em>sensor time</em> (sensor time of first event in ROS message)</li>
-      <li>event time stamps: <em>sensor time</em>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Note that the <code class="language-plaintext highlighter-rouge">header.stamp</code> for EventPacket messages follows a different(!) convention than the header stamps for IMU and image messages. The reason is that <code class="language-plaintext highlighter-rouge">time_base</code> of the EventPacket message already has the <em>sensor time</em>, so <code class="language-plaintext highlighter-rouge">header.stamp</code> is used to capture the actual <em>host time</em>. This permits estimation of the clock drift between <em>sensor time</em> and <em>host time</em>, which in turn allows synchronization with data (captured from other sensors) that refers to <em>host time</em> only.</p>
-
-<p>In summary, IMU, image, and individual event times all refer <em>sensor time</em> and can be directly compared to each other. The header stamp in the event packets however <em>does not</em> refer to <em>sensor time</em>.</p>
-
-<h2 id="license">License</h2>
-
-<p>This software is issued under the Apache License Version 2.0.</p>
+<p>File truncated at 100 lines <a href="https://github.com/ros-event-camera/libcaer_driver/tree/rolling">see the full file</a></p>
 </div>
             
           </div>
@@ -2473,71 +1781,6 @@ the code they are contributing to the project according to the
 
         
         
-      
-    </div>
-  </div>
-
-  <div class="distro distro-noetic">
-    <div class="container-fluid">
-      <div class="well well-sm">
-  <div>
-    
-  </div>
-  
-  <table class="table">
-    <tr>
-      <td width="100px" class="text-center">
-        <img style="width: 80px;" src="/assets/repo.png" alt="Repo symbol">
-      </td>
-      <td>
-        <h3><a style="text-decoration:none;" href="/r/libcaer_driver">libcaer_driver</a> <small>repository</small></h3>
-        
-        
-
-      </td>
-    </tr>
-  </table>
-  <div class="top-buffer">
-    
-    
-<table class="table table-condensed instance-switch">
-  <tr>
-    <td>
-      <div id="repo-switch" class="btn-group btn-group-justified" role="group">
-        <div class="btn-group" style="width: 90%" role="group">
-          <div class="dropdown">
-            <!-- TODO: add disabled when only 1 version is known? -->
-            <button class="btn btn-xs btn-default dropdown-toggle" type="button" id="dropdownMenu1" data-toggle="dropdown" title="Select Instance">
-              <span class="pull-left" style="width: 100%; text-align: left">
-                <span class="pull-right"><span class="caret"></span></span> 
-              <span class="glyphicon glyphicon-star"></span>
-                  github-ros-event-camera-libcaer_driver
-              </span>
-            </button>
-            <ul class="dropdown-menu" role="menu">
-              
-                <li role="presentation">
-                  <a id="github-ros-event-camera-libcaer_driver" role="menuitem" tabindex="-1" href="/r/libcaer_driver/github-ros-event-camera-libcaer_driver" data="github-ros-event-camera-libcaer_driver">
-                    <span class="glyphicon glyphicon-star"></span>
-                    github-ros-event-camera-libcaer_driver
-                  </a>
-                </li>
-              
-            </ul>
-          </div>
-        </div>
-      </div>
-    </td>
-  </tr>
-</table>
-
-  </div>
-  <div class="top-buffer">
-  </div>
-</div>
-
-      
-        <div class="alert alert-warning" role="alert">No version for distro <strong>noetic</strong>. Known supported distros are highlighted in the buttons above.</div>
       
     </div>
   </div>
@@ -3299,182 +2542,9 @@ events to be aggregated in one ROS event message before message is sent. Default
 <code class="language-plaintext highlighter-rouge">imu_send_queue_size</code>: (defaults to 10) max number of ROS messages to be buffered in send queue.</li>
   <li>
 <code class="language-plaintext highlighter-rouge">master</code>: (defaults to True) whether the device is acting as synchronization master.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">serial</code>: specifies serial number of camera to open (useful if you have multiple cameras connected). You can learn the serial number via <code class="language-plaintext highlighter-rouge">lsusb -v -d 152a: | grep iSerial</code>, or just start the driver with the serial number left blank, and look at the console log.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">statistics_print_interval</code>: time in seconds between statistics printouts.o</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">time_reset_delay</code>:  integer time in seconds to wait before hardware resetting the sensor time. Defaults to 2.</li>
 </ul>
 
-<h2 id="how-to-use">How to use:</h2>
-
-<p>Use the standard ROS launch procedure to start the driver, for instance:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch libcaer_driver driver_node.launch.py device_type:=davis
-
-</code></pre></div></div>
-<p>Edit <code class="language-plaintext highlighter-rouge">driver_node.launch.py</code> to set various parameters, or use <code class="language-plaintext highlighter-rouge">rqt_reconfigure</code> to modify the parameters on the fly.</p>
-
-<p>For efficient recording of the events you need to run the
-driver and the recorder in the same address space using ROS2 composable
-nodes. For this you will need to install the
-<a href="https://github.com/berndpfrommer/rosbag2_composable_recorder">composable recorder</a>
-into your workspace as well (see below). There are some example launch files provided
-for launching the combined driver/recorder:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch libcaer_driver recording_dvxplorer_composition.launch.py # (run as composable node)
-
-</code></pre></div></div>
-<p>Once the combined driver/record is running, start the recording like so:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /start_recording std_srvs/srv/Trigger
-
-</code></pre></div></div>
-<p>To stop the recording you have to kill (Ctrl-C) the recording driver.</p>
-
-<p>To visualize the events, run a <code class="language-plaintext highlighter-rouge">renderer</code> node from the
-<a href="https://github.com/ros-event-camera/event_camera_renderer">event_camera_renderer</a> package:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch event_camera_renderer renderer.launch.py
-
-</code></pre></div></div>
-<p>The renderer node publishes an image that can be visualized with e.g. <code class="language-plaintext highlighter-rouge">rqt_image_view</code></p>
-
-<h2 id="clock-synchronized-camera-operation">Clock synchronized camera operation</h2>
-
-<p>1) Connect the output sync of the master to the input sync of the slave
-2) When launching the driver, <em>first</em> launch the slave camera,  <em>second</em> launch the master. Pass the corresonding parameter <code class="language-plaintext highlighter-rouge">master</code> to both drivers, set to True for the master, set to False for the slave.
-3) Check the time synchronization with the <code class="language-plaintext highlighter-rouge">sync_test</code> tool from the <code class="language-plaintext highlighter-rouge">event_camera_tools</code> package. The <code class="language-plaintext highlighter-rouge">base-stamp shift</code> value of both cameras should be small, and the two values should agree to within less than 1ms when both sensors are non-idle, i.e. produce events at a reasonable rate.</p>
-
-<h2 id="performance-comparison-to-the-ros1-driver">Performance comparison to the ROS1 driver</h2>
-
-<p>Here are some approximate performance numbers on a 16 thread (8-core) AMD Ryzen 7480h laptop with max clock speed of 2.9GHz. The below numbers were obtained with a DvXplorer (bias sensitivity set to 4, sensor illuminated uniformly with square wave at 600Hz, delivering about 130-145 MeVs, 1150MB/s). Note that at this data rate, the decoding of the USB packets by libcaer saturates the CPU, so some data is lost before it even reaches the driver. ROS <code class="language-plaintext highlighter-rouge">event_message_time_threshold</code> was set to 1ms.</p>
-
-<table>
-  <thead>
-    <tr>
-      <th>ROS</th>
-      <th>configuration</th>
-      <th>encoding</th>
-      <th>CPU load</th>
-      <th>event rate (*)</th>
-      <th>note</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>ROS2</td>
-      <td>driver no subscriber</td>
-      <td>libcaer_cmp</td>
-      <td>100%</td>
-      <td>139 Mev/s</td>
-      <td>topic not publ., libcaer saturates CPU</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (composable)</td>
-      <td>libcaer_cmp</td>
-      <td>188%</td>
-      <td>136 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (nodes)</td>
-      <td>libcaer_cmp</td>
-      <td>172%+25%</td>
-      <td>139 Mev/s</td>
-      <td>FASTRTPS rmw inter-process comm.</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (composable)</td>
-      <td>libcaer</td>
-      <td>253%</td>
-      <td>129 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-    <tr>
-      <td>ROS2</td>
-      <td>driver + recorder (nodes)</td>
-      <td>libcaer</td>
-      <td>156%+156%</td>
-      <td>119 Mev/s</td>
-      <td>FASTRTPS rmw inter-process comm.</td>
-    </tr>
-    <tr>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-      <td> </td>
-    </tr>
-    <tr>
-      <td>ROS1</td>
-      <td>driver no subscriber</td>
-      <td>dvs_msgs</td>
-      <td>200%</td>
-      <td>28 Mev/s</td>
-      <td>ROS1 libcaer + driver saturate CPU (**)</td>
-    </tr>
-    <tr>
-      <td>ROS1</td>
-      <td>driver + recorder (nodelet)</td>
-      <td>dvs_msgs</td>
-      <td>250%</td>
-      <td>26 Mev/s</td>
-      <td>no message transport involved</td>
-    </tr>
-  </tbody>
-</table>
-
-<p>Notes:</p>
-
-<p>(*) event rates are incoming event rates.
-(**) the ROS1 driver marshals a ROS message even if there are no subscribers</p>
-
-<p>Storage requirements:</p>
-<ul>
-  <li>ROS2 using <code class="language-plaintext highlighter-rouge">libcaer_cmp</code> encoding: about 0.615 bytes/event (uniform flicker) - 5.4 bytes/event (random noise)</li>
-  <li>ROS2 using <code class="language-plaintext highlighter-rouge">libcaer</code> encoding: 8 bytes/event</li>
-  <li>ROS1: 13 bytes/event</li>
-</ul>
-
-<h2 id="about-time-stamps">About time stamps</h2>
-
-<p>The libcaer event cameras have their own clock which will here be called <em>camera clock</em>.
-When the driver starts up, it sends a command to the camera to reset the <em>camera clock</em> to zero,
-but at the same time the driver also records the <em>host time</em> (ROS system clock).
-Subsequently it always adds that initial <em>host time</em> to the <em>camera clock</em>. This sum of host time and camera clock
-will be referred to as <em>sensor time</em>. Note that although initially <em>sensor time</em> and <em>host time</em> coincide, they can drift arbitrarily far away from each other due to clock skew.</p>
-
-<p>The time stamps in the different messages refer to different clocks as follows:</p>
-<ul>
-  <li>IMU message <code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>sensor time</em>
-</li>
-  <li>APS image message <code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>sensor time</em>
-</li>
-  <li>EventPacket message:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">header.stamp</code>: <em>host time</em> (host arrival time of first libcaer packet that was used to form the ROS message)</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">time_base</code>: <em>sensor time</em> (sensor time of first event in ROS message)</li>
-      <li>event time stamps: <em>sensor time</em>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Note that the <code class="language-plaintext highlighter-rouge">header.stamp</code> for EventPacket messages follows a different(!) convention than the header stamps for IMU and image messages. The reason is that <code class="language-plaintext highlighter-rouge">time_base</code> of the EventPacket message already has the <em>sensor time</em>, so <code class="language-plaintext highlighter-rouge">header.stamp</code> is used to capture the actual <em>host time</em>. This permits estimation of the clock drift between <em>sensor time</em> and <em>host time</em>, which in turn allows synchronization with data (captured from other sensors) that refers to <em>host time</em> only.</p>
-
-<p>In summary, IMU, image, and individual event times all refer <em>sensor time</em> and can be directly compared to each other. The header stamp in the event packets however <em>does not</em> refer to <em>sensor time</em>.</p>
-
-<h2 id="license">License</h2>
-
-<p>This software is issued under the Apache License Version 2.0.</p>
+<p>File truncated at 100 lines <a href="https://github.com/ros-event-camera/libcaer_driver/tree/iron">see the full file</a></p>
 </div>
             
           </div>
@@ -3944,6 +3014,71 @@ the code they are contributing to the project according to the
     </div>
   </div>
 
+  <div class="distro distro-noetic">
+    <div class="container-fluid">
+      <div class="well well-sm">
+  <div>
+    
+  </div>
+  
+  <table class="table">
+    <tr>
+      <td width="100px" class="text-center">
+        <img style="width: 80px;" src="/assets/repo.png" alt="Repo symbol">
+      </td>
+      <td>
+        <h3><a style="text-decoration:none;" href="/r/libcaer_driver">libcaer_driver</a> <small>repository</small></h3>
+        
+        
+
+      </td>
+    </tr>
+  </table>
+  <div class="top-buffer">
+    
+    
+<table class="table table-condensed instance-switch">
+  <tr>
+    <td>
+      <div id="repo-switch" class="btn-group btn-group-justified" role="group">
+        <div class="btn-group" style="width: 90%" role="group">
+          <div class="dropdown">
+            <!-- TODO: add disabled when only 1 version is known? -->
+            <button class="btn btn-xs btn-default dropdown-toggle" type="button" id="dropdownMenu1" data-toggle="dropdown" title="Select Instance">
+              <span class="pull-left" style="width: 100%; text-align: left">
+                <span class="pull-right"><span class="caret"></span></span> 
+              <span class="glyphicon glyphicon-star"></span>
+                  github-ros-event-camera-libcaer_driver
+              </span>
+            </button>
+            <ul class="dropdown-menu" role="menu">
+              
+                <li role="presentation">
+                  <a id="github-ros-event-camera-libcaer_driver" role="menuitem" tabindex="-1" href="/r/libcaer_driver/github-ros-event-camera-libcaer_driver" data="github-ros-event-camera-libcaer_driver">
+                    <span class="glyphicon glyphicon-star"></span>
+                    github-ros-event-camera-libcaer_driver
+                  </a>
+                </li>
+              
+            </ul>
+          </div>
+        </div>
+      </div>
+    </td>
+  </tr>
+</table>
+
+  </div>
+  <div class="top-buffer">
+  </div>
+</div>
+
+      
+        <div class="alert alert-warning" role="alert">No version for distro <strong>noetic</strong>. Known supported distros are highlighted in the buttons above.</div>
+      
+    </div>
+  </div>
+
 
 <script src=/js/contribution_suggestions.js></script>
 <script type="text/javascript">
@@ -3973,7 +3108,7 @@ the code they are contributing to the project according to the
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2025-05-18</em>
+        <em class="hidden-xs">| generated on 2025-06-11</em>
       
       </div>
       <div style="float:right;">

@@ -166,10 +166,6 @@
       <input type="radio" name="options" id="rolling-radio" autocomplete="off"> rolling
     </label>
   
-    <label id="noetic-option" class="distro-button btn btn-xs btn-default" href="#noetic" data="noetic">
-      <input type="radio" name="options" id="noetic-radio" autocomplete="off"> noetic
-    </label>
-  
 
   <!-- Older distros -->
   <div class="btn-group dropdown">
@@ -234,6 +230,10 @@
       
         <li data="melodic" id="melodic-option" class="disabled older-distro-option"  href="#melodic">
           <a href="#melodic" data="melodic" id="melodic-button">melodic</a>
+        </li>
+      
+        <li data="noetic" id="noetic-option" class="disabled older-distro-option"  href="#noetic">
+          <a href="#noetic" data="noetic" id="noetic-button">noetic</a>
         </li>
       
     </ul>
@@ -664,87 +664,7 @@
 
 <p>The mode manager is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It parses the SHM file and creates the according services, publishers, and subscribers to manage the system and its modes.</p>
 
-<ul>
-  <li>For (sub-)systems, it mirrors the lifecycle services that are available for ROS 2 lifecycle nodes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_available_states</code> - lifecycle_msgs/GetAvailableStates</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_state</code> - lifecycle_msgs/GetState</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/change_state</code> - lifecycle_msgs/ChangeState</li>
-    </ul>
-  </li>
-  <li>For (sub-)systems <em>and</em> nodes, it provides similar services for modes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_available_modes</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetAvailableModes.srv">system_modes/GetAvailableModes</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetMode.srv">system_modes/GetMode</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/change_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/ChangeMode.srv">system_modes/ChangeMode</a>
-</li>
-    </ul>
-  </li>
-  <li>Service calls to these services publish information on the requested state change or mode change before attempting them. These are published on the following topics:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> - lifecycle_msgs/TransitionEvent</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./msg/ModeEvent.msg">system_modes/ModeEvent</a>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Running the manager:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_manager.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="mode-monitor">Mode Monitor</h3>
-
-<p>The mode monitor is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It continuously monitors and displays the entire system state and mode based on the mode inference introduced <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#mode-inference">above</a>. It monitors the following topics:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target states</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target modes</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/parameter_events</code> to infer the current modes for all known nodes based on their parameter values</li>
-</ul>
-
-<p><img src="https://raw.githubusercontent.com/micro-ROS/system_modes/master/system_modes/../system_modes_examples/doc/screenshot-monitor.png" alt="mode_monitor" title="Screenshot of the mode monitor from system_modes_examples"></p>
-
-<p>Running the monitor:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_monitor.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="error-handling-and-rules">Error Handling and Rules</h3>
-
-<p>If the <em>actual</em> state/mode of the system or any of its parts diverges from the <em>target</em> state/mode, we define rules that try to bring the system back to a valid <em>target</em> state/mode, e.g., a degraded mode. Rules work in a bottom-up manner, i.e. starting from correcting nodes before sub-systems before systems. Rules are basically defined in the following way:</p>
-
-<pre><code class="language-pseudo">if:
- system.target == {target state/mode} &amp;&amp; system.actual != {target state/mode} &amp;&amp; part.actual == {specific state/mode}
-then:
- system.target := {specific state/mode}
-
-</code></pre>
-
-<p>if <em>actual</em> state/mode and <em>target</em> state/mode diverge, but there is no rule for this exact situation, the bottom-up rules will just try to return the system/part to its <em>target</em> state/mode.
-<em>Potentiall dangereous, to be discussed:</em> what’s happening, if the system is already on its way. E.g., a system or part was just commanded to transition to <em>ACTIVE.foo</em>, but is currently <em>activating</em> (so doing everything right). In this case we have to avoid that the bottom-up rules will trigger.</p>
-
-<h2 id="how-to-apply">How to Apply</h2>
-
-<p>When designing the hierarchy of your system, try to group parts semantically, e.g., everything that belongs to <em>perception</em> or <em>navigation</em>. You want to group those parts of a system that are often jointly managed (initialized, shutdown, configured). Hierarchies don’t necessarily need to be designed in one big tree, but can form several parallel trees.</p>
-
-<p>When designing system modes for your system, try to focus on platform-specific aspects (so those that are generally present) rather than aspects specific to a certain application. Good examples are <em>degraded</em> and <em>performance</em> modes of the platform, bad examples are system modes to encode the current number of (grasping) re-tries.</p>
-
-<p>Also, do not model any “read-only” system modes, e.g., modes that discretize/encode a read-only internal state. An example for such a mode specification to avoid is <em>low energy</em> and <em>full</em>, discretizing the charging level of a battery component. The System Modes concept assumes that the activatability of a system mode of a given node or subsystem should depend only on the states and modes of the other nodes and subsystems (and on the higher-level task executed by some deliberation layer). Note that the same applies to the ROS 2 node lifecycle states (<em>Unconfigured</em>, <em>Inactive</em>, etc.). The only exception is the <em>ErrorProcessing</em> state, which can be entered autonomously by the node itself. Within the mode inference, if a node performs a transition to <em>ErrorProcessing</em>, this is automatically propagated upwards as inferred state along the hierarchy. It is up to the deliberation layer to handle the failure of this node or subsystem.</p>
-
-<h2 id="quality-declaration">Quality Declaration</h2>
-
-<p>This package claims to be in the Quality Level 3 category, see the <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/QUALITY_DECLARATION.md">Quality Declaration</a> for more details.</p>
+<p>File truncated at 100 lines <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -1752,87 +1672,7 @@ jQuery(function() {
 
 <p>The mode manager is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It parses the SHM file and creates the according services, publishers, and subscribers to manage the system and its modes.</p>
 
-<ul>
-  <li>For (sub-)systems, it mirrors the lifecycle services that are available for ROS 2 lifecycle nodes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_available_states</code> - lifecycle_msgs/GetAvailableStates</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_state</code> - lifecycle_msgs/GetState</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/change_state</code> - lifecycle_msgs/ChangeState</li>
-    </ul>
-  </li>
-  <li>For (sub-)systems <em>and</em> nodes, it provides similar services for modes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_available_modes</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetAvailableModes.srv">system_modes/GetAvailableModes</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetMode.srv">system_modes/GetMode</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/change_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/ChangeMode.srv">system_modes/ChangeMode</a>
-</li>
-    </ul>
-  </li>
-  <li>Service calls to these services publish information on the requested state change or mode change before attempting them. These are published on the following topics:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> - lifecycle_msgs/TransitionEvent</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./msg/ModeEvent.msg">system_modes/ModeEvent</a>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Running the manager:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_manager.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="mode-monitor">Mode Monitor</h3>
-
-<p>The mode monitor is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It continuously monitors and displays the entire system state and mode based on the mode inference introduced <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#mode-inference">above</a>. It monitors the following topics:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target states</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target modes</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/parameter_events</code> to infer the current modes for all known nodes based on their parameter values</li>
-</ul>
-
-<p><img src="https://raw.githubusercontent.com/micro-ROS/system_modes/master/system_modes/../system_modes_examples/doc/screenshot-monitor.png" alt="mode_monitor" title="Screenshot of the mode monitor from system_modes_examples"></p>
-
-<p>Running the monitor:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_monitor.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="error-handling-and-rules">Error Handling and Rules</h3>
-
-<p>If the <em>actual</em> state/mode of the system or any of its parts diverges from the <em>target</em> state/mode, we define rules that try to bring the system back to a valid <em>target</em> state/mode, e.g., a degraded mode. Rules work in a bottom-up manner, i.e. starting from correcting nodes before sub-systems before systems. Rules are basically defined in the following way:</p>
-
-<pre><code class="language-pseudo">if:
- system.target == {target state/mode} &amp;&amp; system.actual != {target state/mode} &amp;&amp; part.actual == {specific state/mode}
-then:
- system.target := {specific state/mode}
-
-</code></pre>
-
-<p>if <em>actual</em> state/mode and <em>target</em> state/mode diverge, but there is no rule for this exact situation, the bottom-up rules will just try to return the system/part to its <em>target</em> state/mode.
-<em>Potentiall dangereous, to be discussed:</em> what’s happening, if the system is already on its way. E.g., a system or part was just commanded to transition to <em>ACTIVE.foo</em>, but is currently <em>activating</em> (so doing everything right). In this case we have to avoid that the bottom-up rules will trigger.</p>
-
-<h2 id="how-to-apply">How to Apply</h2>
-
-<p>When designing the hierarchy of your system, try to group parts semantically, e.g., everything that belongs to <em>perception</em> or <em>navigation</em>. You want to group those parts of a system that are often jointly managed (initialized, shutdown, configured). Hierarchies don’t necessarily need to be designed in one big tree, but can form several parallel trees.</p>
-
-<p>When designing system modes for your system, try to focus on platform-specific aspects (so those that are generally present) rather than aspects specific to a certain application. Good examples are <em>degraded</em> and <em>performance</em> modes of the platform, bad examples are system modes to encode the current number of (grasping) re-tries.</p>
-
-<p>Also, do not model any “read-only” system modes, e.g., modes that discretize/encode a read-only internal state. An example for such a mode specification to avoid is <em>low energy</em> and <em>full</em>, discretizing the charging level of a battery component. The System Modes concept assumes that the activatability of a system mode of a given node or subsystem should depend only on the states and modes of the other nodes and subsystems (and on the higher-level task executed by some deliberation layer). Note that the same applies to the ROS 2 node lifecycle states (<em>Unconfigured</em>, <em>Inactive</em>, etc.). The only exception is the <em>ErrorProcessing</em> state, which can be entered autonomously by the node itself. Within the mode inference, if a node performs a transition to <em>ErrorProcessing</em>, this is automatically propagated upwards as inferred state along the hierarchy. It is up to the deliberation layer to handle the failure of this node or subsystem.</p>
-
-<h2 id="quality-declaration">Quality Declaration</h2>
-
-<p>This package claims to be in the Quality Level 3 category, see the <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/QUALITY_DECLARATION.md">Quality Declaration</a> for more details.</p>
+<p>File truncated at 100 lines <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -2840,87 +2680,7 @@ jQuery(function() {
 
 <p>The mode manager is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It parses the SHM file and creates the according services, publishers, and subscribers to manage the system and its modes.</p>
 
-<ul>
-  <li>For (sub-)systems, it mirrors the lifecycle services that are available for ROS 2 lifecycle nodes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_available_states</code> - lifecycle_msgs/GetAvailableStates</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_state</code> - lifecycle_msgs/GetState</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/change_state</code> - lifecycle_msgs/ChangeState</li>
-    </ul>
-  </li>
-  <li>For (sub-)systems <em>and</em> nodes, it provides similar services for modes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_available_modes</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetAvailableModes.srv">system_modes/GetAvailableModes</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetMode.srv">system_modes/GetMode</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/change_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/ChangeMode.srv">system_modes/ChangeMode</a>
-</li>
-    </ul>
-  </li>
-  <li>Service calls to these services publish information on the requested state change or mode change before attempting them. These are published on the following topics:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> - lifecycle_msgs/TransitionEvent</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./msg/ModeEvent.msg">system_modes/ModeEvent</a>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Running the manager:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_manager.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="mode-monitor">Mode Monitor</h3>
-
-<p>The mode monitor is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It continuously monitors and displays the entire system state and mode based on the mode inference introduced <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#mode-inference">above</a>. It monitors the following topics:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target states</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target modes</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/parameter_events</code> to infer the current modes for all known nodes based on their parameter values</li>
-</ul>
-
-<p><img src="https://raw.githubusercontent.com/micro-ROS/system_modes/master/system_modes/../system_modes_examples/doc/screenshot-monitor.png" alt="mode_monitor" title="Screenshot of the mode monitor from system_modes_examples"></p>
-
-<p>Running the monitor:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_monitor.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="error-handling-and-rules">Error Handling and Rules</h3>
-
-<p>If the <em>actual</em> state/mode of the system or any of its parts diverges from the <em>target</em> state/mode, we define rules that try to bring the system back to a valid <em>target</em> state/mode, e.g., a degraded mode. Rules work in a bottom-up manner, i.e. starting from correcting nodes before sub-systems before systems. Rules are basically defined in the following way:</p>
-
-<pre><code class="language-pseudo">if:
- system.target == {target state/mode} &amp;&amp; system.actual != {target state/mode} &amp;&amp; part.actual == {specific state/mode}
-then:
- system.target := {specific state/mode}
-
-</code></pre>
-
-<p>if <em>actual</em> state/mode and <em>target</em> state/mode diverge, but there is no rule for this exact situation, the bottom-up rules will just try to return the system/part to its <em>target</em> state/mode.
-<em>Potentiall dangereous, to be discussed:</em> what’s happening, if the system is already on its way. E.g., a system or part was just commanded to transition to <em>ACTIVE.foo</em>, but is currently <em>activating</em> (so doing everything right). In this case we have to avoid that the bottom-up rules will trigger.</p>
-
-<h2 id="how-to-apply">How to Apply</h2>
-
-<p>When designing the hierarchy of your system, try to group parts semantically, e.g., everything that belongs to <em>perception</em> or <em>navigation</em>. You want to group those parts of a system that are often jointly managed (initialized, shutdown, configured). Hierarchies don’t necessarily need to be designed in one big tree, but can form several parallel trees.</p>
-
-<p>When designing system modes for your system, try to focus on platform-specific aspects (so those that are generally present) rather than aspects specific to a certain application. Good examples are <em>degraded</em> and <em>performance</em> modes of the platform, bad examples are system modes to encode the current number of (grasping) re-tries.</p>
-
-<p>Also, do not model any “read-only” system modes, e.g., modes that discretize/encode a read-only internal state. An example for such a mode specification to avoid is <em>low energy</em> and <em>full</em>, discretizing the charging level of a battery component. The System Modes concept assumes that the activatability of a system mode of a given node or subsystem should depend only on the states and modes of the other nodes and subsystems (and on the higher-level task executed by some deliberation layer). Note that the same applies to the ROS 2 node lifecycle states (<em>Unconfigured</em>, <em>Inactive</em>, etc.). The only exception is the <em>ErrorProcessing</em> state, which can be entered autonomously by the node itself. Within the mode inference, if a node performs a transition to <em>ErrorProcessing</em>, this is automatically propagated upwards as inferred state along the hierarchy. It is up to the deliberation layer to handle the failure of this node or subsystem.</p>
-
-<h2 id="quality-declaration">Quality Declaration</h2>
-
-<p>This package claims to be in the Quality Level 3 category, see the <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/QUALITY_DECLARATION.md">Quality Declaration</a> for more details.</p>
+<p>File truncated at 100 lines <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -3928,87 +3688,7 @@ jQuery(function() {
 
 <p>The mode manager is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It parses the SHM file and creates the according services, publishers, and subscribers to manage the system and its modes.</p>
 
-<ul>
-  <li>For (sub-)systems, it mirrors the lifecycle services that are available for ROS 2 lifecycle nodes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_available_states</code> - lifecycle_msgs/GetAvailableStates</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_state</code> - lifecycle_msgs/GetState</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/change_state</code> - lifecycle_msgs/ChangeState</li>
-    </ul>
-  </li>
-  <li>For (sub-)systems <em>and</em> nodes, it provides similar services for modes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_available_modes</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetAvailableModes.srv">system_modes/GetAvailableModes</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetMode.srv">system_modes/GetMode</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/change_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/ChangeMode.srv">system_modes/ChangeMode</a>
-</li>
-    </ul>
-  </li>
-  <li>Service calls to these services publish information on the requested state change or mode change before attempting them. These are published on the following topics:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> - lifecycle_msgs/TransitionEvent</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./msg/ModeEvent.msg">system_modes/ModeEvent</a>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Running the manager:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_manager.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="mode-monitor">Mode Monitor</h3>
-
-<p>The mode monitor is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It continuously monitors and displays the entire system state and mode based on the mode inference introduced <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#mode-inference">above</a>. It monitors the following topics:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target states</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target modes</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/parameter_events</code> to infer the current modes for all known nodes based on their parameter values</li>
-</ul>
-
-<p><img src="https://raw.githubusercontent.com/micro-ROS/system_modes/master/system_modes/../system_modes_examples/doc/screenshot-monitor.png" alt="mode_monitor" title="Screenshot of the mode monitor from system_modes_examples"></p>
-
-<p>Running the monitor:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_monitor.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="error-handling-and-rules">Error Handling and Rules</h3>
-
-<p>If the <em>actual</em> state/mode of the system or any of its parts diverges from the <em>target</em> state/mode, we define rules that try to bring the system back to a valid <em>target</em> state/mode, e.g., a degraded mode. Rules work in a bottom-up manner, i.e. starting from correcting nodes before sub-systems before systems. Rules are basically defined in the following way:</p>
-
-<pre><code class="language-pseudo">if:
- system.target == {target state/mode} &amp;&amp; system.actual != {target state/mode} &amp;&amp; part.actual == {specific state/mode}
-then:
- system.target := {specific state/mode}
-
-</code></pre>
-
-<p>if <em>actual</em> state/mode and <em>target</em> state/mode diverge, but there is no rule for this exact situation, the bottom-up rules will just try to return the system/part to its <em>target</em> state/mode.
-<em>Potentiall dangereous, to be discussed:</em> what’s happening, if the system is already on its way. E.g., a system or part was just commanded to transition to <em>ACTIVE.foo</em>, but is currently <em>activating</em> (so doing everything right). In this case we have to avoid that the bottom-up rules will trigger.</p>
-
-<h2 id="how-to-apply">How to Apply</h2>
-
-<p>When designing the hierarchy of your system, try to group parts semantically, e.g., everything that belongs to <em>perception</em> or <em>navigation</em>. You want to group those parts of a system that are often jointly managed (initialized, shutdown, configured). Hierarchies don’t necessarily need to be designed in one big tree, but can form several parallel trees.</p>
-
-<p>When designing system modes for your system, try to focus on platform-specific aspects (so those that are generally present) rather than aspects specific to a certain application. Good examples are <em>degraded</em> and <em>performance</em> modes of the platform, bad examples are system modes to encode the current number of (grasping) re-tries.</p>
-
-<p>Also, do not model any “read-only” system modes, e.g., modes that discretize/encode a read-only internal state. An example for such a mode specification to avoid is <em>low energy</em> and <em>full</em>, discretizing the charging level of a battery component. The System Modes concept assumes that the activatability of a system mode of a given node or subsystem should depend only on the states and modes of the other nodes and subsystems (and on the higher-level task executed by some deliberation layer). Note that the same applies to the ROS 2 node lifecycle states (<em>Unconfigured</em>, <em>Inactive</em>, etc.). The only exception is the <em>ErrorProcessing</em> state, which can be entered autonomously by the node itself. Within the mode inference, if a node performs a transition to <em>ErrorProcessing</em>, this is automatically propagated upwards as inferred state along the hierarchy. It is up to the deliberation layer to handle the failure of this node or subsystem.</p>
-
-<h2 id="quality-declaration">Quality Declaration</h2>
-
-<p>This package claims to be in the Quality Level 3 category, see the <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/QUALITY_DECLARATION.md">Quality Declaration</a> for more details.</p>
+<p>File truncated at 100 lines <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -4600,14 +4280,6 @@ jQuery(function() {
     </div>
   </div>
 
-  <div class="distro distro-noetic">
-    <div class="container-fluid">
-      
-          <div class="alert alert-warning">No version for distro <strong>noetic</strong>. Known supported distros are highlighted in the buttons above.</div>
-      
-    </div>
-  </div>
-
   <div class="distro distro-ardent">
     <div class="container-fluid">
       
@@ -5014,49 +4686,10 @@ We extend this lifecycle (illustration on the right) by the following aspects:</
 <code class="language-plaintext highlighter-rouge">/{system}/change_state</code> - lifecycle_msgs/ChangeState</li>
     </ul>
   </li>
-  <li>For (sub-)systems <em>and</em> nodes, it provides similar services for modes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_available_modes</code> - <a href="https://github.com/microROS/system_modes/tree/master/system_modes/./srv/GetAvailableModes.srv">system_modes/GetAvailableModes</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_mode</code> - <a href="https://github.com/microROS/system_modes/tree/master/system_modes/./srv/GetMode.srv">system_modes/GetMode</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/change_mode</code> - <a href="https://github.com/microROS/system_modes/tree/master/system_modes/./srv/ChangeMode.srv">system_modes/ChangeMode</a>
-</li>
-    </ul>
-  </li>
-  <li>Service calls to these services publish information on the requested state change or mode change before attempting them. These are published on the following topics:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> - lifecycle_msgs/TransitionEvent</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> - <a href="https://github.com/microROS/system_modes/tree/master/system_modes/./msg/ModeEvent.msg">system_modes/ModeEvent</a>
-</li>
-    </ul>
-  </li>
+  <li>For (sub-)systems <em>and</em> nodes, it provides similar services for modes, i.e.</li>
 </ul>
 
-<p>Running the manager:<br>
-$ <code class="language-plaintext highlighter-rouge">mode-manager path/to/modelfile.yaml</code></p>
-
-<h3 id="mode-monitor">Mode Monitor</h3>
-
-<p>The mode monitor is a ROS node that accepts an SHM file (see <a href="https://github.com/microROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It continuously monitors and displays the entire system state and mode based on the mode inference introduced <a href="https://github.com/microROS/system_modes/tree/master/system_modes/#mode-inference">above</a>. It monitors the following topics:</p>
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target states</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target modes</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/parameter_events</code> to infer the current modes for all known nodes based on their parameter values</li>
-</ul>
-
-<p><img src="https://raw.githubusercontent.com/microROS/system_modes/master/system_modes/../system_modes_examples/doc/screenshot-monitor.png" alt="mode-monitor" title="Screenshot of the mode monitor from system_modes_examples"></p>
-
-<p>Running the monitor:<br>
-$ <code class="language-plaintext highlighter-rouge">mode-monitor path/to/modelfile.yaml</code></p>
+<p>File truncated at 100 lines <a href="https://github.com/microROS/system_modes/tree/master/system_modes">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -5070,21 +4703,7 @@ $ <code class="language-plaintext highlighter-rouge">mode-monitor path/to/modelf
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <div class="rendered-markdown">
-<h1 id="changelog-for-package-system_modes">Changelog for package system_modes</h1>
-
-<h2 id="012-2019-03-18">0.1.2 (2019-03-18)</h2>
-
-<ul>
-  <li>fixed dependencies in package.xml</li>
-</ul>
-
-<h2 id="011-2019-03-08">0.1.1 (2019-03-08)</h2>
-
-<ul>
-  <li>first public release for ROS 2 system modes</li>
-</ul>
-</div>
+              <em>No CHANGELOG found.</em>
             
           </div>
         </div>
@@ -5418,11 +5037,11 @@ $ <code class="language-plaintext highlighter-rouge">mode-monitor path/to/modelf
         
           <ul>
             
-              <li><a href="https://github.com/microROS/system_modes/tree/master/system_modes/srv/GetMode.srv" target="_blank">srv/GetMode.srv</a></li>
+              <li><a href="https://github.com/microROS/system_modes/tree/master/system_modes/srv/ChangeMode.srv" target="_blank">srv/ChangeMode.srv</a></li>
             
               <li><a href="https://github.com/microROS/system_modes/tree/master/system_modes/srv/GetAvailableModes.srv" target="_blank">srv/GetAvailableModes.srv</a></li>
             
-              <li><a href="https://github.com/microROS/system_modes/tree/master/system_modes/srv/ChangeMode.srv" target="_blank">srv/ChangeMode.srv</a></li>
+              <li><a href="https://github.com/microROS/system_modes/tree/master/system_modes/srv/GetMode.srv" target="_blank">srv/GetMode.srv</a></li>
             
           </ul>
         
@@ -5902,72 +5521,10 @@ jQuery(function() {
 <code class="language-plaintext highlighter-rouge">/{system}/change_state</code> - lifecycle_msgs/ChangeState</li>
     </ul>
   </li>
-  <li>For (sub-)systems <em>and</em> nodes, it provides similar services for modes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_available_modes</code> - <a href="https://github.com/micro-ROS/system_modes/tree/eloquent/system_modes/./srv/GetAvailableModes.srv">system_modes/GetAvailableModes</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/eloquent/system_modes/./srv/GetMode.srv">system_modes/GetMode</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/change_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/eloquent/system_modes/./srv/ChangeMode.srv">system_modes/ChangeMode</a>
-</li>
-    </ul>
-  </li>
-  <li>Service calls to these services publish information on the requested state change or mode change before attempting them. These are published on the following topics:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> - lifecycle_msgs/TransitionEvent</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> - <a href="https://github.com/micro-ROS/system_modes/tree/eloquent/system_modes/./msg/ModeEvent.msg">system_modes/ModeEvent</a>
-</li>
-    </ul>
-  </li>
+  <li>For (sub-)systems <em>and</em> nodes, it provides similar services for modes, i.e.</li>
 </ul>
 
-<p>Running the manager:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_manager.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="mode-monitor">Mode Monitor</h3>
-
-<p>The mode monitor is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/eloquent/system_modes/#system-modes">above</a>) as command line parameter. It continuously monitors and displays the entire system state and mode based on the mode inference introduced <a href="https://github.com/micro-ROS/system_modes/tree/eloquent/system_modes/#mode-inference">above</a>. It monitors the following topics:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target states</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target modes</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/parameter_events</code> to infer the current modes for all known nodes based on their parameter values</li>
-</ul>
-
-<p><img src="https://raw.githubusercontent.com/micro-ROS/system_modes/eloquent/system_modes/../system_modes_examples/doc/screenshot-monitor.png" alt="mode_monitor" title="Screenshot of the mode monitor from system_modes_examples"></p>
-
-<p>Running the monitor:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_monitor.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="error-handling-and-rules">Error Handling and Rules</h3>
-
-<p>If the <em>actual</em> state/mode of the system or any of its parts diverges from the <em>target</em> state/mode, we define rules that try to bring the system back to a valid <em>target</em> state/mode, e.g., a degraded mode. Rules work in a bottom-up manner, i.e. starting from correcting nodes before sub-systems before systems. Rules are basically defined in the following way:</p>
-
-<pre><code class="language-pseudo">if:
- system.target == {target state/mode} &amp;&amp; system.actual != {target state/mode} &amp;&amp; part.actual == {specific state/mode}
-then:
- system.target := {specific state/mode}
-
-</code></pre>
-
-<p>if <em>actual</em> state/mode and <em>target</em> state/mode diverge, but there is no rule for this exact situation, the bottom-up rules will just try to return the system/part to its <em>target</em> state/mode.
-<em>Potentiall dangereous, to be discussed:</em> what’s happening, if the system is already on its way. E.g., a system or part was just commanded to transition to <em>ACTIVE.foo</em>, but is currently <em>activating</em> (so doing everything right). In this case we have to avoid that the bottom-up rules will trigger.</p>
-
-<h2 id="how-to-apply">How to Apply</h2>
-
-<p>When designing the hierarchy of your system, try to group parts semantically, e.g., everything that belongs to <em>perception</em> or <em>navigation</em>. You want to group those parts of a system that are often jointly managed (initialized, shutdown, configured). Hierarchies don’t necessarily need to be designed in one big tree, but can form several parallel trees.</p>
-
-<p>When designing system modes for your system, try to focus on platform-specific aspects (so those that are generally present) rather than aspects specific to a certain application. Good examples are <em>degraded</em> and <em>performance</em> modes of the platform, bad examples are system modes to encode the current number of (grasping) re-tries.</p>
-
-<p>Also, do not model any “read-only” system modes, e.g., modes that discretize/encode a read-only internal state. An example for such a mode specification to avoid is <em>low energy</em> and <em>full</em>, discretizing the charging level of a battery component. The System Modes concept assumes that the activatability of a system mode of a given node or subsystem should depend only on the states and modes of the other nodes and subsystems (and on the higher-level task executed by some deliberation layer). Note that the same applies to the ROS 2 node lifecycle states (<em>Unconfigured</em>, <em>Inactive</em>, etc.). The only exception is the <em>ErrorProcessing</em> state, which can be entered autonomously by the node itself. Within the mode inference, if a node performs a transition to <em>ErrorProcessing</em>, this is automatically propagated upwards as inferred state along the hierarchy. It is up to the deliberation layer to handle the failure of this node or subsystem.</p>
+<p>File truncated at 100 lines <a href="https://github.com/micro-ROS/system_modes/tree/eloquent/system_modes">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -5981,66 +5538,7 @@ then:
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <div class="rendered-markdown">
-<h1 id="changelog-for-package-system_modes_examples">Changelog for package system_modes_examples</h1>
-
-<p>0.4.2 (2020-12-17) -----------* Error handling and rules
-feature no longer experimental * Fixed bugs in monitor and tests</p>
-
-<p>0.4.1 (2020-10-29) -----------* Include experimental error
-handling and rules feature *
-<a href="https://github.com/micro-ROS/system_modes/issues/13">https://github.com/micro-ROS/system_modes/issues/13</a> * CI for ubuntu
-20.04 ROS 2 rolling</p>
-
-<p>0.4.0 (2020-09-30) -----------* publish inferred state and
-mode transitions *
-<a href="https://github.com/micro-ROS/system_modes/issues/42">https://github.com/micro-ROS/system_modes/issues/42</a></p>
-
-<p>0.4.0 (2020-09-30) -----------* mode event now including
-start and goal mode * publish inferred state and mode transitions *
-<a href="https://github.com/micro-ROS/system_modes/issues/42">https://github.com/micro-ROS/system_modes/issues/42</a></p>
-
-<p>0.4.0 (2020-09-30) -----------* mode event now including
-start and goal mode * publish inferred state and mode transitions *
-<a href="https://github.com/micro-ROS/system_modes/issues/42">https://github.com/micro-ROS/system_modes/issues/42</a></p>
-
-<p>0.3.0 (2020-07-23) -----------* removed boost dependencies
-(was: program options) * changed mode service specifications (less
-redundancy) * <a href="https://github.com/micro-ROS/system_modes/issues/24">https://github.com/micro-ROS/system_modes/issues/24</a></p>
-
-<p>0.2.3 (2020-07-23) -----------* improved StateAndMode struct
-* testing</p>
-
-<p>0.2.2 (2020-07-13) -----------* introduced StateAndMode
-struct to bundle lifecycle state and system mode</p>
-
-<p>0.2.0 (2020-02-13) -----------* integration with ROS 2 launch
-* updated docs</p>
-
-<h2 id="016-2019-10-31">0.1.6 (2019-10-31)</h2>
-
-<ul>
-  <li>fixed QoS configuration for parameter event subscribers</li>
-</ul>
-
-<h2 id="015-2019-10-21">0.1.5 (2019-10-21)</h2>
-
-<ul>
-  <li>migration to ROS 2 eloquent elusor</li>
-</ul>
-
-<h2 id="012-2019-03-18">0.1.2 (2019-03-18)</h2>
-
-<ul>
-  <li>fixed dependencies in package.xml</li>
-</ul>
-
-<h2 id="011-2019-03-08">0.1.1 (2019-03-08)</h2>
-
-<ul>
-  <li>first public release for ROS 2 system modes</li>
-</ul>
-</div>
+              <em>No CHANGELOG found.</em>
             
           </div>
         </div>
@@ -6361,11 +5859,11 @@ struct to bundle lifecycle state and system mode</p>
         
           <ul>
             
-              <li><a href="https://github.com/micro-ROS/system_modes/tree/eloquent/system_modes/srv/GetMode.srv" target="_blank">srv/GetMode.srv</a></li>
+              <li><a href="https://github.com/micro-ROS/system_modes/tree/eloquent/system_modes/srv/ChangeMode.srv" target="_blank">srv/ChangeMode.srv</a></li>
             
               <li><a href="https://github.com/micro-ROS/system_modes/tree/eloquent/system_modes/srv/GetAvailableModes.srv" target="_blank">srv/GetAvailableModes.srv</a></li>
             
-              <li><a href="https://github.com/micro-ROS/system_modes/tree/eloquent/system_modes/srv/ChangeMode.srv" target="_blank">srv/ChangeMode.srv</a></li>
+              <li><a href="https://github.com/micro-ROS/system_modes/tree/eloquent/system_modes/srv/GetMode.srv" target="_blank">srv/GetMode.srv</a></li>
             
           </ul>
         
@@ -6840,83 +6338,7 @@ jQuery(function() {
 
 <p>The mode manager is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes/#system-modes">above</a>) as command line parameter. It parses the SHM file and creates the according services, publishers, and subscribers to manage the system and its modes.</p>
 
-<ul>
-  <li>For (sub-)systems, it mirrors the lifecycle services that are available for ROS 2 lifecycle nodes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_available_states</code> - lifecycle_msgs/GetAvailableStates</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_state</code> - lifecycle_msgs/GetState</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/change_state</code> - lifecycle_msgs/ChangeState</li>
-    </ul>
-  </li>
-  <li>For (sub-)systems <em>and</em> nodes, it provides similar services for modes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_available_modes</code> - <a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes/./srv/GetAvailableModes.srv">system_modes/GetAvailableModes</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes/./srv/GetMode.srv">system_modes/GetMode</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/change_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes/./srv/ChangeMode.srv">system_modes/ChangeMode</a>
-</li>
-    </ul>
-  </li>
-  <li>Service calls to these services publish information on the requested state change or mode change before attempting them. These are published on the following topics:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> - lifecycle_msgs/TransitionEvent</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> - <a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes/./msg/ModeEvent.msg">system_modes/ModeEvent</a>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Running the manager:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_manager.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="mode-monitor">Mode Monitor</h3>
-
-<p>The mode monitor is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes/#system-modes">above</a>) as command line parameter. It continuously monitors and displays the entire system state and mode based on the mode inference introduced <a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes/#mode-inference">above</a>. It monitors the following topics:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target states</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target modes</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/parameter_events</code> to infer the current modes for all known nodes based on their parameter values</li>
-</ul>
-
-<p><img src="https://raw.githubusercontent.com/micro-ROS/system_modes/dashing/system_modes/../system_modes_examples/doc/screenshot-monitor.png" alt="mode_monitor" title="Screenshot of the mode monitor from system_modes_examples"></p>
-
-<p>Running the monitor:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_monitor.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="error-handling-and-rules">Error Handling and Rules</h3>
-
-<p>If the <em>actual</em> state/mode of the system or any of its parts diverges from the <em>target</em> state/mode, we define rules that try to bring the system back to a valid <em>target</em> state/mode, e.g., a degraded mode. Rules work in a bottom-up manner, i.e. starting from correcting nodes before sub-systems before systems. Rules are basically defined in the following way:</p>
-
-<pre><code class="language-pseudo">if:
- system.target == {target state/mode} &amp;&amp; system.actual != {target state/mode} &amp;&amp; part.actual == {specific state/mode}
-then:
- system.target := {specific state/mode}
-
-</code></pre>
-
-<p>if <em>actual</em> state/mode and <em>target</em> state/mode diverge, but there is no rule for this exact situation, the bottom-up rules will just try to return the system/part to its <em>target</em> state/mode.
-<em>Potentiall dangereous, to be discussed:</em> what’s happening, if the system is already on its way. E.g., a system or part was just commanded to transition to <em>ACTIVE.foo</em>, but is currently <em>activating</em> (so doing everything right). In this case we have to avoid that the bottom-up rules will trigger.</p>
-
-<h2 id="how-to-apply">How to Apply</h2>
-
-<p>When designing the hierarchy of your system, try to group parts semantically, e.g., everything that belongs to <em>perception</em> or <em>navigation</em>. You want to group those parts of a system that are often jointly managed (initialized, shutdown, configured). Hierarchies don’t necessarily need to be designed in one big tree, but can form several parallel trees.</p>
-
-<p>When designing system modes for your system, try to focus on platform-specific aspects (so those that are generally present) rather than aspects specific to a certain application. Good examples are <em>degraded</em> and <em>performance</em> modes of the platform, bad examples are system modes to encode the current number of (grasping) re-tries.</p>
-
-<p>Also, do not model any “read-only” system modes, e.g., modes that discretize/encode a read-only internal state. An example for such a mode specification to avoid is <em>low energy</em> and <em>full</em>, discretizing the charging level of a battery component. The System Modes concept assumes that the activatability of a system mode of a given node or subsystem should depend only on the states and modes of the other nodes and subsystems (and on the higher-level task executed by some deliberation layer). Note that the same applies to the ROS 2 node lifecycle states (<em>Unconfigured</em>, <em>Inactive</em>, etc.). The only exception is the <em>ErrorProcessing</em> state, which can be entered autonomously by the node itself. Within the mode inference, if a node performs a transition to <em>ErrorProcessing</em>, this is automatically propagated upwards as inferred state along the hierarchy. It is up to the deliberation layer to handle the failure of this node or subsystem.</p>
+<p>File truncated at 100 lines <a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -6930,72 +6352,7 @@ then:
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <div class="rendered-markdown">
-<h1 id="changelog-for-package-system_modes_examples">Changelog for package system_modes_examples</h1>
-
-<p>0.6.0 (2020-03-16) -----------* Introduced mode observer
-<a href="https://github.com/micro-ROS/system_modes/issues/59">https://github.com/micro-ROS/system_modes/issues/59</a> * Mode manager
-prevents redundant mode changes
-<a href="https://github.com/micro-ROS/system_modes/pull/67">https://github.com/micro-ROS/system_modes/pull/67</a> * Minor bugfix in
-inference</p>
-
-<p>0.5.0 (2020-03-16) -----------* Atomic parameter setting
-<a href="https://github.com/micro-ROS/system_modes/issues/59">https://github.com/micro-ROS/system_modes/issues/59</a> * Bug fixing *
-More tests</p>
-
-<p>0.4.2 (2020-12-17) -----------* Error handling and rules
-feature no longer experimental * Fixed bugs in monitor and tests</p>
-
-<p>0.4.1 (2020-10-29) -----------* Include experimental error
-handling and rules feature *
-<a href="https://github.com/micro-ROS/system_modes/issues/13">https://github.com/micro-ROS/system_modes/issues/13</a> * CI for ubuntu
-20.04 ROS 2 rolling</p>
-
-<p>0.4.0 (2020-09-30) -----------* publish inferred state and
-mode transitions *
-<a href="https://github.com/micro-ROS/system_modes/issues/42">https://github.com/micro-ROS/system_modes/issues/42</a></p>
-
-<p>0.4.0 (2020-09-30) -----------* mode event now including
-start and goal mode * publish inferred state and mode transitions *
-<a href="https://github.com/micro-ROS/system_modes/issues/42">https://github.com/micro-ROS/system_modes/issues/42</a></p>
-
-<p>0.3.0 (2020-07-23) -----------* removed boost dependencies
-(was: program options) * changed mode service specifications (less
-redundancy) * <a href="https://github.com/micro-ROS/system_modes/issues/24">https://github.com/micro-ROS/system_modes/issues/24</a></p>
-
-<p>0.2.3 (2020-07-23) -----------* improved StateAndMode struct
-* testing</p>
-
-<p>0.2.2 (2020-07-13) -----------* introduced StateAndMode
-struct to bundle lifecycle state and system mode</p>
-
-<p>0.2.0 (2020-02-13) -----------* integration with ROS 2 launch
-* updated docs</p>
-
-<h2 id="016-2019-10-31">0.1.6 (2019-10-31)</h2>
-
-<ul>
-  <li>fixed QoS configuration for parameter event subscribers</li>
-</ul>
-
-<h2 id="015-2019-10-21">0.1.5 (2019-10-21)</h2>
-
-<ul>
-  <li>migration to ROS 2 eloquent elusor</li>
-</ul>
-
-<h2 id="012-2019-03-18">0.1.2 (2019-03-18)</h2>
-
-<ul>
-  <li>fixed dependencies in package.xml</li>
-</ul>
-
-<h2 id="011-2019-03-08">0.1.1 (2019-03-08)</h2>
-
-<ul>
-  <li>first public release for ROS 2 system modes</li>
-</ul>
-</div>
+              <em>No CHANGELOG found.</em>
             
           </div>
         </div>
@@ -7329,11 +6686,11 @@ struct to bundle lifecycle state and system mode</p>
         
           <ul>
             
-              <li><a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes/srv/GetMode.srv" target="_blank">srv/GetMode.srv</a></li>
+              <li><a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes/srv/ChangeMode.srv" target="_blank">srv/ChangeMode.srv</a></li>
             
               <li><a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes/srv/GetAvailableModes.srv" target="_blank">srv/GetAvailableModes.srv</a></li>
             
-              <li><a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes/srv/ChangeMode.srv" target="_blank">srv/ChangeMode.srv</a></li>
+              <li><a href="https://github.com/micro-ROS/system_modes/tree/dashing/system_modes/srv/GetMode.srv" target="_blank">srv/GetMode.srv</a></li>
             
           </ul>
         
@@ -7833,87 +7190,7 @@ jQuery(function() {
 
 <p>The mode manager is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It parses the SHM file and creates the according services, publishers, and subscribers to manage the system and its modes.</p>
 
-<ul>
-  <li>For (sub-)systems, it mirrors the lifecycle services that are available for ROS 2 lifecycle nodes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_available_states</code> - lifecycle_msgs/GetAvailableStates</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_state</code> - lifecycle_msgs/GetState</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/change_state</code> - lifecycle_msgs/ChangeState</li>
-    </ul>
-  </li>
-  <li>For (sub-)systems <em>and</em> nodes, it provides similar services for modes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_available_modes</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetAvailableModes.srv">system_modes/GetAvailableModes</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetMode.srv">system_modes/GetMode</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/change_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/ChangeMode.srv">system_modes/ChangeMode</a>
-</li>
-    </ul>
-  </li>
-  <li>Service calls to these services publish information on the requested state change or mode change before attempting them. These are published on the following topics:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> - lifecycle_msgs/TransitionEvent</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./msg/ModeEvent.msg">system_modes/ModeEvent</a>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Running the manager:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_manager.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="mode-monitor">Mode Monitor</h3>
-
-<p>The mode monitor is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It continuously monitors and displays the entire system state and mode based on the mode inference introduced <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#mode-inference">above</a>. It monitors the following topics:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target states</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target modes</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/parameter_events</code> to infer the current modes for all known nodes based on their parameter values</li>
-</ul>
-
-<p><img src="https://raw.githubusercontent.com/micro-ROS/system_modes/master/system_modes/../system_modes_examples/doc/screenshot-monitor.png" alt="mode_monitor" title="Screenshot of the mode monitor from system_modes_examples"></p>
-
-<p>Running the monitor:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_monitor.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="error-handling-and-rules">Error Handling and Rules</h3>
-
-<p>If the <em>actual</em> state/mode of the system or any of its parts diverges from the <em>target</em> state/mode, we define rules that try to bring the system back to a valid <em>target</em> state/mode, e.g., a degraded mode. Rules work in a bottom-up manner, i.e. starting from correcting nodes before sub-systems before systems. Rules are basically defined in the following way:</p>
-
-<pre><code class="language-pseudo">if:
- system.target == {target state/mode} &amp;&amp; system.actual != {target state/mode} &amp;&amp; part.actual == {specific state/mode}
-then:
- system.target := {specific state/mode}
-
-</code></pre>
-
-<p>if <em>actual</em> state/mode and <em>target</em> state/mode diverge, but there is no rule for this exact situation, the bottom-up rules will just try to return the system/part to its <em>target</em> state/mode.
-<em>Potentiall dangereous, to be discussed:</em> what’s happening, if the system is already on its way. E.g., a system or part was just commanded to transition to <em>ACTIVE.foo</em>, but is currently <em>activating</em> (so doing everything right). In this case we have to avoid that the bottom-up rules will trigger.</p>
-
-<h2 id="how-to-apply">How to Apply</h2>
-
-<p>When designing the hierarchy of your system, try to group parts semantically, e.g., everything that belongs to <em>perception</em> or <em>navigation</em>. You want to group those parts of a system that are often jointly managed (initialized, shutdown, configured). Hierarchies don’t necessarily need to be designed in one big tree, but can form several parallel trees.</p>
-
-<p>When designing system modes for your system, try to focus on platform-specific aspects (so those that are generally present) rather than aspects specific to a certain application. Good examples are <em>degraded</em> and <em>performance</em> modes of the platform, bad examples are system modes to encode the current number of (grasping) re-tries.</p>
-
-<p>Also, do not model any “read-only” system modes, e.g., modes that discretize/encode a read-only internal state. An example for such a mode specification to avoid is <em>low energy</em> and <em>full</em>, discretizing the charging level of a battery component. The System Modes concept assumes that the activatability of a system mode of a given node or subsystem should depend only on the states and modes of the other nodes and subsystems (and on the higher-level task executed by some deliberation layer). Note that the same applies to the ROS 2 node lifecycle states (<em>Unconfigured</em>, <em>Inactive</em>, etc.). The only exception is the <em>ErrorProcessing</em> state, which can be entered autonomously by the node itself. Within the mode inference, if a node performs a transition to <em>ErrorProcessing</em>, this is automatically propagated upwards as inferred state along the hierarchy. It is up to the deliberation layer to handle the failure of this node or subsystem.</p>
-
-<h2 id="quality-declaration">Quality Declaration</h2>
-
-<p>This package claims to be in the Quality Level 3 category, see the <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/QUALITY_DECLARATION.md">Quality Declaration</a> for more details.</p>
+<p>File truncated at 100 lines <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -8921,87 +8198,7 @@ jQuery(function() {
 
 <p>The mode manager is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It parses the SHM file and creates the according services, publishers, and subscribers to manage the system and its modes.</p>
 
-<ul>
-  <li>For (sub-)systems, it mirrors the lifecycle services that are available for ROS 2 lifecycle nodes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_available_states</code> - lifecycle_msgs/GetAvailableStates</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_state</code> - lifecycle_msgs/GetState</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/change_state</code> - lifecycle_msgs/ChangeState</li>
-    </ul>
-  </li>
-  <li>For (sub-)systems <em>and</em> nodes, it provides similar services for modes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_available_modes</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetAvailableModes.srv">system_modes/GetAvailableModes</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetMode.srv">system_modes/GetMode</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/change_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/ChangeMode.srv">system_modes/ChangeMode</a>
-</li>
-    </ul>
-  </li>
-  <li>Service calls to these services publish information on the requested state change or mode change before attempting them. These are published on the following topics:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> - lifecycle_msgs/TransitionEvent</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./msg/ModeEvent.msg">system_modes/ModeEvent</a>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Running the manager:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_manager.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="mode-monitor">Mode Monitor</h3>
-
-<p>The mode monitor is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It continuously monitors and displays the entire system state and mode based on the mode inference introduced <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#mode-inference">above</a>. It monitors the following topics:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target states</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target modes</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/parameter_events</code> to infer the current modes for all known nodes based on their parameter values</li>
-</ul>
-
-<p><img src="https://raw.githubusercontent.com/micro-ROS/system_modes/master/system_modes/../system_modes_examples/doc/screenshot-monitor.png" alt="mode_monitor" title="Screenshot of the mode monitor from system_modes_examples"></p>
-
-<p>Running the monitor:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_monitor.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="error-handling-and-rules">Error Handling and Rules</h3>
-
-<p>If the <em>actual</em> state/mode of the system or any of its parts diverges from the <em>target</em> state/mode, we define rules that try to bring the system back to a valid <em>target</em> state/mode, e.g., a degraded mode. Rules work in a bottom-up manner, i.e. starting from correcting nodes before sub-systems before systems. Rules are basically defined in the following way:</p>
-
-<pre><code class="language-pseudo">if:
- system.target == {target state/mode} &amp;&amp; system.actual != {target state/mode} &amp;&amp; part.actual == {specific state/mode}
-then:
- system.target := {specific state/mode}
-
-</code></pre>
-
-<p>if <em>actual</em> state/mode and <em>target</em> state/mode diverge, but there is no rule for this exact situation, the bottom-up rules will just try to return the system/part to its <em>target</em> state/mode.
-<em>Potentiall dangereous, to be discussed:</em> what’s happening, if the system is already on its way. E.g., a system or part was just commanded to transition to <em>ACTIVE.foo</em>, but is currently <em>activating</em> (so doing everything right). In this case we have to avoid that the bottom-up rules will trigger.</p>
-
-<h2 id="how-to-apply">How to Apply</h2>
-
-<p>When designing the hierarchy of your system, try to group parts semantically, e.g., everything that belongs to <em>perception</em> or <em>navigation</em>. You want to group those parts of a system that are often jointly managed (initialized, shutdown, configured). Hierarchies don’t necessarily need to be designed in one big tree, but can form several parallel trees.</p>
-
-<p>When designing system modes for your system, try to focus on platform-specific aspects (so those that are generally present) rather than aspects specific to a certain application. Good examples are <em>degraded</em> and <em>performance</em> modes of the platform, bad examples are system modes to encode the current number of (grasping) re-tries.</p>
-
-<p>Also, do not model any “read-only” system modes, e.g., modes that discretize/encode a read-only internal state. An example for such a mode specification to avoid is <em>low energy</em> and <em>full</em>, discretizing the charging level of a battery component. The System Modes concept assumes that the activatability of a system mode of a given node or subsystem should depend only on the states and modes of the other nodes and subsystems (and on the higher-level task executed by some deliberation layer). Note that the same applies to the ROS 2 node lifecycle states (<em>Unconfigured</em>, <em>Inactive</em>, etc.). The only exception is the <em>ErrorProcessing</em> state, which can be entered autonomously by the node itself. Within the mode inference, if a node performs a transition to <em>ErrorProcessing</em>, this is automatically propagated upwards as inferred state along the hierarchy. It is up to the deliberation layer to handle the failure of this node or subsystem.</p>
-
-<h2 id="quality-declaration">Quality Declaration</h2>
-
-<p>This package claims to be in the Quality Level 3 category, see the <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/QUALITY_DECLARATION.md">Quality Declaration</a> for more details.</p>
+<p>File truncated at 100 lines <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -10009,87 +9206,7 @@ jQuery(function() {
 
 <p>The mode manager is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It parses the SHM file and creates the according services, publishers, and subscribers to manage the system and its modes.</p>
 
-<ul>
-  <li>For (sub-)systems, it mirrors the lifecycle services that are available for ROS 2 lifecycle nodes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_available_states</code> - lifecycle_msgs/GetAvailableStates</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/get_state</code> - lifecycle_msgs/GetState</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system}/change_state</code> - lifecycle_msgs/ChangeState</li>
-    </ul>
-  </li>
-  <li>For (sub-)systems <em>and</em> nodes, it provides similar services for modes, i.e.
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_available_modes</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetAvailableModes.srv">system_modes/GetAvailableModes</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/get_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/GetMode.srv">system_modes/GetMode</a>
-</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/change_mode</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./srv/ChangeMode.srv">system_modes/ChangeMode</a>
-</li>
-    </ul>
-  </li>
-  <li>Service calls to these services publish information on the requested state change or mode change before attempting them. These are published on the following topics:
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> - lifecycle_msgs/TransitionEvent</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> - <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/./msg/ModeEvent.msg">system_modes/ModeEvent</a>
-</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Running the manager:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_manager.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="mode-monitor">Mode Monitor</h3>
-
-<p>The mode monitor is a ROS node that accepts an SHM file (see <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#system-modes">above</a>) as command line parameter. It continuously monitors and displays the entire system state and mode based on the mode inference introduced <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/#mode-inference">above</a>. It monitors the following topics:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/transition_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target states</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/{system_or_node}/mode_request_info</code> for all known (sub-)systems and nodes from the model file to monitor their target modes</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">/parameter_events</code> to infer the current modes for all known nodes based on their parameter values</li>
-</ul>
-
-<p><img src="https://raw.githubusercontent.com/micro-ROS/system_modes/master/system_modes/../system_modes_examples/doc/screenshot-monitor.png" alt="mode_monitor" title="Screenshot of the mode monitor from system_modes_examples"></p>
-
-<p>Running the monitor:
-$ <code class="language-plaintext highlighter-rouge">ros2 launch system_modes mode_monitor.launch.py modelfile:=[path/to/modelfile.yaml]</code></p>
-
-<h3 id="error-handling-and-rules">Error Handling and Rules</h3>
-
-<p>If the <em>actual</em> state/mode of the system or any of its parts diverges from the <em>target</em> state/mode, we define rules that try to bring the system back to a valid <em>target</em> state/mode, e.g., a degraded mode. Rules work in a bottom-up manner, i.e. starting from correcting nodes before sub-systems before systems. Rules are basically defined in the following way:</p>
-
-<pre><code class="language-pseudo">if:
- system.target == {target state/mode} &amp;&amp; system.actual != {target state/mode} &amp;&amp; part.actual == {specific state/mode}
-then:
- system.target := {specific state/mode}
-
-</code></pre>
-
-<p>if <em>actual</em> state/mode and <em>target</em> state/mode diverge, but there is no rule for this exact situation, the bottom-up rules will just try to return the system/part to its <em>target</em> state/mode.
-<em>Potentiall dangereous, to be discussed:</em> what’s happening, if the system is already on its way. E.g., a system or part was just commanded to transition to <em>ACTIVE.foo</em>, but is currently <em>activating</em> (so doing everything right). In this case we have to avoid that the bottom-up rules will trigger.</p>
-
-<h2 id="how-to-apply">How to Apply</h2>
-
-<p>When designing the hierarchy of your system, try to group parts semantically, e.g., everything that belongs to <em>perception</em> or <em>navigation</em>. You want to group those parts of a system that are often jointly managed (initialized, shutdown, configured). Hierarchies don’t necessarily need to be designed in one big tree, but can form several parallel trees.</p>
-
-<p>When designing system modes for your system, try to focus on platform-specific aspects (so those that are generally present) rather than aspects specific to a certain application. Good examples are <em>degraded</em> and <em>performance</em> modes of the platform, bad examples are system modes to encode the current number of (grasping) re-tries.</p>
-
-<p>Also, do not model any “read-only” system modes, e.g., modes that discretize/encode a read-only internal state. An example for such a mode specification to avoid is <em>low energy</em> and <em>full</em>, discretizing the charging level of a battery component. The System Modes concept assumes that the activatability of a system mode of a given node or subsystem should depend only on the states and modes of the other nodes and subsystems (and on the higher-level task executed by some deliberation layer). Note that the same applies to the ROS 2 node lifecycle states (<em>Unconfigured</em>, <em>Inactive</em>, etc.). The only exception is the <em>ErrorProcessing</em> state, which can be entered autonomously by the node itself. Within the mode inference, if a node performs a transition to <em>ErrorProcessing</em>, this is automatically propagated upwards as inferred state along the hierarchy. It is up to the deliberation layer to handle the failure of this node or subsystem.</p>
-
-<h2 id="quality-declaration">Quality Declaration</h2>
-
-<p>This package claims to be in the Quality Level 3 category, see the <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes/QUALITY_DECLARATION.md">Quality Declaration</a> for more details.</p>
+<p>File truncated at 100 lines <a href="https://github.com/micro-ROS/system_modes/tree/master/system_modes">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -10729,6 +9846,14 @@ jQuery(function() {
     </div>
   </div>
 
+  <div class="distro distro-noetic">
+    <div class="container-fluid">
+      
+          <div class="alert alert-warning">No version for distro <strong>noetic</strong>. Known supported distros are highlighted in the buttons above.</div>
+      
+    </div>
+  </div>
+
 
 
 <script id="question-list-template" type="text/html">
@@ -10831,14 +9956,6 @@ jQuery(function() {
         jQuery("#rolling-no-question-list").show();
       }
       jQuery("#rolling-questions-count").text(question_count_str);
-      
-      if (feed.items.length > 0) {
-        jQuery("#noetic-question-list").html(rendered);
-        jQuery("#noetic-question-list").show();
-      } else {
-        jQuery("#noetic-no-question-list").show();
-      }
-      jQuery("#noetic-questions-count").text(question_count_str);
       
       if (feed.items.length > 0) {
         jQuery("#ardent-question-list").html(rendered);
@@ -10952,6 +10069,14 @@ jQuery(function() {
       }
       jQuery("#melodic-questions-count").text(question_count_str);
       
+      if (feed.items.length > 0) {
+        jQuery("#noetic-question-list").html(rendered);
+        jQuery("#noetic-question-list").show();
+      } else {
+        jQuery("#noetic-no-question-list").show();
+      }
+      jQuery("#noetic-questions-count").text(question_count_str);
+      
     })
     .fail(function(jqxhr, textStatus, error) {
       console.error("Failed to get question data: " + jqxhr.responseText);
@@ -10963,8 +10088,6 @@ jQuery(function() {
       jQuery("#kilted-get-question-fail").show();
       
       jQuery("#rolling-get-question-fail").show();
-      
-      jQuery("#noetic-get-question-fail").show();
       
       jQuery("#ardent-get-question-fail").show();
       
@@ -10994,6 +10117,8 @@ jQuery(function() {
       
       jQuery("#melodic-get-question-fail").show();
       
+      jQuery("#noetic-get-question-fail").show();
+      
     });
   });
 </script>
@@ -11022,7 +10147,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2025-05-18</em>
+        <em class="hidden-xs">| generated on 2025-06-11</em>
       
       </div>
       <div style="float:right;">

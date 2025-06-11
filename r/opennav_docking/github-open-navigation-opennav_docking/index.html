@@ -167,10 +167,6 @@
       <input type="radio" name="options" id="rolling-radio" autocomplete="off"> rolling
     </label>
   
-    <label id="noetic-option" class="distro-button btn btn-xs btn-default" href="#noetic" data="noetic">
-      <input type="radio" name="options" id="noetic-radio" autocomplete="off"> noetic
-    </label>
-  
 
   <!-- Older distros -->
   <div class="btn-group dropdown">
@@ -235,6 +231,10 @@
       
         <li data="melodic" id="melodic-option" class="disabled older-distro-option"  href="#melodic">
           <a href="#melodic" data="melodic" id="melodic-button">melodic</a>
+        </li>
+      
+        <li data="noetic" id="noetic-option" class="disabled older-distro-option"  href="#noetic">
+          <a href="#noetic" data="noetic" id="noetic-button">noetic</a>
         </li>
       
     </ul>
@@ -559,516 +559,13 @@ dockv3:
 
 <p>There are two ways to populate the database of <strong>dock instances</strong> in your environment: through the parameter file or an external file. If you’d like to embed your dock information in your Docking Server config file (if you only have a couple of docks), you may use a similar method as defining the dock plugins, specifying the docks in the <code class="language-plaintext highlighter-rouge">docks</code> parameter. Note that we specify the plugin type and the dock’s location <code class="language-plaintext highlighter-rouge">[x, y, theta]</code> in a particular frame.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>docks: ['dock1', 'dock2']
+<p>```
+docks: [‘dock1’, ‘dock2’]
 dock1:
-  type: "dockv3"
-  frame: map
-  pose: [0.3, 0.3, 0.0]
-dock2:
-  type: "dockv1"
-  frame: map
-  pose: [0.0, 0.0, 0.4]
+  type: “dockv3”
+  frame: map</p>
 
-</code></pre></div></div>
-
-<p>If you’d prefer to specify the docks using an external file, you may use the <code class="language-plaintext highlighter-rouge">dock_database</code> parameter to specify the filepath to the yaml file. The file should be laid out like:</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>docks:
-  dock1:
-    type: "dockv3"
-    frame: map
-    pose: [0.3, 0.3, 0.0]
-  dock2:
-    type: "dockv1"
-    frame: map
-    pose: [0.0, 0.0, 0.4]
-
-</code></pre></div></div>
-
-<p>Note that you may leave the <code class="language-plaintext highlighter-rouge">type</code> to an empty string <strong>if</strong> there is only one type of dock being used. The <code class="language-plaintext highlighter-rouge">frame</code> will also default to <code class="language-plaintext highlighter-rouge">map</code> if not otherwise specified. The <code class="language-plaintext highlighter-rouge">type</code> and <code class="language-plaintext highlighter-rouge">pose</code> fields are required. Note also that these can be in any frame, not just map (i.e. <code class="language-plaintext highlighter-rouge">odom</code>, <code class="language-plaintext highlighter-rouge">base_link</code>, etc) in both the database and action requests.</p>
-
-<h2 id="dock-plugin-api">Dock Plugin API</h2>
-
-<p>The dock plugin has several key functions to implement. First, there are two
-functions related to poses:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">getStagingPose</code>: This function should transform the dock pose into a
-pose for staging into the docking maneuver. Nav2 will be used to move the robot to the staging pose if not already within prestaging tolerances.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">getRefinedPose</code>: This function can be used refine the dock pose using sensors.
-Depending on how the robot can detect the dock, this might use laser scan data
-or camera data.</li>
-</ul>
-
-<p>There are two functions used during dock approach:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">isDocked</code>: As the robot approaches the dock, this function should tell us when
-to stop driving forward. There are many ways this function could be implemented
-depending on the robot hardware:
-    <ul>
-      <li>If a charge dock communicates before charging starts, this should be done here.
-If the charge dock needs an “enable” message to be sent, this is a good place to send it.</li>
-      <li>If the charge dock doesn’t use any sort of communications, you might still be
-able to detect contact with the dock by looking at the motor effort/current,
-or determining that velocity has dropped to zero.</li>
-      <li>In the absolute simplest case, <code class="language-plaintext highlighter-rouge">isDocked</code> might just call <code class="language-plaintext highlighter-rouge">isCharging</code> if there
-is no other feedback to know when we are docked.</li>
-    </ul>
-  </li>
-  <li>
-<code class="language-plaintext highlighter-rouge">isCharging</code>: The approach stops when the robot reports <code class="language-plaintext highlighter-rouge">isDocked</code>, then we wait
-for charging to start by calling <code class="language-plaintext highlighter-rouge">isCharging</code>.
-    <ul>
-      <li>This may be implemented using the <code class="language-plaintext highlighter-rouge">sensor_msgs/BatteryState</code> message to check the power status or for charging current.</li>
-    </ul>
-  </li>
-</ul>
-
-<p>Similarly, there are two functions used during undocking:</p>
-
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">disableCharging</code>: This function is called before undocking commences to help
-prevent wear on the charge contacts. If the charge dock supports turning off
-the charge current, it should be done here.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">hasStoppedCharging</code>: This function is called while the controller is undocking.
-Undocking is successful when charging has stopped and the robot has returned to
-the staging pose.</li>
-</ul>
-
-<p>Keep in mind that the docking and undocking functions should return quickly as they
-will be called inside the control loop. Also make sure that <code class="language-plaintext highlighter-rouge">isDocked</code> should
-return true if <code class="language-plaintext highlighter-rouge">isCharging</code> returns true.</p>
-
-<h3 id="simple-charging-dock-plugin">Simple Charging Dock Plugin</h3>
-
-<p>The <code class="language-plaintext highlighter-rouge">SimpleChargingDock</code> plugin is an example with many common options which may be fully functional for
-some robots.</p>
-
-<p><code class="language-plaintext highlighter-rouge">getStagingPose</code> applys a parameterized translational and rotational offset to the dock pose to obtain the staging pose.</p>
-
-<p><code class="language-plaintext highlighter-rouge">getRefinedPose</code> can be used in two ways.</p>
-<ol>
-  <li>A blind approach where the returned dock pose will simply be equal to whatever was passed in from the dock database. This may work with a reduced success rate on a real robot (due to global localization error), but is useful for initial testing and simulation.</li>
-  <li>The more realistic use case is to use an AR marker, dock pose detection algorithm, etc. Tthe plugin will subscribe to a <code class="language-plaintext highlighter-rouge">geometry_msgs/PoseStamped</code> topic <code class="language-plaintext highlighter-rouge">detected_dock_pose</code>. This can be used with the <code class="language-plaintext highlighter-rouge">image_proc/TrackMarkerNode</code> for Apriltags or other custom detectors for your dock. It is unlikely the detected pose is actually the pose you want to dock with, so several parameters are supplied to represent your docked pose relative to the detected feature’s pose.</li>
-</ol>
-
-<p>During the docking approach, there are two options for detecting <code class="language-plaintext highlighter-rouge">isDocked</code>:</p>
-<ol>
-  <li>We can check the joint states of the wheels if the current has spiked above a set threshold to indicate that the robot has made contact with the dock or other physical object.</li>
-  <li>The dock pose is compared with the robot pose and <code class="language-plaintext highlighter-rouge">isDocked</code> returns true when the distance drops below the specified <code class="language-plaintext highlighter-rouge">docking_threshold</code>.</li>
-</ol>
-
-<p>The <code class="language-plaintext highlighter-rouge">isCharging</code> and <code class="language-plaintext highlighter-rouge">hasStoppedCharging</code> functions have two options:</p>
-<ol>
-  <li>Subscribing to a <code class="language-plaintext highlighter-rouge">sensor_msgs/BatteryState</code> message on topic <code class="language-plaintext highlighter-rouge">battery_state</code>. The robot is considered charging when the <code class="language-plaintext highlighter-rouge">current</code> field of the message exceeds the <code class="language-plaintext highlighter-rouge">charging_threshold</code>.</li>
-  <li>We can return that we are charging is <code class="language-plaintext highlighter-rouge">isDocked() = true</code>, which is useful for initial testing or low-reliability docking until battery state or similar information is available.</li>
-</ol>
-
-<p>For debugging purposes, there are several publishers which can be used with RVIZ:</p>
-
-<table>
-  <thead>
-    <tr>
-      <th>Topic</th>
-      <th>Description</th>
-      <th>Type</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>dock_pose</td>
-      <td>The current transformed dock pose</td>
-      <td><code class="language-plaintext highlighter-rouge">geometry_msgs/PoseStamped</code></td>
-    </tr>
-    <tr>
-      <td>filtered_dock_pose</td>
-      <td>The current un-transformed dock pose</td>
-      <td><code class="language-plaintext highlighter-rouge">geometry_msgs/PoseStamped</code></td>
-    </tr>
-    <tr>
-      <td>staging_pose</td>
-      <td>The staging pose for the dock</td>
-      <td><code class="language-plaintext highlighter-rouge">geometry_msgs/PoseStamped</code></td>
-    </tr>
-  </tbody>
-</table>
-
-<h2 id="configuration">Configuration</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Parameter</th>
-      <th>Description</th>
-      <th>Type</th>
-      <th>Default</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>controller_frequency</td>
-      <td>Control frequency (Hz) for vision-control loop</td>
-      <td>double</td>
-      <td>50.0</td>
-    </tr>
-    <tr>
-      <td>initial_perception_timeout</td>
-      <td>Timeout (s) to wait to obtain intial perception of the dock</td>
-      <td>double</td>
-      <td>5.0</td>
-    </tr>
-    <tr>
-      <td>wait_charge_timeout</td>
-      <td>Timeout (s) to wait to see if charging starts after docking</td>
-      <td>double</td>
-      <td>5.0</td>
-    </tr>
-    <tr>
-      <td>dock_approach_timeout</td>
-      <td>Timeout (s) to attempt vision-control approach loop</td>
-      <td>double</td>
-      <td>30.0</td>
-    </tr>
-    <tr>
-      <td>rotate_to_dock_timeout</td>
-      <td>Timeout (s) to attempt rotate-to-dock loop</td>
-      <td>double</td>
-      <td>10.0</td>
-    </tr>
-    <tr>
-      <td>dock_approach_timeout</td>
-      <td>timeout (s) to attempt vision-control approach loop</td>
-      <td>double</td>
-      <td>30.0</td>
-    </tr>
-    <tr>
-      <td>undock_linear_tolerance</td>
-      <td>Tolerance (m) to exit the undocking control loop at staging pose</td>
-      <td>double</td>
-      <td>0.05</td>
-    </tr>
-    <tr>
-      <td>undock_angular_tolerance</td>
-      <td>Angular tolerance (rad) to exit undocking loop at staging pose</td>
-      <td>double</td>
-      <td>0.05</td>
-    </tr>
-    <tr>
-      <td>max_retries</td>
-      <td>Maximum number of retries to attempt</td>
-      <td>int</td>
-      <td>3</td>
-    </tr>
-    <tr>
-      <td>base_frame</td>
-      <td>Robot’s base frame for control law</td>
-      <td>string</td>
-      <td>“base_link”</td>
-    </tr>
-    <tr>
-      <td>fixed_frame</td>
-      <td>Fixed frame to use, recommended to be a smooth odometry frame <strong>not</strong> map</td>
-      <td>string</td>
-      <td>“odom”</td>
-    </tr>
-    <tr>
-      <td>odom_topic</td>
-      <td>The topic to use for the odometry data</td>
-      <td>string</td>
-      <td>“odom”</td>
-    </tr>
-    <tr>
-      <td>rotation_angular_tolerance</td>
-      <td>Angular tolerance (rad) to exit the rotation loop when rotate_to_dock is enabled</td>
-      <td>double</td>
-      <td>0.05</td>
-    </tr>
-    <tr>
-      <td>dock_backwards</td>
-      <td>Whether the robot is docking with the dock forward or backward in motion</td>
-      <td>bool</td>
-      <td>false</td>
-    </tr>
-    <tr>
-      <td>rotate_to_dock</td>
-      <td>Enables backward docking without requiring a sensor for detection during the final approach. When enabled, the robot approaches the staging pose facing forward with sensor coverage for dock detection; after detection, it rotates and backs into the dock using only the initially detected pose for dead reckoning.</td>
-      <td>bool</td>
-      <td>false</td>
-    </tr>
-    <tr>
-      <td>dock_prestaging_tolerance</td>
-      <td>L2 distance in X,Y,Theta from the staging pose to bypass navigation</td>
-      <td>double</td>
-      <td>0.5</td>
-    </tr>
-    <tr>
-      <td>dock_plugins</td>
-      <td>A set of dock plugins to load</td>
-      <td>vector<string></string>
-</td>
-      <td>N/A</td>
-    </tr>
-    <tr>
-      <td>dock_database</td>
-      <td>The filepath to the dock database to use for this environment</td>
-      <td>string</td>
-      <td>N/A</td>
-    </tr>
-    <tr>
-      <td>docks</td>
-      <td>Instead of <code class="language-plaintext highlighter-rouge">dock_database</code>, the set of docks specified in the params file itself</td>
-      <td>vector<string></string>
-</td>
-      <td>N/A</td>
-    </tr>
-    <tr>
-      <td>navigator_bt_xml</td>
-      <td>BT XML to use for Navigator, if non-default</td>
-      <td>string</td>
-      <td>””</td>
-    </tr>
-    <tr>
-      <td>controller.k_phi</td>
-      <td>TODO</td>
-      <td>double</td>
-      <td>3.0</td>
-    </tr>
-    <tr>
-      <td>controller.k_delta</td>
-      <td>TODO</td>
-      <td>double</td>
-      <td>2.0</td>
-    </tr>
-    <tr>
-      <td>controller.beta</td>
-      <td>TODO</td>
-      <td>double</td>
-      <td>0.4</td>
-    </tr>
-    <tr>
-      <td>controller.lambda</td>
-      <td>TODO</td>
-      <td>double</td>
-      <td>2.0</td>
-    </tr>
-    <tr>
-      <td>controller.v_linear_min</td>
-      <td>TODO</td>
-      <td>double</td>
-      <td>0.1</td>
-    </tr>
-    <tr>
-      <td>controller.v_linear_max</td>
-      <td>TODO</td>
-      <td>double</td>
-      <td>0.25</td>
-    </tr>
-    <tr>
-      <td>controller.v_angular_max</td>
-      <td>TODO</td>
-      <td>double</td>
-      <td>0.75</td>
-    </tr>
-    <tr>
-      <td>controller.slowdown_radius</td>
-      <td>TODO</td>
-      <td>double</td>
-      <td>0.25</td>
-    </tr>
-    <tr>
-      <td>controller.rotate_to_heading_angular_vel</td>
-      <td>Angular velocity (rad/s) to rotate to the goal heading when rotate_to_dock is enabled</td>
-      <td>double</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <td>controller.rotate_to_heading_max_angular_accel</td>
-      <td>Maximum angular acceleration (rad/s^2) to rotate to the goal heading when rotate_to_dock is enabled</td>
-      <td>double</td>
-      <td>3.2</td>
-    </tr>
-    <tr>
-      <td>controller.use_collision_detection</td>
-      <td>Whether to use collision detection to avoid obstacles</td>
-      <td>bool</td>
-      <td>true</td>
-    </tr>
-    <tr>
-      <td>controller.costmap_topic</td>
-      <td>The topic to use for the costmap</td>
-      <td>string</td>
-      <td>“local_costmap/costmap_raw”</td>
-    </tr>
-    <tr>
-      <td>controller.footprint_topic</td>
-      <td>The topic to use for the robot’s footprint</td>
-      <td>string</td>
-      <td>“local_costmap/published_footprint”</td>
-    </tr>
-    <tr>
-      <td>controller.transform_tolerance</td>
-      <td>Time with which to post-date the transform that is published, to indicate that this transform is valid into the future.</td>
-      <td>double</td>
-      <td>0.1</td>
-    </tr>
-    <tr>
-      <td>controller.projection_time</td>
-      <td>Time to look ahead for collisions (s).</td>
-      <td>double</td>
-      <td>5.0</td>
-    </tr>
-    <tr>
-      <td>controller.simulation_time_step</td>
-      <td>Time step for projections (s).</td>
-      <td>double</td>
-      <td>0.1</td>
-    </tr>
-    <tr>
-      <td>controller.dock_collision_threshold</td>
-      <td>Distance (m) from the dock pose to ignore collisions, i.e. the robot will not check for collisions within this distance from the dock pose, as the robot will make contact with the dock. Set to <code class="language-plaintext highlighter-rouge">0.0</code> when physical contact is not made with a dock.</td>
-      <td>double</td>
-      <td>0.3</td>
-    </tr>
-  </tbody>
-</table>
-
-<p>Note: <code class="language-plaintext highlighter-rouge">dock_plugins</code> and either <code class="language-plaintext highlighter-rouge">docks</code> or <code class="language-plaintext highlighter-rouge">dock_database</code> are required.</p>
-
-<table>
-  <thead>
-    <tr>
-      <th>SimpleChargingDock Parameter</th>
-      <th>Description</th>
-      <th>Type</th>
-      <th>Default</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td>use_battery_status</td>
-      <td>Whether to use the battery state message or <code class="language-plaintext highlighter-rouge">isDocked()</code> for <code class="language-plaintext highlighter-rouge">isCharging()</code>
-</td>
-      <td>bool</td>
-      <td>true</td>
-    </tr>
-    <tr>
-      <td>use_external_detection_pose</td>
-      <td>Whether to use external detection topic for dock or use the databases’ pose</td>
-      <td>bool</td>
-      <td>false</td>
-    </tr>
-    <tr>
-      <td>external_detection_timeout</td>
-      <td>Timeout at which if the newest detection update does not meet to fail</td>
-      <td>double</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <td>external_detection_translation_x</td>
-      <td>X offset from detected pose for docking pose (m)</td>
-      <td>double</td>
-      <td>-0.20</td>
-    </tr>
-    <tr>
-      <td>external_detection_translation_y</td>
-      <td>Y offset from detected pose for docking pose (m)</td>
-      <td>double</td>
-      <td>0.0</td>
-    </tr>
-    <tr>
-      <td>external_detection_rotation_yaw</td>
-      <td>Yaw offset from detected pose for docking pose (rad)</td>
-      <td>double</td>
-      <td>0.0</td>
-    </tr>
-    <tr>
-      <td>external_detection_rotation_pitch</td>
-      <td>Pitch offset from detected pose for docking pose (rad)</td>
-      <td>double</td>
-      <td>1.57</td>
-    </tr>
-    <tr>
-      <td>external_detection_rotation_roll</td>
-      <td>Roll offset from detected pose for docking pose (rad)</td>
-      <td>double</td>
-      <td>-1.57</td>
-    </tr>
-    <tr>
-      <td>filter_coef</td>
-      <td>Dock external detection method filtering algorithm coefficient</td>
-      <td>double</td>
-      <td>0.1</td>
-    </tr>
-    <tr>
-      <td>charging_threshold</td>
-      <td>Threshold of current in battery state above which <code class="language-plaintext highlighter-rouge">isCharging() = true</code>
-</td>
-      <td>double</td>
-      <td>0.5</td>
-    </tr>
-    <tr>
-      <td>use_stall_detection</td>
-      <td>Whether or not to use stall detection for <code class="language-plaintext highlighter-rouge">isDocked()</code> or positional threshold</td>
-      <td>bool</td>
-      <td>false</td>
-    </tr>
-    <tr>
-      <td>stall_joint_names</td>
-      <td>Names in <code class="language-plaintext highlighter-rouge">joint_states</code> topic of joints to track</td>
-      <td>vector<string></string>
-</td>
-      <td>N/A</td>
-    </tr>
-    <tr>
-      <td>stall_velocity_threshold</td>
-      <td>The joint velocity below which to trigger <code class="language-plaintext highlighter-rouge">isDocked() = true</code>
-</td>
-      <td>double</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <td>stall_effort_threshold</td>
-      <td>Current or motor effort in joint state to trigger <code class="language-plaintext highlighter-rouge">isDocked() = true</code>
-</td>
-      <td>double</td>
-      <td>1.0</td>
-    </tr>
-    <tr>
-      <td>docking_threshold</td>
-      <td>If not using stall detection, the pose threshold to the docking pose where <code class="language-plaintext highlighter-rouge">isDocked() = true</code>
-</td>
-      <td>double</td>
-      <td>0.05</td>
-    </tr>
-    <tr>
-      <td>staging_x_offset</td>
-      <td>Staging pose offset forward (negative) of dock pose (m)</td>
-      <td>double</td>
-      <td>-0.7</td>
-    </tr>
-    <tr>
-      <td>staging_yaw_offset</td>
-      <td>Staging pose angle relative to dock pose (rad)</td>
-      <td>double</td>
-      <td>0.0</td>
-    </tr>
-  </tbody>
-</table>
-
-<p>Note: The external detection rotation angles are setup to work out of the box with Apriltags detectors in <code class="language-plaintext highlighter-rouge">image_proc</code> and <code class="language-plaintext highlighter-rouge">isaac_ros</code>.</p>
-
-<h2 id="etc">Etc</h2>
-
-<h3 id="on-staging-poses">On Staging Poses</h3>
-
-<p>Staging poses are where the robot should navigate to in order to start the docking procedure. This pose should be close enough to the dock to accurately detect the dock’s presence, but far enough that if its moved slightly or the robot’s localization isn’t perfect it can still be detected and have enough room to adjust. The robot’s charging contacts or charging location should be pointed towards the dock in this staging pose. That way, a feasible global planner can be used to model your robot’s real constraints while getting to the docking pose (non-circular, non-holonomic), rather than complicating the docking process itself.</p>
-
+<p>File truncated at 100 lines <a href="https://github.com/open-navigation/opennav_docking/tree/humble">see the full file</a></p>
 </div>
             
           </div>
@@ -1303,71 +800,6 @@ some robots.</p>
 
       
         <div class="alert alert-warning" role="alert">No version for distro <strong>rolling</strong>. Known supported distros are highlighted in the buttons above.</div>
-      
-    </div>
-  </div>
-
-  <div class="distro distro-noetic">
-    <div class="container-fluid">
-      <div class="well well-sm">
-  <div>
-    
-  </div>
-  
-  <table class="table">
-    <tr>
-      <td width="100px" class="text-center">
-        <img style="width: 80px;" src="/assets/repo.png" alt="Repo symbol">
-      </td>
-      <td>
-        <h3><a style="text-decoration:none;" href="/r/opennav_docking">opennav_docking</a> <small>repository</small></h3>
-        
-        
-
-      </td>
-    </tr>
-  </table>
-  <div class="top-buffer">
-    
-    
-<table class="table table-condensed instance-switch">
-  <tr>
-    <td>
-      <div id="repo-switch" class="btn-group btn-group-justified" role="group">
-        <div class="btn-group" style="width: 90%" role="group">
-          <div class="dropdown">
-            <!-- TODO: add disabled when only 1 version is known? -->
-            <button class="btn btn-xs btn-default dropdown-toggle" type="button" id="dropdownMenu1" data-toggle="dropdown" title="Select Instance">
-              <span class="pull-left" style="width: 100%; text-align: left">
-                <span class="pull-right"><span class="caret"></span></span> 
-              <span class="glyphicon glyphicon-star"></span>
-                  github-open-navigation-opennav_docking
-              </span>
-            </button>
-            <ul class="dropdown-menu" role="menu">
-              
-                <li role="presentation">
-                  <a id="github-open-navigation-opennav_docking" role="menuitem" tabindex="-1" href="/r/opennav_docking/github-open-navigation-opennav_docking" data="github-open-navigation-opennav_docking">
-                    <span class="glyphicon glyphicon-star"></span>
-                    github-open-navigation-opennav_docking
-                  </a>
-                </li>
-              
-            </ul>
-          </div>
-        </div>
-      </div>
-    </td>
-  </tr>
-</table>
-
-  </div>
-  <div class="top-buffer">
-  </div>
-</div>
-
-      
-        <div class="alert alert-warning" role="alert">No version for distro <strong>noetic</strong>. Known supported distros are highlighted in the buttons above.</div>
       
     </div>
   </div>
@@ -2282,6 +1714,71 @@ some robots.</p>
     </div>
   </div>
 
+  <div class="distro distro-noetic">
+    <div class="container-fluid">
+      <div class="well well-sm">
+  <div>
+    
+  </div>
+  
+  <table class="table">
+    <tr>
+      <td width="100px" class="text-center">
+        <img style="width: 80px;" src="/assets/repo.png" alt="Repo symbol">
+      </td>
+      <td>
+        <h3><a style="text-decoration:none;" href="/r/opennav_docking">opennav_docking</a> <small>repository</small></h3>
+        
+        
+
+      </td>
+    </tr>
+  </table>
+  <div class="top-buffer">
+    
+    
+<table class="table table-condensed instance-switch">
+  <tr>
+    <td>
+      <div id="repo-switch" class="btn-group btn-group-justified" role="group">
+        <div class="btn-group" style="width: 90%" role="group">
+          <div class="dropdown">
+            <!-- TODO: add disabled when only 1 version is known? -->
+            <button class="btn btn-xs btn-default dropdown-toggle" type="button" id="dropdownMenu1" data-toggle="dropdown" title="Select Instance">
+              <span class="pull-left" style="width: 100%; text-align: left">
+                <span class="pull-right"><span class="caret"></span></span> 
+              <span class="glyphicon glyphicon-star"></span>
+                  github-open-navigation-opennav_docking
+              </span>
+            </button>
+            <ul class="dropdown-menu" role="menu">
+              
+                <li role="presentation">
+                  <a id="github-open-navigation-opennav_docking" role="menuitem" tabindex="-1" href="/r/opennav_docking/github-open-navigation-opennav_docking" data="github-open-navigation-opennav_docking">
+                    <span class="glyphicon glyphicon-star"></span>
+                    github-open-navigation-opennav_docking
+                  </a>
+                </li>
+              
+            </ul>
+          </div>
+        </div>
+      </div>
+    </td>
+  </tr>
+</table>
+
+  </div>
+  <div class="top-buffer">
+  </div>
+</div>
+
+      
+        <div class="alert alert-warning" role="alert">No version for distro <strong>noetic</strong>. Known supported distros are highlighted in the buttons above.</div>
+      
+    </div>
+  </div>
+
 
 <script src=/js/contribution_suggestions.js></script>
 <script type="text/javascript">
@@ -2311,7 +1808,7 @@ some robots.</p>
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2025-05-21</em>
+        <em class="hidden-xs">| generated on 2025-06-11</em>
       
       </div>
       <div style="float:right;">
