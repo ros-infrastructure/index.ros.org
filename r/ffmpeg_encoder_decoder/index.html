@@ -334,7 +334,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-26
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-08-08
         </span>
       </td>
     </tr>
@@ -402,7 +402,7 @@
                 
                   <tr>
                     <td><a href="/p/ffmpeg_encoder_decoder/">ffmpeg_encoder_decoder</a></td>
-                    <td>2.0.1</td>
+                    <td>3.0.0</td>
                   </tr>
                 
                 </tbody>
@@ -422,7 +422,8 @@
 library, for example encoding h264 and h265 or HEVC, using
 Nvidia or other hardware acceleration when available.
 This package is meant to be used by image transport plugins like
-the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmpeg image transport</a>.</p>
+the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmpeg image transport</a>
+and the <a href="https://github.com/ros-misc-utilities/foxglove_compressed_video_transport/">foxglove compressed video transport</a>.</p>
 
 <h2 id="supported-systems">Supported systems</h2>
 
@@ -430,6 +431,7 @@ the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmp
 
 <p><a href="https://build.ros2.org/job/Hdev__ffmpeg_encoder_decoder__ubuntu_jammy_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Hdev__ffmpeg_encoder_decoder__ubuntu_jammy_amd64&amp;subject=Humble" alt="Build Status"></a>
  <a href="https://build.ros2.org/job/Jdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Jdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Jazzy" alt="Build Status"></a>
+ <a href="https://build.ros2.org/job/Kdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Kdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Kilted" alt="Build Status"></a>
  <a href="https://build.ros2.org/job/Rdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Rdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Rolling" alt="Build Status"></a></p>
 
 <h2 id="installation">Installation</h2>
@@ -452,57 +454,72 @@ the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmp
 
 <p>Make sure to source your workspace’s <code class="language-plaintext highlighter-rouge">install/setup.bash</code> afterwards.</p>
 
-<h2 id="parameters">Parameters</h2>
+<h2 id="api-overview">API overview</h2>
 
-<p>This package has no parameters. It is the upper layer’s responsibility to e.g. manage the mapping between encoder and decoder, i.e. to tell the decoder class which libav decoder should be used for the decoding, or to set the encoding parameters.</p>
+<h3 id="preliminaries">Preliminaries</h3>
+<p>When using libav it is important to understand the difference between the encoder and the codec.
+The <em>codec</em> is the standardized format in which images are encoded, for instance <code class="language-plaintext highlighter-rouge">h264</code> or <code class="language-plaintext highlighter-rouge">hevc</code>.
+The <em>encoder</em> is a libav software module that can encode images for a given codec. For instance <code class="language-plaintext highlighter-rouge">libx264</code>, <code class="language-plaintext highlighter-rouge">libx264rgb</code>,
+ <code class="language-plaintext highlighter-rouge">h264_nvenc</code><code class="language-plaintext highlighter-rouge">, and </code><code class="language-plaintext highlighter-rouge">h264_vaapi</code>` are all <em>encoders</em> that encode for the <em>codec</em> h264.
+Some of the encoders are hardware accelerated, some can handle more image formats than others, but in the end they all encode video for a specific codec.</p>
 
-<h3 id="how-to-use-a-custom-version-of-libav-aka-ffmpeg">How to use a custom version of libav (aka ffmpeg)</h3>
+<p>For the many AV options available for various libav encoders, and for <code class="language-plaintext highlighter-rouge">qmax</code>, <code class="language-plaintext highlighter-rouge">bit_rate</code> and similar settings please refer to the ffmpeg documentation.</p>
 
-<p>Compile <em>and install</em> ffmpeg. Let’s say the install directory is
-<code class="language-plaintext highlighter-rouge">/home/foo/ffmpeg/build</code>, then for it to be found while building,
-run colcon like this:</p>
+<h3 id="the-inner-workings">The inner workings</h3>
+<p><img src="https://raw.githubusercontent.com/ros-misc-utilities/ffmpeg_encoder_decoder/release/./doc/encoder_decoder.svg" alt="overview_diagram"></p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>colcon build --symlink-install --cmake-args --no-warn-unused-cli -DFFMPEG_PKGCONFIG=/home/foo/ffmpeg/build/lib/pkgconfig -DCMAKE_BUILD_TYPE=RelWithDebInfo 
+<p>The diagram above shows the stations that a ROS Image message passes as it traverses the encoder and decoder.
+1) The ROS image (with <a href="https://github.com/ros2/common_interfaces/blob/a2ef867438e6d4eed074d6e3668ae45187e7de86/sensor_msgs/include/sensor_msgs/image_encodings.hpp">ROS sensor_msgs/Image encoding</a>) is first converted with the ROS <a href="https://github.com/ros-perception/vision_opencv">cv_bridge</a> into the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code>.
+ This conversion is necessary because some ROS encodings (like bayer images) are not supported by libswscale.
+ The <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> can be set via <code class="language-plaintext highlighter-rouge">setCVBridgeTargetFormat(const std::string &amp; fmt)</code>.
+ If this format is not set explicitly the image will be converted to the default format of <code class="language-plaintext highlighter-rouge">bgr8</code>.
+ This may not be what you want for e.g. <code class="language-plaintext highlighter-rouge">mono8</code> (gray) or Bayer images.
+ Ideally the<code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> can be directly used by the libav decoder so the next step becomes a no-op.
+ But at the very least <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> must be an acceptable libswscale input format (with the exception of
+ special hacks for encoding single-channel images, see below).
+2) The image is then converted to <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> using libswscale.
+ The <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> can be set with <code class="language-plaintext highlighter-rouge">setAVSourcePixelFormat()</code>, defaulting to something that is acceptable to the libav encoder.
+ You can use ffmpeg (<code class="language-plaintext highlighter-rouge">ffmpeg -h encoder=libx264 | grep formats</code>) to list all formats that an encoder supports.
+ Note that the ffmpeg/libav format string notation is different from the ROS encoding strings, and the <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> is specified using the libav convention, whereas the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> uses ROS convention!
+ (If you choose to bypass the cv_bridge conversion from step 1 by feeding the images to the encoder directly via the <code class="language-plaintext highlighter-rouge">encodeImage(const cv::Mat &amp; img ...)</code> method, you must still set the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> such that the encoder knows what format the <code class="language-plaintext highlighter-rouge">img</code> argument has.)
+ When aiming for lossless compression, beware of any <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> that reduces the color resolution, such as <code class="language-plaintext highlighter-rouge">yuv420p</code>, <code class="language-plaintext highlighter-rouge">nv12</code> etc.
+ For Bayer images, use the special hack for single-channel images.</p>
 
-</code></pre></div></div>
+<p>3) The libav encoder encodes the packet with its supported codec, e.g. the <code class="language-plaintext highlighter-rouge">libx264</code> will produce <code class="language-plaintext highlighter-rouge">h264</code> packets.
+ The <code class="language-plaintext highlighter-rouge">encoding</code> field of the FFMPEGPacket message will document all image format conversions and the codec, in reverse order, separated by semicolon.
+ This way the decoder can attempt to reproduce the original <code class="language-plaintext highlighter-rouge">ros_encoding</code>.</p>
 
-<p>This will compile against the right headers, but at runtime it may
-still load the system ffmpeg libraries. To avoid that, set
-<code class="language-plaintext highlighter-rouge">LD_LIBRARY_PATH</code> at runtime:</p>
+<p>4) The libav decoder decodes the packet into the original <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code>.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>export LD_LIBRARY_PATH=/home/foo/ffmpeg/build/lib:${LD_LIBRARY_PATH}
+<p>5) Finally the image is converted to <code class="language-plaintext highlighter-rouge">output_message_format</code> using libswscale.
+ This format can be set (in ROS encoding syntax!) with <code class="language-plaintext highlighter-rouge">setOutputMessageEncoding()</code>.
+ The format must be supported by both ROS and libswscale (except when using the special hack for single-channel images).</p>
 
-</code></pre></div></div>
+<p>Note that only very few combinations of libav encoders, <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> and <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> have been tested. Please provide feedback if you observe crashes or find obvious bugs. PRs are always appreciated!</p>
 
-<h3 id="how-to-use-ffmpeg-hardware-accelerated-encoding-on-the-nvidia-jetson">How to use ffmpeg hardware accelerated encoding on the NVidia Jetson</h3>
+<h3 id="the-special-single-channel-hack">The special single-channel hack</h3>
 
-<p>Follow the instructions
-<a href="https://github.com/Keylost/jetson-ffmpeg">here</a> to build a version of
-ffmpeg that supports NVMPI. This long magic line should build a nvmpi enabled
-version of ffmpeg and install it under <code class="language-plaintext highlighter-rouge">/usr/local/</code>:</p>
+<p>Many libav encoders do not support single-channel formats (like mono8 or bayer).
+For this reason a special hack is implemented in the encoder that adds an empty (zero-value) color channel to the single-channel image.
+Later, the decoder removes it again.
+To utilitze this hack, specify a <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> of e.g. <code class="language-plaintext highlighter-rouge">bayer_rggb8</code>. Without the special hack, this would trigger an error because Bayer formats are not acceptable to libswscale.
+Instead, the image is converted to <code class="language-plaintext highlighter-rouge">yuv420p</code> or <code class="language-plaintext highlighter-rouge">nv12</code> by adding an empty color channel.
+These formats are acceptable to most encoders.
+The decoder in turn recognizes that the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> is a single-channel format, but <code class="language-plaintext highlighter-rouge">yuv420p</code>/<code class="language-plaintext highlighter-rouge">nv12</code> are not, and therefore drops the color channel.
+This hack greatly improves the efficiency for lossless encoding of Bayer images because it avoids conversion to full RGB and back.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git clone https://github.com/berndpfrommer/jetson-ffmpeg.git &amp;&amp; cd jetson-ffmpeg &amp;&amp; mkdir build &amp;&amp; cd build &amp;&amp; cmake -DCMAKE_INSTALL
-_PREFIX:PATH=/usr/local .. &amp;&amp; make install &amp;&amp; ldconfig &amp;&amp; cd ../.. &amp;&amp; git clone git://source.ffmpeg.org/ffmpeg.git -b release/7.1 --
-depth=1 &amp;&amp;cd jetson-ffmpeg &amp;&amp; ./ffpatch.sh ../ffmpeg &amp;&amp; cd ../ffmpeg &amp;&amp; ./configure --enable-nvmpi --enable-shared --disable-static 
---prefix=/usr/local &amp;&amp; make install
+<h2 id="api-usage">API usage</h2>
 
-</code></pre></div></div>
+<h3 id="encoder">Encoder</h3>
 
-<p>Then follow the section above on how to
-actually use that custom ffmpeg library. As always first test on the
-CLI that the newly compiled <code class="language-plaintext highlighter-rouge">ffmpeg</code> command now supports
-<code class="language-plaintext highlighter-rouge">h264_nvmpi</code>. The transport can then be configured to use
-nvmpi like so:</p>
+<p>Using the encoder involves the following steps:</p>
+<ul>
+  <li>instantiating the <code class="language-plaintext highlighter-rouge">Encoder</code> object.</li>
+  <li>setting properties like the libav encoder to use, the encoding formats, and AV options.</li>
+  <li>initializing the encoder object. This requires knowledge of the image size and therefore</li>
+</ul>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>        parameters=[{'ffmpeg_image_transport.encoding': 'h264_nvmpi',
-                     'ffmpeg_image_transport.profile': 'main',
-                     'ffmpeg_image_transport.preset': 'll',
-                     'ffmpeg_image_transport.gop_size': 15}]
-
-</code></pre></div></div>
-<h2 id="license">License</h2>
-
-<p>This software is issued under the Apache License Version 2.0.</p>
+<p>File truncated at 100 lines <a href="https://github.com/ros-misc-utilities/ffmpeg_encoder_decoder/tree/release/README.md">see the full file</a></p>
 </div>
             
           </div>
@@ -667,7 +684,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-26
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-08-08
         </span>
       </td>
     </tr>
@@ -735,7 +752,7 @@ the code they are contributing to the project according to the
                 
                   <tr>
                     <td><a href="/p/ffmpeg_encoder_decoder/">ffmpeg_encoder_decoder</a></td>
-                    <td>2.0.1</td>
+                    <td>3.0.0</td>
                   </tr>
                 
                 </tbody>
@@ -755,7 +772,8 @@ the code they are contributing to the project according to the
 library, for example encoding h264 and h265 or HEVC, using
 Nvidia or other hardware acceleration when available.
 This package is meant to be used by image transport plugins like
-the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmpeg image transport</a>.</p>
+the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmpeg image transport</a>
+and the <a href="https://github.com/ros-misc-utilities/foxglove_compressed_video_transport/">foxglove compressed video transport</a>.</p>
 
 <h2 id="supported-systems">Supported systems</h2>
 
@@ -763,6 +781,7 @@ the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmp
 
 <p><a href="https://build.ros2.org/job/Hdev__ffmpeg_encoder_decoder__ubuntu_jammy_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Hdev__ffmpeg_encoder_decoder__ubuntu_jammy_amd64&amp;subject=Humble" alt="Build Status"></a>
  <a href="https://build.ros2.org/job/Jdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Jdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Jazzy" alt="Build Status"></a>
+ <a href="https://build.ros2.org/job/Kdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Kdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Kilted" alt="Build Status"></a>
  <a href="https://build.ros2.org/job/Rdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Rdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Rolling" alt="Build Status"></a></p>
 
 <h2 id="installation">Installation</h2>
@@ -785,57 +804,72 @@ the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmp
 
 <p>Make sure to source your workspace’s <code class="language-plaintext highlighter-rouge">install/setup.bash</code> afterwards.</p>
 
-<h2 id="parameters">Parameters</h2>
+<h2 id="api-overview">API overview</h2>
 
-<p>This package has no parameters. It is the upper layer’s responsibility to e.g. manage the mapping between encoder and decoder, i.e. to tell the decoder class which libav decoder should be used for the decoding, or to set the encoding parameters.</p>
+<h3 id="preliminaries">Preliminaries</h3>
+<p>When using libav it is important to understand the difference between the encoder and the codec.
+The <em>codec</em> is the standardized format in which images are encoded, for instance <code class="language-plaintext highlighter-rouge">h264</code> or <code class="language-plaintext highlighter-rouge">hevc</code>.
+The <em>encoder</em> is a libav software module that can encode images for a given codec. For instance <code class="language-plaintext highlighter-rouge">libx264</code>, <code class="language-plaintext highlighter-rouge">libx264rgb</code>,
+ <code class="language-plaintext highlighter-rouge">h264_nvenc</code><code class="language-plaintext highlighter-rouge">, and </code><code class="language-plaintext highlighter-rouge">h264_vaapi</code>` are all <em>encoders</em> that encode for the <em>codec</em> h264.
+Some of the encoders are hardware accelerated, some can handle more image formats than others, but in the end they all encode video for a specific codec.</p>
 
-<h3 id="how-to-use-a-custom-version-of-libav-aka-ffmpeg">How to use a custom version of libav (aka ffmpeg)</h3>
+<p>For the many AV options available for various libav encoders, and for <code class="language-plaintext highlighter-rouge">qmax</code>, <code class="language-plaintext highlighter-rouge">bit_rate</code> and similar settings please refer to the ffmpeg documentation.</p>
 
-<p>Compile <em>and install</em> ffmpeg. Let’s say the install directory is
-<code class="language-plaintext highlighter-rouge">/home/foo/ffmpeg/build</code>, then for it to be found while building,
-run colcon like this:</p>
+<h3 id="the-inner-workings">The inner workings</h3>
+<p><img src="https://raw.githubusercontent.com/ros-misc-utilities/ffmpeg_encoder_decoder/release/./doc/encoder_decoder.svg" alt="overview_diagram"></p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>colcon build --symlink-install --cmake-args --no-warn-unused-cli -DFFMPEG_PKGCONFIG=/home/foo/ffmpeg/build/lib/pkgconfig -DCMAKE_BUILD_TYPE=RelWithDebInfo 
+<p>The diagram above shows the stations that a ROS Image message passes as it traverses the encoder and decoder.
+1) The ROS image (with <a href="https://github.com/ros2/common_interfaces/blob/a2ef867438e6d4eed074d6e3668ae45187e7de86/sensor_msgs/include/sensor_msgs/image_encodings.hpp">ROS sensor_msgs/Image encoding</a>) is first converted with the ROS <a href="https://github.com/ros-perception/vision_opencv">cv_bridge</a> into the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code>.
+ This conversion is necessary because some ROS encodings (like bayer images) are not supported by libswscale.
+ The <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> can be set via <code class="language-plaintext highlighter-rouge">setCVBridgeTargetFormat(const std::string &amp; fmt)</code>.
+ If this format is not set explicitly the image will be converted to the default format of <code class="language-plaintext highlighter-rouge">bgr8</code>.
+ This may not be what you want for e.g. <code class="language-plaintext highlighter-rouge">mono8</code> (gray) or Bayer images.
+ Ideally the<code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> can be directly used by the libav decoder so the next step becomes a no-op.
+ But at the very least <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> must be an acceptable libswscale input format (with the exception of
+ special hacks for encoding single-channel images, see below).
+2) The image is then converted to <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> using libswscale.
+ The <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> can be set with <code class="language-plaintext highlighter-rouge">setAVSourcePixelFormat()</code>, defaulting to something that is acceptable to the libav encoder.
+ You can use ffmpeg (<code class="language-plaintext highlighter-rouge">ffmpeg -h encoder=libx264 | grep formats</code>) to list all formats that an encoder supports.
+ Note that the ffmpeg/libav format string notation is different from the ROS encoding strings, and the <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> is specified using the libav convention, whereas the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> uses ROS convention!
+ (If you choose to bypass the cv_bridge conversion from step 1 by feeding the images to the encoder directly via the <code class="language-plaintext highlighter-rouge">encodeImage(const cv::Mat &amp; img ...)</code> method, you must still set the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> such that the encoder knows what format the <code class="language-plaintext highlighter-rouge">img</code> argument has.)
+ When aiming for lossless compression, beware of any <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> that reduces the color resolution, such as <code class="language-plaintext highlighter-rouge">yuv420p</code>, <code class="language-plaintext highlighter-rouge">nv12</code> etc.
+ For Bayer images, use the special hack for single-channel images.</p>
 
-</code></pre></div></div>
+<p>3) The libav encoder encodes the packet with its supported codec, e.g. the <code class="language-plaintext highlighter-rouge">libx264</code> will produce <code class="language-plaintext highlighter-rouge">h264</code> packets.
+ The <code class="language-plaintext highlighter-rouge">encoding</code> field of the FFMPEGPacket message will document all image format conversions and the codec, in reverse order, separated by semicolon.
+ This way the decoder can attempt to reproduce the original <code class="language-plaintext highlighter-rouge">ros_encoding</code>.</p>
 
-<p>This will compile against the right headers, but at runtime it may
-still load the system ffmpeg libraries. To avoid that, set
-<code class="language-plaintext highlighter-rouge">LD_LIBRARY_PATH</code> at runtime:</p>
+<p>4) The libav decoder decodes the packet into the original <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code>.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>export LD_LIBRARY_PATH=/home/foo/ffmpeg/build/lib:${LD_LIBRARY_PATH}
+<p>5) Finally the image is converted to <code class="language-plaintext highlighter-rouge">output_message_format</code> using libswscale.
+ This format can be set (in ROS encoding syntax!) with <code class="language-plaintext highlighter-rouge">setOutputMessageEncoding()</code>.
+ The format must be supported by both ROS and libswscale (except when using the special hack for single-channel images).</p>
 
-</code></pre></div></div>
+<p>Note that only very few combinations of libav encoders, <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> and <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> have been tested. Please provide feedback if you observe crashes or find obvious bugs. PRs are always appreciated!</p>
 
-<h3 id="how-to-use-ffmpeg-hardware-accelerated-encoding-on-the-nvidia-jetson">How to use ffmpeg hardware accelerated encoding on the NVidia Jetson</h3>
+<h3 id="the-special-single-channel-hack">The special single-channel hack</h3>
 
-<p>Follow the instructions
-<a href="https://github.com/Keylost/jetson-ffmpeg">here</a> to build a version of
-ffmpeg that supports NVMPI. This long magic line should build a nvmpi enabled
-version of ffmpeg and install it under <code class="language-plaintext highlighter-rouge">/usr/local/</code>:</p>
+<p>Many libav encoders do not support single-channel formats (like mono8 or bayer).
+For this reason a special hack is implemented in the encoder that adds an empty (zero-value) color channel to the single-channel image.
+Later, the decoder removes it again.
+To utilitze this hack, specify a <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> of e.g. <code class="language-plaintext highlighter-rouge">bayer_rggb8</code>. Without the special hack, this would trigger an error because Bayer formats are not acceptable to libswscale.
+Instead, the image is converted to <code class="language-plaintext highlighter-rouge">yuv420p</code> or <code class="language-plaintext highlighter-rouge">nv12</code> by adding an empty color channel.
+These formats are acceptable to most encoders.
+The decoder in turn recognizes that the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> is a single-channel format, but <code class="language-plaintext highlighter-rouge">yuv420p</code>/<code class="language-plaintext highlighter-rouge">nv12</code> are not, and therefore drops the color channel.
+This hack greatly improves the efficiency for lossless encoding of Bayer images because it avoids conversion to full RGB and back.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git clone https://github.com/berndpfrommer/jetson-ffmpeg.git &amp;&amp; cd jetson-ffmpeg &amp;&amp; mkdir build &amp;&amp; cd build &amp;&amp; cmake -DCMAKE_INSTALL
-_PREFIX:PATH=/usr/local .. &amp;&amp; make install &amp;&amp; ldconfig &amp;&amp; cd ../.. &amp;&amp; git clone git://source.ffmpeg.org/ffmpeg.git -b release/7.1 --
-depth=1 &amp;&amp;cd jetson-ffmpeg &amp;&amp; ./ffpatch.sh ../ffmpeg &amp;&amp; cd ../ffmpeg &amp;&amp; ./configure --enable-nvmpi --enable-shared --disable-static 
---prefix=/usr/local &amp;&amp; make install
+<h2 id="api-usage">API usage</h2>
 
-</code></pre></div></div>
+<h3 id="encoder">Encoder</h3>
 
-<p>Then follow the section above on how to
-actually use that custom ffmpeg library. As always first test on the
-CLI that the newly compiled <code class="language-plaintext highlighter-rouge">ffmpeg</code> command now supports
-<code class="language-plaintext highlighter-rouge">h264_nvmpi</code>. The transport can then be configured to use
-nvmpi like so:</p>
+<p>Using the encoder involves the following steps:</p>
+<ul>
+  <li>instantiating the <code class="language-plaintext highlighter-rouge">Encoder</code> object.</li>
+  <li>setting properties like the libav encoder to use, the encoding formats, and AV options.</li>
+  <li>initializing the encoder object. This requires knowledge of the image size and therefore</li>
+</ul>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>        parameters=[{'ffmpeg_image_transport.encoding': 'h264_nvmpi',
-                     'ffmpeg_image_transport.profile': 'main',
-                     'ffmpeg_image_transport.preset': 'll',
-                     'ffmpeg_image_transport.gop_size': 15}]
-
-</code></pre></div></div>
-<h2 id="license">License</h2>
-
-<p>This software is issued under the Apache License Version 2.0.</p>
+<p>File truncated at 100 lines <a href="https://github.com/ros-misc-utilities/ffmpeg_encoder_decoder/tree/release/README.md">see the full file</a></p>
 </div>
             
           </div>
@@ -1000,7 +1034,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-26
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-08-08
         </span>
       </td>
     </tr>
@@ -1068,7 +1102,7 @@ the code they are contributing to the project according to the
                 
                   <tr>
                     <td><a href="/p/ffmpeg_encoder_decoder/">ffmpeg_encoder_decoder</a></td>
-                    <td>2.0.1</td>
+                    <td>3.0.0</td>
                   </tr>
                 
                 </tbody>
@@ -1088,7 +1122,8 @@ the code they are contributing to the project according to the
 library, for example encoding h264 and h265 or HEVC, using
 Nvidia or other hardware acceleration when available.
 This package is meant to be used by image transport plugins like
-the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmpeg image transport</a>.</p>
+the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmpeg image transport</a>
+and the <a href="https://github.com/ros-misc-utilities/foxglove_compressed_video_transport/">foxglove compressed video transport</a>.</p>
 
 <h2 id="supported-systems">Supported systems</h2>
 
@@ -1096,6 +1131,7 @@ the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmp
 
 <p><a href="https://build.ros2.org/job/Hdev__ffmpeg_encoder_decoder__ubuntu_jammy_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Hdev__ffmpeg_encoder_decoder__ubuntu_jammy_amd64&amp;subject=Humble" alt="Build Status"></a>
  <a href="https://build.ros2.org/job/Jdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Jdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Jazzy" alt="Build Status"></a>
+ <a href="https://build.ros2.org/job/Kdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Kdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Kilted" alt="Build Status"></a>
  <a href="https://build.ros2.org/job/Rdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Rdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Rolling" alt="Build Status"></a></p>
 
 <h2 id="installation">Installation</h2>
@@ -1118,57 +1154,72 @@ the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmp
 
 <p>Make sure to source your workspace’s <code class="language-plaintext highlighter-rouge">install/setup.bash</code> afterwards.</p>
 
-<h2 id="parameters">Parameters</h2>
+<h2 id="api-overview">API overview</h2>
 
-<p>This package has no parameters. It is the upper layer’s responsibility to e.g. manage the mapping between encoder and decoder, i.e. to tell the decoder class which libav decoder should be used for the decoding, or to set the encoding parameters.</p>
+<h3 id="preliminaries">Preliminaries</h3>
+<p>When using libav it is important to understand the difference between the encoder and the codec.
+The <em>codec</em> is the standardized format in which images are encoded, for instance <code class="language-plaintext highlighter-rouge">h264</code> or <code class="language-plaintext highlighter-rouge">hevc</code>.
+The <em>encoder</em> is a libav software module that can encode images for a given codec. For instance <code class="language-plaintext highlighter-rouge">libx264</code>, <code class="language-plaintext highlighter-rouge">libx264rgb</code>,
+ <code class="language-plaintext highlighter-rouge">h264_nvenc</code><code class="language-plaintext highlighter-rouge">, and </code><code class="language-plaintext highlighter-rouge">h264_vaapi</code>` are all <em>encoders</em> that encode for the <em>codec</em> h264.
+Some of the encoders are hardware accelerated, some can handle more image formats than others, but in the end they all encode video for a specific codec.</p>
 
-<h3 id="how-to-use-a-custom-version-of-libav-aka-ffmpeg">How to use a custom version of libav (aka ffmpeg)</h3>
+<p>For the many AV options available for various libav encoders, and for <code class="language-plaintext highlighter-rouge">qmax</code>, <code class="language-plaintext highlighter-rouge">bit_rate</code> and similar settings please refer to the ffmpeg documentation.</p>
 
-<p>Compile <em>and install</em> ffmpeg. Let’s say the install directory is
-<code class="language-plaintext highlighter-rouge">/home/foo/ffmpeg/build</code>, then for it to be found while building,
-run colcon like this:</p>
+<h3 id="the-inner-workings">The inner workings</h3>
+<p><img src="https://raw.githubusercontent.com/ros-misc-utilities/ffmpeg_encoder_decoder/release/./doc/encoder_decoder.svg" alt="overview_diagram"></p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>colcon build --symlink-install --cmake-args --no-warn-unused-cli -DFFMPEG_PKGCONFIG=/home/foo/ffmpeg/build/lib/pkgconfig -DCMAKE_BUILD_TYPE=RelWithDebInfo 
+<p>The diagram above shows the stations that a ROS Image message passes as it traverses the encoder and decoder.
+1) The ROS image (with <a href="https://github.com/ros2/common_interfaces/blob/a2ef867438e6d4eed074d6e3668ae45187e7de86/sensor_msgs/include/sensor_msgs/image_encodings.hpp">ROS sensor_msgs/Image encoding</a>) is first converted with the ROS <a href="https://github.com/ros-perception/vision_opencv">cv_bridge</a> into the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code>.
+ This conversion is necessary because some ROS encodings (like bayer images) are not supported by libswscale.
+ The <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> can be set via <code class="language-plaintext highlighter-rouge">setCVBridgeTargetFormat(const std::string &amp; fmt)</code>.
+ If this format is not set explicitly the image will be converted to the default format of <code class="language-plaintext highlighter-rouge">bgr8</code>.
+ This may not be what you want for e.g. <code class="language-plaintext highlighter-rouge">mono8</code> (gray) or Bayer images.
+ Ideally the<code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> can be directly used by the libav decoder so the next step becomes a no-op.
+ But at the very least <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> must be an acceptable libswscale input format (with the exception of
+ special hacks for encoding single-channel images, see below).
+2) The image is then converted to <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> using libswscale.
+ The <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> can be set with <code class="language-plaintext highlighter-rouge">setAVSourcePixelFormat()</code>, defaulting to something that is acceptable to the libav encoder.
+ You can use ffmpeg (<code class="language-plaintext highlighter-rouge">ffmpeg -h encoder=libx264 | grep formats</code>) to list all formats that an encoder supports.
+ Note that the ffmpeg/libav format string notation is different from the ROS encoding strings, and the <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> is specified using the libav convention, whereas the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> uses ROS convention!
+ (If you choose to bypass the cv_bridge conversion from step 1 by feeding the images to the encoder directly via the <code class="language-plaintext highlighter-rouge">encodeImage(const cv::Mat &amp; img ...)</code> method, you must still set the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> such that the encoder knows what format the <code class="language-plaintext highlighter-rouge">img</code> argument has.)
+ When aiming for lossless compression, beware of any <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> that reduces the color resolution, such as <code class="language-plaintext highlighter-rouge">yuv420p</code>, <code class="language-plaintext highlighter-rouge">nv12</code> etc.
+ For Bayer images, use the special hack for single-channel images.</p>
 
-</code></pre></div></div>
+<p>3) The libav encoder encodes the packet with its supported codec, e.g. the <code class="language-plaintext highlighter-rouge">libx264</code> will produce <code class="language-plaintext highlighter-rouge">h264</code> packets.
+ The <code class="language-plaintext highlighter-rouge">encoding</code> field of the FFMPEGPacket message will document all image format conversions and the codec, in reverse order, separated by semicolon.
+ This way the decoder can attempt to reproduce the original <code class="language-plaintext highlighter-rouge">ros_encoding</code>.</p>
 
-<p>This will compile against the right headers, but at runtime it may
-still load the system ffmpeg libraries. To avoid that, set
-<code class="language-plaintext highlighter-rouge">LD_LIBRARY_PATH</code> at runtime:</p>
+<p>4) The libav decoder decodes the packet into the original <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code>.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>export LD_LIBRARY_PATH=/home/foo/ffmpeg/build/lib:${LD_LIBRARY_PATH}
+<p>5) Finally the image is converted to <code class="language-plaintext highlighter-rouge">output_message_format</code> using libswscale.
+ This format can be set (in ROS encoding syntax!) with <code class="language-plaintext highlighter-rouge">setOutputMessageEncoding()</code>.
+ The format must be supported by both ROS and libswscale (except when using the special hack for single-channel images).</p>
 
-</code></pre></div></div>
+<p>Note that only very few combinations of libav encoders, <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> and <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> have been tested. Please provide feedback if you observe crashes or find obvious bugs. PRs are always appreciated!</p>
 
-<h3 id="how-to-use-ffmpeg-hardware-accelerated-encoding-on-the-nvidia-jetson">How to use ffmpeg hardware accelerated encoding on the NVidia Jetson</h3>
+<h3 id="the-special-single-channel-hack">The special single-channel hack</h3>
 
-<p>Follow the instructions
-<a href="https://github.com/Keylost/jetson-ffmpeg">here</a> to build a version of
-ffmpeg that supports NVMPI. This long magic line should build a nvmpi enabled
-version of ffmpeg and install it under <code class="language-plaintext highlighter-rouge">/usr/local/</code>:</p>
+<p>Many libav encoders do not support single-channel formats (like mono8 or bayer).
+For this reason a special hack is implemented in the encoder that adds an empty (zero-value) color channel to the single-channel image.
+Later, the decoder removes it again.
+To utilitze this hack, specify a <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> of e.g. <code class="language-plaintext highlighter-rouge">bayer_rggb8</code>. Without the special hack, this would trigger an error because Bayer formats are not acceptable to libswscale.
+Instead, the image is converted to <code class="language-plaintext highlighter-rouge">yuv420p</code> or <code class="language-plaintext highlighter-rouge">nv12</code> by adding an empty color channel.
+These formats are acceptable to most encoders.
+The decoder in turn recognizes that the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> is a single-channel format, but <code class="language-plaintext highlighter-rouge">yuv420p</code>/<code class="language-plaintext highlighter-rouge">nv12</code> are not, and therefore drops the color channel.
+This hack greatly improves the efficiency for lossless encoding of Bayer images because it avoids conversion to full RGB and back.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git clone https://github.com/berndpfrommer/jetson-ffmpeg.git &amp;&amp; cd jetson-ffmpeg &amp;&amp; mkdir build &amp;&amp; cd build &amp;&amp; cmake -DCMAKE_INSTALL
-_PREFIX:PATH=/usr/local .. &amp;&amp; make install &amp;&amp; ldconfig &amp;&amp; cd ../.. &amp;&amp; git clone git://source.ffmpeg.org/ffmpeg.git -b release/7.1 --
-depth=1 &amp;&amp;cd jetson-ffmpeg &amp;&amp; ./ffpatch.sh ../ffmpeg &amp;&amp; cd ../ffmpeg &amp;&amp; ./configure --enable-nvmpi --enable-shared --disable-static 
---prefix=/usr/local &amp;&amp; make install
+<h2 id="api-usage">API usage</h2>
 
-</code></pre></div></div>
+<h3 id="encoder">Encoder</h3>
 
-<p>Then follow the section above on how to
-actually use that custom ffmpeg library. As always first test on the
-CLI that the newly compiled <code class="language-plaintext highlighter-rouge">ffmpeg</code> command now supports
-<code class="language-plaintext highlighter-rouge">h264_nvmpi</code>. The transport can then be configured to use
-nvmpi like so:</p>
+<p>Using the encoder involves the following steps:</p>
+<ul>
+  <li>instantiating the <code class="language-plaintext highlighter-rouge">Encoder</code> object.</li>
+  <li>setting properties like the libav encoder to use, the encoding formats, and AV options.</li>
+  <li>initializing the encoder object. This requires knowledge of the image size and therefore</li>
+</ul>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>        parameters=[{'ffmpeg_image_transport.encoding': 'h264_nvmpi',
-                     'ffmpeg_image_transport.profile': 'main',
-                     'ffmpeg_image_transport.preset': 'll',
-                     'ffmpeg_image_transport.gop_size': 15}]
-
-</code></pre></div></div>
-<h2 id="license">License</h2>
-
-<p>This software is issued under the Apache License Version 2.0.</p>
+<p>File truncated at 100 lines <a href="https://github.com/ros-misc-utilities/ffmpeg_encoder_decoder/tree/release/README.md">see the full file</a></p>
 </div>
             
           </div>
@@ -1333,7 +1384,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-26
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-08-08
         </span>
       </td>
     </tr>
@@ -1401,7 +1452,7 @@ the code they are contributing to the project according to the
                 
                   <tr>
                     <td><a href="/p/ffmpeg_encoder_decoder/">ffmpeg_encoder_decoder</a></td>
-                    <td>2.0.1</td>
+                    <td>3.0.0</td>
                   </tr>
                 
                 </tbody>
@@ -1421,7 +1472,8 @@ the code they are contributing to the project according to the
 library, for example encoding h264 and h265 or HEVC, using
 Nvidia or other hardware acceleration when available.
 This package is meant to be used by image transport plugins like
-the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmpeg image transport</a>.</p>
+the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmpeg image transport</a>
+and the <a href="https://github.com/ros-misc-utilities/foxglove_compressed_video_transport/">foxglove compressed video transport</a>.</p>
 
 <h2 id="supported-systems">Supported systems</h2>
 
@@ -1429,6 +1481,7 @@ the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmp
 
 <p><a href="https://build.ros2.org/job/Hdev__ffmpeg_encoder_decoder__ubuntu_jammy_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Hdev__ffmpeg_encoder_decoder__ubuntu_jammy_amd64&amp;subject=Humble" alt="Build Status"></a>
  <a href="https://build.ros2.org/job/Jdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Jdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Jazzy" alt="Build Status"></a>
+ <a href="https://build.ros2.org/job/Kdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Kdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Kilted" alt="Build Status"></a>
  <a href="https://build.ros2.org/job/Rdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Rdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Rolling" alt="Build Status"></a></p>
 
 <h2 id="installation">Installation</h2>
@@ -1451,57 +1504,72 @@ the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmp
 
 <p>Make sure to source your workspace’s <code class="language-plaintext highlighter-rouge">install/setup.bash</code> afterwards.</p>
 
-<h2 id="parameters">Parameters</h2>
+<h2 id="api-overview">API overview</h2>
 
-<p>This package has no parameters. It is the upper layer’s responsibility to e.g. manage the mapping between encoder and decoder, i.e. to tell the decoder class which libav decoder should be used for the decoding, or to set the encoding parameters.</p>
+<h3 id="preliminaries">Preliminaries</h3>
+<p>When using libav it is important to understand the difference between the encoder and the codec.
+The <em>codec</em> is the standardized format in which images are encoded, for instance <code class="language-plaintext highlighter-rouge">h264</code> or <code class="language-plaintext highlighter-rouge">hevc</code>.
+The <em>encoder</em> is a libav software module that can encode images for a given codec. For instance <code class="language-plaintext highlighter-rouge">libx264</code>, <code class="language-plaintext highlighter-rouge">libx264rgb</code>,
+ <code class="language-plaintext highlighter-rouge">h264_nvenc</code><code class="language-plaintext highlighter-rouge">, and </code><code class="language-plaintext highlighter-rouge">h264_vaapi</code>` are all <em>encoders</em> that encode for the <em>codec</em> h264.
+Some of the encoders are hardware accelerated, some can handle more image formats than others, but in the end they all encode video for a specific codec.</p>
 
-<h3 id="how-to-use-a-custom-version-of-libav-aka-ffmpeg">How to use a custom version of libav (aka ffmpeg)</h3>
+<p>For the many AV options available for various libav encoders, and for <code class="language-plaintext highlighter-rouge">qmax</code>, <code class="language-plaintext highlighter-rouge">bit_rate</code> and similar settings please refer to the ffmpeg documentation.</p>
 
-<p>Compile <em>and install</em> ffmpeg. Let’s say the install directory is
-<code class="language-plaintext highlighter-rouge">/home/foo/ffmpeg/build</code>, then for it to be found while building,
-run colcon like this:</p>
+<h3 id="the-inner-workings">The inner workings</h3>
+<p><img src="https://raw.githubusercontent.com/ros-misc-utilities/ffmpeg_encoder_decoder/release/./doc/encoder_decoder.svg" alt="overview_diagram"></p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>colcon build --symlink-install --cmake-args --no-warn-unused-cli -DFFMPEG_PKGCONFIG=/home/foo/ffmpeg/build/lib/pkgconfig -DCMAKE_BUILD_TYPE=RelWithDebInfo 
+<p>The diagram above shows the stations that a ROS Image message passes as it traverses the encoder and decoder.
+1) The ROS image (with <a href="https://github.com/ros2/common_interfaces/blob/a2ef867438e6d4eed074d6e3668ae45187e7de86/sensor_msgs/include/sensor_msgs/image_encodings.hpp">ROS sensor_msgs/Image encoding</a>) is first converted with the ROS <a href="https://github.com/ros-perception/vision_opencv">cv_bridge</a> into the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code>.
+ This conversion is necessary because some ROS encodings (like bayer images) are not supported by libswscale.
+ The <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> can be set via <code class="language-plaintext highlighter-rouge">setCVBridgeTargetFormat(const std::string &amp; fmt)</code>.
+ If this format is not set explicitly the image will be converted to the default format of <code class="language-plaintext highlighter-rouge">bgr8</code>.
+ This may not be what you want for e.g. <code class="language-plaintext highlighter-rouge">mono8</code> (gray) or Bayer images.
+ Ideally the<code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> can be directly used by the libav decoder so the next step becomes a no-op.
+ But at the very least <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> must be an acceptable libswscale input format (with the exception of
+ special hacks for encoding single-channel images, see below).
+2) The image is then converted to <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> using libswscale.
+ The <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> can be set with <code class="language-plaintext highlighter-rouge">setAVSourcePixelFormat()</code>, defaulting to something that is acceptable to the libav encoder.
+ You can use ffmpeg (<code class="language-plaintext highlighter-rouge">ffmpeg -h encoder=libx264 | grep formats</code>) to list all formats that an encoder supports.
+ Note that the ffmpeg/libav format string notation is different from the ROS encoding strings, and the <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> is specified using the libav convention, whereas the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> uses ROS convention!
+ (If you choose to bypass the cv_bridge conversion from step 1 by feeding the images to the encoder directly via the <code class="language-plaintext highlighter-rouge">encodeImage(const cv::Mat &amp; img ...)</code> method, you must still set the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> such that the encoder knows what format the <code class="language-plaintext highlighter-rouge">img</code> argument has.)
+ When aiming for lossless compression, beware of any <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> that reduces the color resolution, such as <code class="language-plaintext highlighter-rouge">yuv420p</code>, <code class="language-plaintext highlighter-rouge">nv12</code> etc.
+ For Bayer images, use the special hack for single-channel images.</p>
 
-</code></pre></div></div>
+<p>3) The libav encoder encodes the packet with its supported codec, e.g. the <code class="language-plaintext highlighter-rouge">libx264</code> will produce <code class="language-plaintext highlighter-rouge">h264</code> packets.
+ The <code class="language-plaintext highlighter-rouge">encoding</code> field of the FFMPEGPacket message will document all image format conversions and the codec, in reverse order, separated by semicolon.
+ This way the decoder can attempt to reproduce the original <code class="language-plaintext highlighter-rouge">ros_encoding</code>.</p>
 
-<p>This will compile against the right headers, but at runtime it may
-still load the system ffmpeg libraries. To avoid that, set
-<code class="language-plaintext highlighter-rouge">LD_LIBRARY_PATH</code> at runtime:</p>
+<p>4) The libav decoder decodes the packet into the original <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code>.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>export LD_LIBRARY_PATH=/home/foo/ffmpeg/build/lib:${LD_LIBRARY_PATH}
+<p>5) Finally the image is converted to <code class="language-plaintext highlighter-rouge">output_message_format</code> using libswscale.
+ This format can be set (in ROS encoding syntax!) with <code class="language-plaintext highlighter-rouge">setOutputMessageEncoding()</code>.
+ The format must be supported by both ROS and libswscale (except when using the special hack for single-channel images).</p>
 
-</code></pre></div></div>
+<p>Note that only very few combinations of libav encoders, <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> and <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> have been tested. Please provide feedback if you observe crashes or find obvious bugs. PRs are always appreciated!</p>
 
-<h3 id="how-to-use-ffmpeg-hardware-accelerated-encoding-on-the-nvidia-jetson">How to use ffmpeg hardware accelerated encoding on the NVidia Jetson</h3>
+<h3 id="the-special-single-channel-hack">The special single-channel hack</h3>
 
-<p>Follow the instructions
-<a href="https://github.com/Keylost/jetson-ffmpeg">here</a> to build a version of
-ffmpeg that supports NVMPI. This long magic line should build a nvmpi enabled
-version of ffmpeg and install it under <code class="language-plaintext highlighter-rouge">/usr/local/</code>:</p>
+<p>Many libav encoders do not support single-channel formats (like mono8 or bayer).
+For this reason a special hack is implemented in the encoder that adds an empty (zero-value) color channel to the single-channel image.
+Later, the decoder removes it again.
+To utilitze this hack, specify a <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> of e.g. <code class="language-plaintext highlighter-rouge">bayer_rggb8</code>. Without the special hack, this would trigger an error because Bayer formats are not acceptable to libswscale.
+Instead, the image is converted to <code class="language-plaintext highlighter-rouge">yuv420p</code> or <code class="language-plaintext highlighter-rouge">nv12</code> by adding an empty color channel.
+These formats are acceptable to most encoders.
+The decoder in turn recognizes that the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> is a single-channel format, but <code class="language-plaintext highlighter-rouge">yuv420p</code>/<code class="language-plaintext highlighter-rouge">nv12</code> are not, and therefore drops the color channel.
+This hack greatly improves the efficiency for lossless encoding of Bayer images because it avoids conversion to full RGB and back.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git clone https://github.com/berndpfrommer/jetson-ffmpeg.git &amp;&amp; cd jetson-ffmpeg &amp;&amp; mkdir build &amp;&amp; cd build &amp;&amp; cmake -DCMAKE_INSTALL
-_PREFIX:PATH=/usr/local .. &amp;&amp; make install &amp;&amp; ldconfig &amp;&amp; cd ../.. &amp;&amp; git clone git://source.ffmpeg.org/ffmpeg.git -b release/7.1 --
-depth=1 &amp;&amp;cd jetson-ffmpeg &amp;&amp; ./ffpatch.sh ../ffmpeg &amp;&amp; cd ../ffmpeg &amp;&amp; ./configure --enable-nvmpi --enable-shared --disable-static 
---prefix=/usr/local &amp;&amp; make install
+<h2 id="api-usage">API usage</h2>
 
-</code></pre></div></div>
+<h3 id="encoder">Encoder</h3>
 
-<p>Then follow the section above on how to
-actually use that custom ffmpeg library. As always first test on the
-CLI that the newly compiled <code class="language-plaintext highlighter-rouge">ffmpeg</code> command now supports
-<code class="language-plaintext highlighter-rouge">h264_nvmpi</code>. The transport can then be configured to use
-nvmpi like so:</p>
+<p>Using the encoder involves the following steps:</p>
+<ul>
+  <li>instantiating the <code class="language-plaintext highlighter-rouge">Encoder</code> object.</li>
+  <li>setting properties like the libav encoder to use, the encoding formats, and AV options.</li>
+  <li>initializing the encoder object. This requires knowledge of the image size and therefore</li>
+</ul>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>        parameters=[{'ffmpeg_image_transport.encoding': 'h264_nvmpi',
-                     'ffmpeg_image_transport.profile': 'main',
-                     'ffmpeg_image_transport.preset': 'll',
-                     'ffmpeg_image_transport.gop_size': 15}]
-
-</code></pre></div></div>
-<h2 id="license">License</h2>
-
-<p>This software is issued under the Apache License Version 2.0.</p>
+<p>File truncated at 100 lines <a href="https://github.com/ros-misc-utilities/ffmpeg_encoder_decoder/tree/release/README.md">see the full file</a></p>
 </div>
             
           </div>
@@ -2121,7 +2189,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-05-26
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-08-08
         </span>
       </td>
     </tr>
@@ -2189,7 +2257,7 @@ the code they are contributing to the project according to the
                 
                   <tr>
                     <td><a href="/p/ffmpeg_encoder_decoder/">ffmpeg_encoder_decoder</a></td>
-                    <td>2.0.1</td>
+                    <td>3.0.0</td>
                   </tr>
                 
                 </tbody>
@@ -2209,7 +2277,8 @@ the code they are contributing to the project according to the
 library, for example encoding h264 and h265 or HEVC, using
 Nvidia or other hardware acceleration when available.
 This package is meant to be used by image transport plugins like
-the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmpeg image transport</a>.</p>
+the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmpeg image transport</a>
+and the <a href="https://github.com/ros-misc-utilities/foxglove_compressed_video_transport/">foxglove compressed video transport</a>.</p>
 
 <h2 id="supported-systems">Supported systems</h2>
 
@@ -2217,6 +2286,7 @@ the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmp
 
 <p><a href="https://build.ros2.org/job/Hdev__ffmpeg_encoder_decoder__ubuntu_jammy_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Hdev__ffmpeg_encoder_decoder__ubuntu_jammy_amd64&amp;subject=Humble" alt="Build Status"></a>
  <a href="https://build.ros2.org/job/Jdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Jdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Jazzy" alt="Build Status"></a>
+ <a href="https://build.ros2.org/job/Kdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Kdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Kilted" alt="Build Status"></a>
  <a href="https://build.ros2.org/job/Rdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64/"><img src="https://build.ros2.org/buildStatus/icon?job=Rdev__ffmpeg_encoder_decoder__ubuntu_noble_amd64&amp;subject=Rolling" alt="Build Status"></a></p>
 
 <h2 id="installation">Installation</h2>
@@ -2239,57 +2309,72 @@ the <a href="https://github.com/ros-misc-utilities/ffmpeg_image_transport/">ffmp
 
 <p>Make sure to source your workspace’s <code class="language-plaintext highlighter-rouge">install/setup.bash</code> afterwards.</p>
 
-<h2 id="parameters">Parameters</h2>
+<h2 id="api-overview">API overview</h2>
 
-<p>This package has no parameters. It is the upper layer’s responsibility to e.g. manage the mapping between encoder and decoder, i.e. to tell the decoder class which libav decoder should be used for the decoding, or to set the encoding parameters.</p>
+<h3 id="preliminaries">Preliminaries</h3>
+<p>When using libav it is important to understand the difference between the encoder and the codec.
+The <em>codec</em> is the standardized format in which images are encoded, for instance <code class="language-plaintext highlighter-rouge">h264</code> or <code class="language-plaintext highlighter-rouge">hevc</code>.
+The <em>encoder</em> is a libav software module that can encode images for a given codec. For instance <code class="language-plaintext highlighter-rouge">libx264</code>, <code class="language-plaintext highlighter-rouge">libx264rgb</code>,
+ <code class="language-plaintext highlighter-rouge">h264_nvenc</code><code class="language-plaintext highlighter-rouge">, and </code><code class="language-plaintext highlighter-rouge">h264_vaapi</code>` are all <em>encoders</em> that encode for the <em>codec</em> h264.
+Some of the encoders are hardware accelerated, some can handle more image formats than others, but in the end they all encode video for a specific codec.</p>
 
-<h3 id="how-to-use-a-custom-version-of-libav-aka-ffmpeg">How to use a custom version of libav (aka ffmpeg)</h3>
+<p>For the many AV options available for various libav encoders, and for <code class="language-plaintext highlighter-rouge">qmax</code>, <code class="language-plaintext highlighter-rouge">bit_rate</code> and similar settings please refer to the ffmpeg documentation.</p>
 
-<p>Compile <em>and install</em> ffmpeg. Let’s say the install directory is
-<code class="language-plaintext highlighter-rouge">/home/foo/ffmpeg/build</code>, then for it to be found while building,
-run colcon like this:</p>
+<h3 id="the-inner-workings">The inner workings</h3>
+<p><img src="https://raw.githubusercontent.com/ros-misc-utilities/ffmpeg_encoder_decoder/release/./doc/encoder_decoder.svg" alt="overview_diagram"></p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>colcon build --symlink-install --cmake-args --no-warn-unused-cli -DFFMPEG_PKGCONFIG=/home/foo/ffmpeg/build/lib/pkgconfig -DCMAKE_BUILD_TYPE=RelWithDebInfo 
+<p>The diagram above shows the stations that a ROS Image message passes as it traverses the encoder and decoder.
+1) The ROS image (with <a href="https://github.com/ros2/common_interfaces/blob/a2ef867438e6d4eed074d6e3668ae45187e7de86/sensor_msgs/include/sensor_msgs/image_encodings.hpp">ROS sensor_msgs/Image encoding</a>) is first converted with the ROS <a href="https://github.com/ros-perception/vision_opencv">cv_bridge</a> into the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code>.
+ This conversion is necessary because some ROS encodings (like bayer images) are not supported by libswscale.
+ The <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> can be set via <code class="language-plaintext highlighter-rouge">setCVBridgeTargetFormat(const std::string &amp; fmt)</code>.
+ If this format is not set explicitly the image will be converted to the default format of <code class="language-plaintext highlighter-rouge">bgr8</code>.
+ This may not be what you want for e.g. <code class="language-plaintext highlighter-rouge">mono8</code> (gray) or Bayer images.
+ Ideally the<code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> can be directly used by the libav decoder so the next step becomes a no-op.
+ But at the very least <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> must be an acceptable libswscale input format (with the exception of
+ special hacks for encoding single-channel images, see below).
+2) The image is then converted to <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> using libswscale.
+ The <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> can be set with <code class="language-plaintext highlighter-rouge">setAVSourcePixelFormat()</code>, defaulting to something that is acceptable to the libav encoder.
+ You can use ffmpeg (<code class="language-plaintext highlighter-rouge">ffmpeg -h encoder=libx264 | grep formats</code>) to list all formats that an encoder supports.
+ Note that the ffmpeg/libav format string notation is different from the ROS encoding strings, and the <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> is specified using the libav convention, whereas the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> uses ROS convention!
+ (If you choose to bypass the cv_bridge conversion from step 1 by feeding the images to the encoder directly via the <code class="language-plaintext highlighter-rouge">encodeImage(const cv::Mat &amp; img ...)</code> method, you must still set the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> such that the encoder knows what format the <code class="language-plaintext highlighter-rouge">img</code> argument has.)
+ When aiming for lossless compression, beware of any <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> that reduces the color resolution, such as <code class="language-plaintext highlighter-rouge">yuv420p</code>, <code class="language-plaintext highlighter-rouge">nv12</code> etc.
+ For Bayer images, use the special hack for single-channel images.</p>
 
-</code></pre></div></div>
+<p>3) The libav encoder encodes the packet with its supported codec, e.g. the <code class="language-plaintext highlighter-rouge">libx264</code> will produce <code class="language-plaintext highlighter-rouge">h264</code> packets.
+ The <code class="language-plaintext highlighter-rouge">encoding</code> field of the FFMPEGPacket message will document all image format conversions and the codec, in reverse order, separated by semicolon.
+ This way the decoder can attempt to reproduce the original <code class="language-plaintext highlighter-rouge">ros_encoding</code>.</p>
 
-<p>This will compile against the right headers, but at runtime it may
-still load the system ffmpeg libraries. To avoid that, set
-<code class="language-plaintext highlighter-rouge">LD_LIBRARY_PATH</code> at runtime:</p>
+<p>4) The libav decoder decodes the packet into the original <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code>.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>export LD_LIBRARY_PATH=/home/foo/ffmpeg/build/lib:${LD_LIBRARY_PATH}
+<p>5) Finally the image is converted to <code class="language-plaintext highlighter-rouge">output_message_format</code> using libswscale.
+ This format can be set (in ROS encoding syntax!) with <code class="language-plaintext highlighter-rouge">setOutputMessageEncoding()</code>.
+ The format must be supported by both ROS and libswscale (except when using the special hack for single-channel images).</p>
 
-</code></pre></div></div>
+<p>Note that only very few combinations of libav encoders, <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> and <code class="language-plaintext highlighter-rouge">av_source_pixel_format</code> have been tested. Please provide feedback if you observe crashes or find obvious bugs. PRs are always appreciated!</p>
 
-<h3 id="how-to-use-ffmpeg-hardware-accelerated-encoding-on-the-nvidia-jetson">How to use ffmpeg hardware accelerated encoding on the NVidia Jetson</h3>
+<h3 id="the-special-single-channel-hack">The special single-channel hack</h3>
 
-<p>Follow the instructions
-<a href="https://github.com/Keylost/jetson-ffmpeg">here</a> to build a version of
-ffmpeg that supports NVMPI. This long magic line should build a nvmpi enabled
-version of ffmpeg and install it under <code class="language-plaintext highlighter-rouge">/usr/local/</code>:</p>
+<p>Many libav encoders do not support single-channel formats (like mono8 or bayer).
+For this reason a special hack is implemented in the encoder that adds an empty (zero-value) color channel to the single-channel image.
+Later, the decoder removes it again.
+To utilitze this hack, specify a <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> of e.g. <code class="language-plaintext highlighter-rouge">bayer_rggb8</code>. Without the special hack, this would trigger an error because Bayer formats are not acceptable to libswscale.
+Instead, the image is converted to <code class="language-plaintext highlighter-rouge">yuv420p</code> or <code class="language-plaintext highlighter-rouge">nv12</code> by adding an empty color channel.
+These formats are acceptable to most encoders.
+The decoder in turn recognizes that the <code class="language-plaintext highlighter-rouge">cv_bridge_target_format</code> is a single-channel format, but <code class="language-plaintext highlighter-rouge">yuv420p</code>/<code class="language-plaintext highlighter-rouge">nv12</code> are not, and therefore drops the color channel.
+This hack greatly improves the efficiency for lossless encoding of Bayer images because it avoids conversion to full RGB and back.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>git clone https://github.com/berndpfrommer/jetson-ffmpeg.git &amp;&amp; cd jetson-ffmpeg &amp;&amp; mkdir build &amp;&amp; cd build &amp;&amp; cmake -DCMAKE_INSTALL
-_PREFIX:PATH=/usr/local .. &amp;&amp; make install &amp;&amp; ldconfig &amp;&amp; cd ../.. &amp;&amp; git clone git://source.ffmpeg.org/ffmpeg.git -b release/7.1 --
-depth=1 &amp;&amp;cd jetson-ffmpeg &amp;&amp; ./ffpatch.sh ../ffmpeg &amp;&amp; cd ../ffmpeg &amp;&amp; ./configure --enable-nvmpi --enable-shared --disable-static 
---prefix=/usr/local &amp;&amp; make install
+<h2 id="api-usage">API usage</h2>
 
-</code></pre></div></div>
+<h3 id="encoder">Encoder</h3>
 
-<p>Then follow the section above on how to
-actually use that custom ffmpeg library. As always first test on the
-CLI that the newly compiled <code class="language-plaintext highlighter-rouge">ffmpeg</code> command now supports
-<code class="language-plaintext highlighter-rouge">h264_nvmpi</code>. The transport can then be configured to use
-nvmpi like so:</p>
+<p>Using the encoder involves the following steps:</p>
+<ul>
+  <li>instantiating the <code class="language-plaintext highlighter-rouge">Encoder</code> object.</li>
+  <li>setting properties like the libav encoder to use, the encoding formats, and AV options.</li>
+  <li>initializing the encoder object. This requires knowledge of the image size and therefore</li>
+</ul>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>        parameters=[{'ffmpeg_image_transport.encoding': 'h264_nvmpi',
-                     'ffmpeg_image_transport.profile': 'main',
-                     'ffmpeg_image_transport.preset': 'll',
-                     'ffmpeg_image_transport.gop_size': 15}]
-
-</code></pre></div></div>
-<h2 id="license">License</h2>
-
-<p>This software is issued under the Apache License Version 2.0.</p>
+<p>File truncated at 100 lines <a href="https://github.com/ros-misc-utilities/ffmpeg_encoder_decoder/tree/release/README.md">see the full file</a></p>
 </div>
             
           </div>
@@ -2853,7 +2938,7 @@ the code they are contributing to the project according to the
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2025-08-01</em>
+        <em class="hidden-xs">| generated on 2025-08-09</em>
       
       </div>
       <div style="float:right;">
