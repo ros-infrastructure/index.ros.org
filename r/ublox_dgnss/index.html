@@ -344,7 +344,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-07-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-08-15
         </span>
       </td>
     </tr>
@@ -455,13 +455,15 @@
 
 <h1 id="ublox-dgnss">ublox-dgnss</h1>
 
-<p>This usb based driver is focused on UBLOX Generation 9 UBX messaging, for a DGNSS rover. High precision data is available. A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.</p>
+<p>This usb based driver is focused on UBLOX  UBX messaging, for a DGNSS rover and base station. High precision data is available.</p>
+
+<p>A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.</p>
 
 <p>RTCM messages can be delivered externally. Alternately the ntrip_client_node can be utilised to retrieve RTCM messages from a castor to publish <code class="language-plaintext highlighter-rouge">/ntrip_client/rtcm</code> messages which will be received by the ublox_dgnss_node.</p>
 
 <p>Work has started on SPARTN support - basic commands are available to enable it on the device and to confirm that the messages are being used (when delivered to the device).</p>
 
-<p>This driver will only work with later generation ublox devices. Testing and development was performed against a ZED-F9P and a ZED-F9R connected via USB, under Ubuntu 22.04/24.04. The driver uses libusb api 1.0.</p>
+<p>This driver supports multiple u-blox device families including ZED-F9P, ZED-F9R, and X20P connected via USB, under Ubuntu 22.04/24.04. The driver uses libusb api 1.0 and automatically adapts to different USB architectures (CDC-ACM for F9 family, Vendor-Specific for X20P).</p>
 
 <p>This release works with Rolling, Kilted, Jazzy and Humble.</p>
 
@@ -469,29 +471,74 @@
 
 <p>/etc/udev/rules.d/99-ublox-gnss.rules</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  #UBLOX ZED-F9
-  ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev"
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># UBLOX ZED-F9P/F9R (CDC-ACM)
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev"
+
+# UBLOX ZED-X20P (CDC-ACM) - SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01ab", MODE="0666", GROUP="plugdev"
+# UBLOX X20P UART1 (Vendor-Specific) - NOT SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="050c", MODE="0666", GROUP="plugdev"
+# UBLOX X20P UART2 (Vendor-Specific) - NOT SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="050d", MODE="0666", GROUP="plugdev"
 
 </code></pre></div></div>
 
-<p>This driver follows the UBX standards used for the ZED-F9P/F9R as documented in the <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-F9-HPG-1.32_InterfaceDescription_UBX-22008968.pdf">F9P interface description</a> and <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-F9-HPS-1.30_InterfaceDescription_UBX-22010984.pdf">F9R interface description</a>.</p>
+<p>This driver follows the UBX standards used for the ZED-X20P/F9P/F9R as documented in the <a href="https://content.u-blox.com/sites/default/files/documents/ZED-X20P_IntegrationManual_UBXDOC-963802114-12901.pdf">X20P intergration manual</a> and <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-20-HPG-2.00_InterfaceDescription_UBXDOC-304424225-19888.pdf">X20P interface description</a>. Earlier manual versions are available on the u-blox website.</p>
 
-<p>It implements a subset of the specification related to achieving high precision output as a rover. U-center can be used to alter settings. Any configuration parameter changed by this driver, will be applied only in RAM. Upon a restart (hot, cold or warm) or after a hot plug usb attach event, the configuration stored in the driver will be sent to the device.</p>
+<p>It implements a subset of the specification related to achieving high precision output as a rover and base station. U-center can be used to alter settings. Any configuration parameter changed by this driver, will be applied only in RAM. Upon a restart (hot, cold or warm) or after a hot plug usb attach event, the configuration stored in the driver will be sent to the device.</p>
+
+<h2 id="zed-x20p-support">ZED-X20P support</h2>
+
+<p>The UBLOX ZED-X20P has only just been released. There are some differences between the F9P and X20P. On the whole the UBX messages are the same specification but there are some like <code class="language-plaintext highlighter-rouge">/ubx_rxm_rtcm</code> that have been deprecated, on the device, in the manual, in favor of the newer <code class="language-plaintext highlighter-rouge">/ubx_rxm_cor</code>.</p>
+
+<p><strong>⚠️ Important: X20P Interface Limitations</strong></p>
+
+<p>The X20P device presents multiple USB interfaces:</p>
+<ul>
+  <li>
+<strong>✅ Main Interface (0x01ab)</strong>: Fully supported with F9P/F9R compatibility</li>
+  <li>
+<strong>❌ UART1 Interface (0x050c)</strong>: Not currently supported</li>
+  <li>
+<strong>❌ UART2 Interface (0x050d)</strong>: Not currently supported</li>
+</ul>
+
+<p><strong>Use only the main X20P interface (0x01ab) for full functionality.</strong> See <a href="https://github.com/aussierobots/ublox_dgnss/issues/48">GitHub Issue #48</a> for technical details.</p>
+
+<p>Two new launch files with 25 HZ output have been added specific for the X20P main interface:</p>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_x20p_rover_hpposllh.launch.py
+
+</code></pre></div></div>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_x20p_rover_hpposllh_navsatfix.launch.py
+
+</code></pre></div></div>
+
+<p>otherwise all other launch files have been modified such that adding <code class="language-plaintext highlighter-rouge">-- DEVICE_FAMILY:=x20p</code> will enable the launch file and UBLOX NODE to connect to a ZED-X20P main interface. If not added the launch files default to the f9p device family.</p>
 
 <h2 id="start-commands">Start commands</h2>
 
 <p>There are multiple ways to start the node. Its been built using composition. An executable is provider. An example follows which turns off NMEA output at startup.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run ublox_dgnss_node ublox_dgnss_node --ros-args -p CFG_USBOUTPROT_NMEA:=False
-
-</code></pre></div></div>
-<p>Parameters can be set at launch and some examples are provided to launch high precision pos ecef|llh</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run ublox_dgnss_node ublox_dgnss_node <span class="nt">--ros-args</span> <span class="nt">-p</span> CFG_USBOUTPROT_NMEA:<span class="o">=</span>False
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
+<table>
+  <tbody>
+    <tr>
+      <td>Parameters can be set at launch and some examples are provided to launch high precision pos ecef</td>
+      <td>llh</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
+
+</code></pre></div></div>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
 
 </code></pre></div></div>
 
@@ -499,67 +546,23 @@
 
 <p>Four services are provided to reset odo, cold start, warm start and hot start.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/reset_odo ublox_ubx_interfaces/srv/ResetODO
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/reset_odo ublox_ubx_interfaces/srv/ResetODO
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/cold_start ublox_ubx_interfaces/srv/ColdStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/cold_start ublox_ubx_interfaces/srv/ColdStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/warm_start ublox_ubx_interfaces/srv/WarmStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/warm_start ublox_ubx_interfaces/srv/WarmStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/hot_start ublox_ubx_interfaces/srv/HotStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/hot_start ublox_ubx_interfaces/srv/HotStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
 <h2 id="parameters">Parameters</h2>
-
-<p>Parameter values can be set at any time or passed when the node starts</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 param set /ublox_dgnss CFG_RATE_NAV 2
-
-</code></pre></div></div>
-<p>or the current value retrieved</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 param get /ublox_dgnss CFG_RATE_NAV
-
-</code></pre></div></div>
-<h3 id="ubx-parameters">UBX Parameters</h3>
-
-<p>The following parameters may be set. Its a subset of the full UBX Gen 9 configuration parameter list.</p>
-
-<p>Values will be as described in the integration manual (without scaling applied). Changing a CFG_MSGOUT_* type parameter to a value &gt;0 will cause the corresponding ublox_ubx_msgs to be published.</p>
-
-<p>CFG_INFMSG_NMEA_USB
-  CFG_INFMSG_UBX_USB
-  CFG_MSGOUT_UBX_NAV_CLOCK_USB
-  CFG_MSGOUT_UBX_NAV_COV_USB
-  CFG_MSGOUT_UBX_NAV_DOP_USB
-  CFG_MSGOUT_UBX_NAV_EOE_USB
-  CFG_MSGOUT_UBX_NAV_HPPOSECEF_USB
-  CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB
-  CFG_MSGOUT_UBX_NAV_ODO_USB
-  CFG_MSGOUT_UBX_NAV_ORB_USB
-  CFG_MSGOUT_UBX_NAV_SAT_USB
-  CFG_MSGOUT_UBX_NAV_SIG_USB
-  CFG_MSGOUT_UBX_NAV_POSECEF_USB
-  CFG_MSGOUT_UBX_NAV_POSLLH_USB
-  CFG_MSGOUT_UBX_NAV_PVT_USB
-  CFG_MSGOUT_UBX_NAV_RELPOSNED_USB
-  CFG_MSGOUT_UBX_NAV_STATUS_USB
-  CFG_MSGOUT_UBX_NAV_TIMEUTC_USB
-  CFG_MSGOUT_UBX_NAV_VELECEF_USB
-  CFG_MSGOUT_UBX_NAV_VELNED_USB
-  CFG_MSGOUT_UBX_RXM_COR_USB
-  CFG_MSGOUT_UBX_RXM_RTCM_USB
-  CFG_MSGOUT_UBX_RXM_MEASX_USB
-  CFG_MSGOUT_UBX_RXM_RAWX_USB
-  CFG_MSGOUT_UBX_RXM_SPARTN_USB
-  CFG_MSGOUT_UBX_MON_COMMS_USB
-  CFG_MSGOUT_UBX_ESF_MEAS_USB</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/aussierobots/ublox_dgnss/tree/main/README.md">see the full file</a></p>
 </div>
@@ -700,7 +703,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-07-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-08-15
         </span>
       </td>
     </tr>
@@ -811,13 +814,15 @@
 
 <h1 id="ublox-dgnss">ublox-dgnss</h1>
 
-<p>This usb based driver is focused on UBLOX Generation 9 UBX messaging, for a DGNSS rover. High precision data is available. A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.</p>
+<p>This usb based driver is focused on UBLOX  UBX messaging, for a DGNSS rover and base station. High precision data is available.</p>
+
+<p>A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.</p>
 
 <p>RTCM messages can be delivered externally. Alternately the ntrip_client_node can be utilised to retrieve RTCM messages from a castor to publish <code class="language-plaintext highlighter-rouge">/ntrip_client/rtcm</code> messages which will be received by the ublox_dgnss_node.</p>
 
 <p>Work has started on SPARTN support - basic commands are available to enable it on the device and to confirm that the messages are being used (when delivered to the device).</p>
 
-<p>This driver will only work with later generation ublox devices. Testing and development was performed against a ZED-F9P and a ZED-F9R connected via USB, under Ubuntu 22.04/24.04. The driver uses libusb api 1.0.</p>
+<p>This driver supports multiple u-blox device families including ZED-F9P, ZED-F9R, and X20P connected via USB, under Ubuntu 22.04/24.04. The driver uses libusb api 1.0 and automatically adapts to different USB architectures (CDC-ACM for F9 family, Vendor-Specific for X20P).</p>
 
 <p>This release works with Rolling, Kilted, Jazzy and Humble.</p>
 
@@ -825,29 +830,74 @@
 
 <p>/etc/udev/rules.d/99-ublox-gnss.rules</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  #UBLOX ZED-F9
-  ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev"
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># UBLOX ZED-F9P/F9R (CDC-ACM)
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev"
+
+# UBLOX ZED-X20P (CDC-ACM) - SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01ab", MODE="0666", GROUP="plugdev"
+# UBLOX X20P UART1 (Vendor-Specific) - NOT SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="050c", MODE="0666", GROUP="plugdev"
+# UBLOX X20P UART2 (Vendor-Specific) - NOT SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="050d", MODE="0666", GROUP="plugdev"
 
 </code></pre></div></div>
 
-<p>This driver follows the UBX standards used for the ZED-F9P/F9R as documented in the <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-F9-HPG-1.32_InterfaceDescription_UBX-22008968.pdf">F9P interface description</a> and <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-F9-HPS-1.30_InterfaceDescription_UBX-22010984.pdf">F9R interface description</a>.</p>
+<p>This driver follows the UBX standards used for the ZED-X20P/F9P/F9R as documented in the <a href="https://content.u-blox.com/sites/default/files/documents/ZED-X20P_IntegrationManual_UBXDOC-963802114-12901.pdf">X20P intergration manual</a> and <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-20-HPG-2.00_InterfaceDescription_UBXDOC-304424225-19888.pdf">X20P interface description</a>. Earlier manual versions are available on the u-blox website.</p>
 
-<p>It implements a subset of the specification related to achieving high precision output as a rover. U-center can be used to alter settings. Any configuration parameter changed by this driver, will be applied only in RAM. Upon a restart (hot, cold or warm) or after a hot plug usb attach event, the configuration stored in the driver will be sent to the device.</p>
+<p>It implements a subset of the specification related to achieving high precision output as a rover and base station. U-center can be used to alter settings. Any configuration parameter changed by this driver, will be applied only in RAM. Upon a restart (hot, cold or warm) or after a hot plug usb attach event, the configuration stored in the driver will be sent to the device.</p>
+
+<h2 id="zed-x20p-support">ZED-X20P support</h2>
+
+<p>The UBLOX ZED-X20P has only just been released. There are some differences between the F9P and X20P. On the whole the UBX messages are the same specification but there are some like <code class="language-plaintext highlighter-rouge">/ubx_rxm_rtcm</code> that have been deprecated, on the device, in the manual, in favor of the newer <code class="language-plaintext highlighter-rouge">/ubx_rxm_cor</code>.</p>
+
+<p><strong>⚠️ Important: X20P Interface Limitations</strong></p>
+
+<p>The X20P device presents multiple USB interfaces:</p>
+<ul>
+  <li>
+<strong>✅ Main Interface (0x01ab)</strong>: Fully supported with F9P/F9R compatibility</li>
+  <li>
+<strong>❌ UART1 Interface (0x050c)</strong>: Not currently supported</li>
+  <li>
+<strong>❌ UART2 Interface (0x050d)</strong>: Not currently supported</li>
+</ul>
+
+<p><strong>Use only the main X20P interface (0x01ab) for full functionality.</strong> See <a href="https://github.com/aussierobots/ublox_dgnss/issues/48">GitHub Issue #48</a> for technical details.</p>
+
+<p>Two new launch files with 25 HZ output have been added specific for the X20P main interface:</p>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_x20p_rover_hpposllh.launch.py
+
+</code></pre></div></div>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_x20p_rover_hpposllh_navsatfix.launch.py
+
+</code></pre></div></div>
+
+<p>otherwise all other launch files have been modified such that adding <code class="language-plaintext highlighter-rouge">-- DEVICE_FAMILY:=x20p</code> will enable the launch file and UBLOX NODE to connect to a ZED-X20P main interface. If not added the launch files default to the f9p device family.</p>
 
 <h2 id="start-commands">Start commands</h2>
 
 <p>There are multiple ways to start the node. Its been built using composition. An executable is provider. An example follows which turns off NMEA output at startup.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run ublox_dgnss_node ublox_dgnss_node --ros-args -p CFG_USBOUTPROT_NMEA:=False
-
-</code></pre></div></div>
-<p>Parameters can be set at launch and some examples are provided to launch high precision pos ecef|llh</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run ublox_dgnss_node ublox_dgnss_node <span class="nt">--ros-args</span> <span class="nt">-p</span> CFG_USBOUTPROT_NMEA:<span class="o">=</span>False
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
+<table>
+  <tbody>
+    <tr>
+      <td>Parameters can be set at launch and some examples are provided to launch high precision pos ecef</td>
+      <td>llh</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
+
+</code></pre></div></div>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
 
 </code></pre></div></div>
 
@@ -855,67 +905,23 @@
 
 <p>Four services are provided to reset odo, cold start, warm start and hot start.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/reset_odo ublox_ubx_interfaces/srv/ResetODO
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/reset_odo ublox_ubx_interfaces/srv/ResetODO
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/cold_start ublox_ubx_interfaces/srv/ColdStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/cold_start ublox_ubx_interfaces/srv/ColdStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/warm_start ublox_ubx_interfaces/srv/WarmStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/warm_start ublox_ubx_interfaces/srv/WarmStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/hot_start ublox_ubx_interfaces/srv/HotStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/hot_start ublox_ubx_interfaces/srv/HotStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
 <h2 id="parameters">Parameters</h2>
-
-<p>Parameter values can be set at any time or passed when the node starts</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 param set /ublox_dgnss CFG_RATE_NAV 2
-
-</code></pre></div></div>
-<p>or the current value retrieved</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 param get /ublox_dgnss CFG_RATE_NAV
-
-</code></pre></div></div>
-<h3 id="ubx-parameters">UBX Parameters</h3>
-
-<p>The following parameters may be set. Its a subset of the full UBX Gen 9 configuration parameter list.</p>
-
-<p>Values will be as described in the integration manual (without scaling applied). Changing a CFG_MSGOUT_* type parameter to a value &gt;0 will cause the corresponding ublox_ubx_msgs to be published.</p>
-
-<p>CFG_INFMSG_NMEA_USB
-  CFG_INFMSG_UBX_USB
-  CFG_MSGOUT_UBX_NAV_CLOCK_USB
-  CFG_MSGOUT_UBX_NAV_COV_USB
-  CFG_MSGOUT_UBX_NAV_DOP_USB
-  CFG_MSGOUT_UBX_NAV_EOE_USB
-  CFG_MSGOUT_UBX_NAV_HPPOSECEF_USB
-  CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB
-  CFG_MSGOUT_UBX_NAV_ODO_USB
-  CFG_MSGOUT_UBX_NAV_ORB_USB
-  CFG_MSGOUT_UBX_NAV_SAT_USB
-  CFG_MSGOUT_UBX_NAV_SIG_USB
-  CFG_MSGOUT_UBX_NAV_POSECEF_USB
-  CFG_MSGOUT_UBX_NAV_POSLLH_USB
-  CFG_MSGOUT_UBX_NAV_PVT_USB
-  CFG_MSGOUT_UBX_NAV_RELPOSNED_USB
-  CFG_MSGOUT_UBX_NAV_STATUS_USB
-  CFG_MSGOUT_UBX_NAV_TIMEUTC_USB
-  CFG_MSGOUT_UBX_NAV_VELECEF_USB
-  CFG_MSGOUT_UBX_NAV_VELNED_USB
-  CFG_MSGOUT_UBX_RXM_COR_USB
-  CFG_MSGOUT_UBX_RXM_RTCM_USB
-  CFG_MSGOUT_UBX_RXM_MEASX_USB
-  CFG_MSGOUT_UBX_RXM_RAWX_USB
-  CFG_MSGOUT_UBX_RXM_SPARTN_USB
-  CFG_MSGOUT_UBX_MON_COMMS_USB
-  CFG_MSGOUT_UBX_ESF_MEAS_USB</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/aussierobots/ublox_dgnss/tree/main/README.md">see the full file</a></p>
 </div>
@@ -1056,7 +1062,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-07-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-08-15
         </span>
       </td>
     </tr>
@@ -1167,13 +1173,15 @@
 
 <h1 id="ublox-dgnss">ublox-dgnss</h1>
 
-<p>This usb based driver is focused on UBLOX Generation 9 UBX messaging, for a DGNSS rover. High precision data is available. A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.</p>
+<p>This usb based driver is focused on UBLOX  UBX messaging, for a DGNSS rover and base station. High precision data is available.</p>
+
+<p>A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.</p>
 
 <p>RTCM messages can be delivered externally. Alternately the ntrip_client_node can be utilised to retrieve RTCM messages from a castor to publish <code class="language-plaintext highlighter-rouge">/ntrip_client/rtcm</code> messages which will be received by the ublox_dgnss_node.</p>
 
 <p>Work has started on SPARTN support - basic commands are available to enable it on the device and to confirm that the messages are being used (when delivered to the device).</p>
 
-<p>This driver will only work with later generation ublox devices. Testing and development was performed against a ZED-F9P and a ZED-F9R connected via USB, under Ubuntu 22.04/24.04. The driver uses libusb api 1.0.</p>
+<p>This driver supports multiple u-blox device families including ZED-F9P, ZED-F9R, and X20P connected via USB, under Ubuntu 22.04/24.04. The driver uses libusb api 1.0 and automatically adapts to different USB architectures (CDC-ACM for F9 family, Vendor-Specific for X20P).</p>
 
 <p>This release works with Rolling, Kilted, Jazzy and Humble.</p>
 
@@ -1181,29 +1189,74 @@
 
 <p>/etc/udev/rules.d/99-ublox-gnss.rules</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  #UBLOX ZED-F9
-  ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev"
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># UBLOX ZED-F9P/F9R (CDC-ACM)
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev"
+
+# UBLOX ZED-X20P (CDC-ACM) - SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01ab", MODE="0666", GROUP="plugdev"
+# UBLOX X20P UART1 (Vendor-Specific) - NOT SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="050c", MODE="0666", GROUP="plugdev"
+# UBLOX X20P UART2 (Vendor-Specific) - NOT SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="050d", MODE="0666", GROUP="plugdev"
 
 </code></pre></div></div>
 
-<p>This driver follows the UBX standards used for the ZED-F9P/F9R as documented in the <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-F9-HPG-1.32_InterfaceDescription_UBX-22008968.pdf">F9P interface description</a> and <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-F9-HPS-1.30_InterfaceDescription_UBX-22010984.pdf">F9R interface description</a>.</p>
+<p>This driver follows the UBX standards used for the ZED-X20P/F9P/F9R as documented in the <a href="https://content.u-blox.com/sites/default/files/documents/ZED-X20P_IntegrationManual_UBXDOC-963802114-12901.pdf">X20P intergration manual</a> and <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-20-HPG-2.00_InterfaceDescription_UBXDOC-304424225-19888.pdf">X20P interface description</a>. Earlier manual versions are available on the u-blox website.</p>
 
-<p>It implements a subset of the specification related to achieving high precision output as a rover. U-center can be used to alter settings. Any configuration parameter changed by this driver, will be applied only in RAM. Upon a restart (hot, cold or warm) or after a hot plug usb attach event, the configuration stored in the driver will be sent to the device.</p>
+<p>It implements a subset of the specification related to achieving high precision output as a rover and base station. U-center can be used to alter settings. Any configuration parameter changed by this driver, will be applied only in RAM. Upon a restart (hot, cold or warm) or after a hot plug usb attach event, the configuration stored in the driver will be sent to the device.</p>
+
+<h2 id="zed-x20p-support">ZED-X20P support</h2>
+
+<p>The UBLOX ZED-X20P has only just been released. There are some differences between the F9P and X20P. On the whole the UBX messages are the same specification but there are some like <code class="language-plaintext highlighter-rouge">/ubx_rxm_rtcm</code> that have been deprecated, on the device, in the manual, in favor of the newer <code class="language-plaintext highlighter-rouge">/ubx_rxm_cor</code>.</p>
+
+<p><strong>⚠️ Important: X20P Interface Limitations</strong></p>
+
+<p>The X20P device presents multiple USB interfaces:</p>
+<ul>
+  <li>
+<strong>✅ Main Interface (0x01ab)</strong>: Fully supported with F9P/F9R compatibility</li>
+  <li>
+<strong>❌ UART1 Interface (0x050c)</strong>: Not currently supported</li>
+  <li>
+<strong>❌ UART2 Interface (0x050d)</strong>: Not currently supported</li>
+</ul>
+
+<p><strong>Use only the main X20P interface (0x01ab) for full functionality.</strong> See <a href="https://github.com/aussierobots/ublox_dgnss/issues/48">GitHub Issue #48</a> for technical details.</p>
+
+<p>Two new launch files with 25 HZ output have been added specific for the X20P main interface:</p>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_x20p_rover_hpposllh.launch.py
+
+</code></pre></div></div>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_x20p_rover_hpposllh_navsatfix.launch.py
+
+</code></pre></div></div>
+
+<p>otherwise all other launch files have been modified such that adding <code class="language-plaintext highlighter-rouge">-- DEVICE_FAMILY:=x20p</code> will enable the launch file and UBLOX NODE to connect to a ZED-X20P main interface. If not added the launch files default to the f9p device family.</p>
 
 <h2 id="start-commands">Start commands</h2>
 
 <p>There are multiple ways to start the node. Its been built using composition. An executable is provider. An example follows which turns off NMEA output at startup.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run ublox_dgnss_node ublox_dgnss_node --ros-args -p CFG_USBOUTPROT_NMEA:=False
-
-</code></pre></div></div>
-<p>Parameters can be set at launch and some examples are provided to launch high precision pos ecef|llh</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run ublox_dgnss_node ublox_dgnss_node <span class="nt">--ros-args</span> <span class="nt">-p</span> CFG_USBOUTPROT_NMEA:<span class="o">=</span>False
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
+<table>
+  <tbody>
+    <tr>
+      <td>Parameters can be set at launch and some examples are provided to launch high precision pos ecef</td>
+      <td>llh</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
+
+</code></pre></div></div>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
 
 </code></pre></div></div>
 
@@ -1211,67 +1264,23 @@
 
 <p>Four services are provided to reset odo, cold start, warm start and hot start.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/reset_odo ublox_ubx_interfaces/srv/ResetODO
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/reset_odo ublox_ubx_interfaces/srv/ResetODO
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/cold_start ublox_ubx_interfaces/srv/ColdStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/cold_start ublox_ubx_interfaces/srv/ColdStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/warm_start ublox_ubx_interfaces/srv/WarmStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/warm_start ublox_ubx_interfaces/srv/WarmStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/hot_start ublox_ubx_interfaces/srv/HotStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/hot_start ublox_ubx_interfaces/srv/HotStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
 <h2 id="parameters">Parameters</h2>
-
-<p>Parameter values can be set at any time or passed when the node starts</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 param set /ublox_dgnss CFG_RATE_NAV 2
-
-</code></pre></div></div>
-<p>or the current value retrieved</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 param get /ublox_dgnss CFG_RATE_NAV
-
-</code></pre></div></div>
-<h3 id="ubx-parameters">UBX Parameters</h3>
-
-<p>The following parameters may be set. Its a subset of the full UBX Gen 9 configuration parameter list.</p>
-
-<p>Values will be as described in the integration manual (without scaling applied). Changing a CFG_MSGOUT_* type parameter to a value &gt;0 will cause the corresponding ublox_ubx_msgs to be published.</p>
-
-<p>CFG_INFMSG_NMEA_USB
-  CFG_INFMSG_UBX_USB
-  CFG_MSGOUT_UBX_NAV_CLOCK_USB
-  CFG_MSGOUT_UBX_NAV_COV_USB
-  CFG_MSGOUT_UBX_NAV_DOP_USB
-  CFG_MSGOUT_UBX_NAV_EOE_USB
-  CFG_MSGOUT_UBX_NAV_HPPOSECEF_USB
-  CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB
-  CFG_MSGOUT_UBX_NAV_ODO_USB
-  CFG_MSGOUT_UBX_NAV_ORB_USB
-  CFG_MSGOUT_UBX_NAV_SAT_USB
-  CFG_MSGOUT_UBX_NAV_SIG_USB
-  CFG_MSGOUT_UBX_NAV_POSECEF_USB
-  CFG_MSGOUT_UBX_NAV_POSLLH_USB
-  CFG_MSGOUT_UBX_NAV_PVT_USB
-  CFG_MSGOUT_UBX_NAV_RELPOSNED_USB
-  CFG_MSGOUT_UBX_NAV_STATUS_USB
-  CFG_MSGOUT_UBX_NAV_TIMEUTC_USB
-  CFG_MSGOUT_UBX_NAV_VELECEF_USB
-  CFG_MSGOUT_UBX_NAV_VELNED_USB
-  CFG_MSGOUT_UBX_RXM_COR_USB
-  CFG_MSGOUT_UBX_RXM_RTCM_USB
-  CFG_MSGOUT_UBX_RXM_MEASX_USB
-  CFG_MSGOUT_UBX_RXM_RAWX_USB
-  CFG_MSGOUT_UBX_RXM_SPARTN_USB
-  CFG_MSGOUT_UBX_MON_COMMS_USB
-  CFG_MSGOUT_UBX_ESF_MEAS_USB</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/aussierobots/ublox_dgnss/tree/main/README.md">see the full file</a></p>
 </div>
@@ -1412,7 +1421,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-07-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-08-15
         </span>
       </td>
     </tr>
@@ -1523,13 +1532,15 @@
 
 <h1 id="ublox-dgnss">ublox-dgnss</h1>
 
-<p>This usb based driver is focused on UBLOX Generation 9 UBX messaging, for a DGNSS rover. High precision data is available. A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.</p>
+<p>This usb based driver is focused on UBLOX  UBX messaging, for a DGNSS rover and base station. High precision data is available.</p>
+
+<p>A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.</p>
 
 <p>RTCM messages can be delivered externally. Alternately the ntrip_client_node can be utilised to retrieve RTCM messages from a castor to publish <code class="language-plaintext highlighter-rouge">/ntrip_client/rtcm</code> messages which will be received by the ublox_dgnss_node.</p>
 
 <p>Work has started on SPARTN support - basic commands are available to enable it on the device and to confirm that the messages are being used (when delivered to the device).</p>
 
-<p>This driver will only work with later generation ublox devices. Testing and development was performed against a ZED-F9P and a ZED-F9R connected via USB, under Ubuntu 22.04/24.04. The driver uses libusb api 1.0.</p>
+<p>This driver supports multiple u-blox device families including ZED-F9P, ZED-F9R, and X20P connected via USB, under Ubuntu 22.04/24.04. The driver uses libusb api 1.0 and automatically adapts to different USB architectures (CDC-ACM for F9 family, Vendor-Specific for X20P).</p>
 
 <p>This release works with Rolling, Kilted, Jazzy and Humble.</p>
 
@@ -1537,29 +1548,74 @@
 
 <p>/etc/udev/rules.d/99-ublox-gnss.rules</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  #UBLOX ZED-F9
-  ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev"
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># UBLOX ZED-F9P/F9R (CDC-ACM)
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev"
+
+# UBLOX ZED-X20P (CDC-ACM) - SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01ab", MODE="0666", GROUP="plugdev"
+# UBLOX X20P UART1 (Vendor-Specific) - NOT SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="050c", MODE="0666", GROUP="plugdev"
+# UBLOX X20P UART2 (Vendor-Specific) - NOT SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="050d", MODE="0666", GROUP="plugdev"
 
 </code></pre></div></div>
 
-<p>This driver follows the UBX standards used for the ZED-F9P/F9R as documented in the <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-F9-HPG-1.32_InterfaceDescription_UBX-22008968.pdf">F9P interface description</a> and <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-F9-HPS-1.30_InterfaceDescription_UBX-22010984.pdf">F9R interface description</a>.</p>
+<p>This driver follows the UBX standards used for the ZED-X20P/F9P/F9R as documented in the <a href="https://content.u-blox.com/sites/default/files/documents/ZED-X20P_IntegrationManual_UBXDOC-963802114-12901.pdf">X20P intergration manual</a> and <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-20-HPG-2.00_InterfaceDescription_UBXDOC-304424225-19888.pdf">X20P interface description</a>. Earlier manual versions are available on the u-blox website.</p>
 
-<p>It implements a subset of the specification related to achieving high precision output as a rover. U-center can be used to alter settings. Any configuration parameter changed by this driver, will be applied only in RAM. Upon a restart (hot, cold or warm) or after a hot plug usb attach event, the configuration stored in the driver will be sent to the device.</p>
+<p>It implements a subset of the specification related to achieving high precision output as a rover and base station. U-center can be used to alter settings. Any configuration parameter changed by this driver, will be applied only in RAM. Upon a restart (hot, cold or warm) or after a hot plug usb attach event, the configuration stored in the driver will be sent to the device.</p>
+
+<h2 id="zed-x20p-support">ZED-X20P support</h2>
+
+<p>The UBLOX ZED-X20P has only just been released. There are some differences between the F9P and X20P. On the whole the UBX messages are the same specification but there are some like <code class="language-plaintext highlighter-rouge">/ubx_rxm_rtcm</code> that have been deprecated, on the device, in the manual, in favor of the newer <code class="language-plaintext highlighter-rouge">/ubx_rxm_cor</code>.</p>
+
+<p><strong>⚠️ Important: X20P Interface Limitations</strong></p>
+
+<p>The X20P device presents multiple USB interfaces:</p>
+<ul>
+  <li>
+<strong>✅ Main Interface (0x01ab)</strong>: Fully supported with F9P/F9R compatibility</li>
+  <li>
+<strong>❌ UART1 Interface (0x050c)</strong>: Not currently supported</li>
+  <li>
+<strong>❌ UART2 Interface (0x050d)</strong>: Not currently supported</li>
+</ul>
+
+<p><strong>Use only the main X20P interface (0x01ab) for full functionality.</strong> See <a href="https://github.com/aussierobots/ublox_dgnss/issues/48">GitHub Issue #48</a> for technical details.</p>
+
+<p>Two new launch files with 25 HZ output have been added specific for the X20P main interface:</p>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_x20p_rover_hpposllh.launch.py
+
+</code></pre></div></div>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_x20p_rover_hpposllh_navsatfix.launch.py
+
+</code></pre></div></div>
+
+<p>otherwise all other launch files have been modified such that adding <code class="language-plaintext highlighter-rouge">-- DEVICE_FAMILY:=x20p</code> will enable the launch file and UBLOX NODE to connect to a ZED-X20P main interface. If not added the launch files default to the f9p device family.</p>
 
 <h2 id="start-commands">Start commands</h2>
 
 <p>There are multiple ways to start the node. Its been built using composition. An executable is provider. An example follows which turns off NMEA output at startup.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run ublox_dgnss_node ublox_dgnss_node --ros-args -p CFG_USBOUTPROT_NMEA:=False
-
-</code></pre></div></div>
-<p>Parameters can be set at launch and some examples are provided to launch high precision pos ecef|llh</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run ublox_dgnss_node ublox_dgnss_node <span class="nt">--ros-args</span> <span class="nt">-p</span> CFG_USBOUTPROT_NMEA:<span class="o">=</span>False
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
+<table>
+  <tbody>
+    <tr>
+      <td>Parameters can be set at launch and some examples are provided to launch high precision pos ecef</td>
+      <td>llh</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
+
+</code></pre></div></div>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
 
 </code></pre></div></div>
 
@@ -1567,67 +1623,23 @@
 
 <p>Four services are provided to reset odo, cold start, warm start and hot start.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/reset_odo ublox_ubx_interfaces/srv/ResetODO
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/reset_odo ublox_ubx_interfaces/srv/ResetODO
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/cold_start ublox_ubx_interfaces/srv/ColdStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/cold_start ublox_ubx_interfaces/srv/ColdStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/warm_start ublox_ubx_interfaces/srv/WarmStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/warm_start ublox_ubx_interfaces/srv/WarmStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/hot_start ublox_ubx_interfaces/srv/HotStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/hot_start ublox_ubx_interfaces/srv/HotStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
 <h2 id="parameters">Parameters</h2>
-
-<p>Parameter values can be set at any time or passed when the node starts</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 param set /ublox_dgnss CFG_RATE_NAV 2
-
-</code></pre></div></div>
-<p>or the current value retrieved</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 param get /ublox_dgnss CFG_RATE_NAV
-
-</code></pre></div></div>
-<h3 id="ubx-parameters">UBX Parameters</h3>
-
-<p>The following parameters may be set. Its a subset of the full UBX Gen 9 configuration parameter list.</p>
-
-<p>Values will be as described in the integration manual (without scaling applied). Changing a CFG_MSGOUT_* type parameter to a value &gt;0 will cause the corresponding ublox_ubx_msgs to be published.</p>
-
-<p>CFG_INFMSG_NMEA_USB
-  CFG_INFMSG_UBX_USB
-  CFG_MSGOUT_UBX_NAV_CLOCK_USB
-  CFG_MSGOUT_UBX_NAV_COV_USB
-  CFG_MSGOUT_UBX_NAV_DOP_USB
-  CFG_MSGOUT_UBX_NAV_EOE_USB
-  CFG_MSGOUT_UBX_NAV_HPPOSECEF_USB
-  CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB
-  CFG_MSGOUT_UBX_NAV_ODO_USB
-  CFG_MSGOUT_UBX_NAV_ORB_USB
-  CFG_MSGOUT_UBX_NAV_SAT_USB
-  CFG_MSGOUT_UBX_NAV_SIG_USB
-  CFG_MSGOUT_UBX_NAV_POSECEF_USB
-  CFG_MSGOUT_UBX_NAV_POSLLH_USB
-  CFG_MSGOUT_UBX_NAV_PVT_USB
-  CFG_MSGOUT_UBX_NAV_RELPOSNED_USB
-  CFG_MSGOUT_UBX_NAV_STATUS_USB
-  CFG_MSGOUT_UBX_NAV_TIMEUTC_USB
-  CFG_MSGOUT_UBX_NAV_VELECEF_USB
-  CFG_MSGOUT_UBX_NAV_VELNED_USB
-  CFG_MSGOUT_UBX_RXM_COR_USB
-  CFG_MSGOUT_UBX_RXM_RTCM_USB
-  CFG_MSGOUT_UBX_RXM_MEASX_USB
-  CFG_MSGOUT_UBX_RXM_RAWX_USB
-  CFG_MSGOUT_UBX_RXM_SPARTN_USB
-  CFG_MSGOUT_UBX_MON_COMMS_USB
-  CFG_MSGOUT_UBX_ESF_MEAS_USB</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/aussierobots/ublox_dgnss/tree/main/README.md">see the full file</a></p>
 </div>
@@ -2093,7 +2105,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-07-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-08-15
         </span>
       </td>
     </tr>
@@ -2204,13 +2216,15 @@
 
 <h1 id="ublox-dgnss">ublox-dgnss</h1>
 
-<p>This usb based driver is focused on UBLOX Generation 9 UBX messaging, for a DGNSS rover. High precision data is available. A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.</p>
+<p>This usb based driver is focused on UBLOX  UBX messaging, for a DGNSS rover and base station. High precision data is available.</p>
+
+<p>A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.</p>
 
 <p>RTCM messages can be delivered externally. Alternately the ntrip_client_node can be utilised to retrieve RTCM messages from a castor to publish <code class="language-plaintext highlighter-rouge">/ntrip_client/rtcm</code> messages which will be received by the ublox_dgnss_node.</p>
 
 <p>Work has started on SPARTN support - basic commands are available to enable it on the device and to confirm that the messages are being used (when delivered to the device).</p>
 
-<p>This driver will only work with later generation ublox devices. Testing and development was performed against a ZED-F9P and a ZED-F9R connected via USB, under Ubuntu 22.04/24.04. The driver uses libusb api 1.0.</p>
+<p>This driver supports multiple u-blox device families including ZED-F9P, ZED-F9R, and X20P connected via USB, under Ubuntu 22.04/24.04. The driver uses libusb api 1.0 and automatically adapts to different USB architectures (CDC-ACM for F9 family, Vendor-Specific for X20P).</p>
 
 <p>This release works with Rolling, Kilted, Jazzy and Humble.</p>
 
@@ -2218,29 +2232,74 @@
 
 <p>/etc/udev/rules.d/99-ublox-gnss.rules</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  #UBLOX ZED-F9
-  ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev"
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># UBLOX ZED-F9P/F9R (CDC-ACM)
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev"
+
+# UBLOX ZED-X20P (CDC-ACM) - SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01ab", MODE="0666", GROUP="plugdev"
+# UBLOX X20P UART1 (Vendor-Specific) - NOT SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="050c", MODE="0666", GROUP="plugdev"
+# UBLOX X20P UART2 (Vendor-Specific) - NOT SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="050d", MODE="0666", GROUP="plugdev"
 
 </code></pre></div></div>
 
-<p>This driver follows the UBX standards used for the ZED-F9P/F9R as documented in the <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-F9-HPG-1.32_InterfaceDescription_UBX-22008968.pdf">F9P interface description</a> and <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-F9-HPS-1.30_InterfaceDescription_UBX-22010984.pdf">F9R interface description</a>.</p>
+<p>This driver follows the UBX standards used for the ZED-X20P/F9P/F9R as documented in the <a href="https://content.u-blox.com/sites/default/files/documents/ZED-X20P_IntegrationManual_UBXDOC-963802114-12901.pdf">X20P intergration manual</a> and <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-20-HPG-2.00_InterfaceDescription_UBXDOC-304424225-19888.pdf">X20P interface description</a>. Earlier manual versions are available on the u-blox website.</p>
 
-<p>It implements a subset of the specification related to achieving high precision output as a rover. U-center can be used to alter settings. Any configuration parameter changed by this driver, will be applied only in RAM. Upon a restart (hot, cold or warm) or after a hot plug usb attach event, the configuration stored in the driver will be sent to the device.</p>
+<p>It implements a subset of the specification related to achieving high precision output as a rover and base station. U-center can be used to alter settings. Any configuration parameter changed by this driver, will be applied only in RAM. Upon a restart (hot, cold or warm) or after a hot plug usb attach event, the configuration stored in the driver will be sent to the device.</p>
+
+<h2 id="zed-x20p-support">ZED-X20P support</h2>
+
+<p>The UBLOX ZED-X20P has only just been released. There are some differences between the F9P and X20P. On the whole the UBX messages are the same specification but there are some like <code class="language-plaintext highlighter-rouge">/ubx_rxm_rtcm</code> that have been deprecated, on the device, in the manual, in favor of the newer <code class="language-plaintext highlighter-rouge">/ubx_rxm_cor</code>.</p>
+
+<p><strong>⚠️ Important: X20P Interface Limitations</strong></p>
+
+<p>The X20P device presents multiple USB interfaces:</p>
+<ul>
+  <li>
+<strong>✅ Main Interface (0x01ab)</strong>: Fully supported with F9P/F9R compatibility</li>
+  <li>
+<strong>❌ UART1 Interface (0x050c)</strong>: Not currently supported</li>
+  <li>
+<strong>❌ UART2 Interface (0x050d)</strong>: Not currently supported</li>
+</ul>
+
+<p><strong>Use only the main X20P interface (0x01ab) for full functionality.</strong> See <a href="https://github.com/aussierobots/ublox_dgnss/issues/48">GitHub Issue #48</a> for technical details.</p>
+
+<p>Two new launch files with 25 HZ output have been added specific for the X20P main interface:</p>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_x20p_rover_hpposllh.launch.py
+
+</code></pre></div></div>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_x20p_rover_hpposllh_navsatfix.launch.py
+
+</code></pre></div></div>
+
+<p>otherwise all other launch files have been modified such that adding <code class="language-plaintext highlighter-rouge">-- DEVICE_FAMILY:=x20p</code> will enable the launch file and UBLOX NODE to connect to a ZED-X20P main interface. If not added the launch files default to the f9p device family.</p>
 
 <h2 id="start-commands">Start commands</h2>
 
 <p>There are multiple ways to start the node. Its been built using composition. An executable is provider. An example follows which turns off NMEA output at startup.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run ublox_dgnss_node ublox_dgnss_node --ros-args -p CFG_USBOUTPROT_NMEA:=False
-
-</code></pre></div></div>
-<p>Parameters can be set at launch and some examples are provided to launch high precision pos ecef|llh</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run ublox_dgnss_node ublox_dgnss_node <span class="nt">--ros-args</span> <span class="nt">-p</span> CFG_USBOUTPROT_NMEA:<span class="o">=</span>False
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
+<table>
+  <tbody>
+    <tr>
+      <td>Parameters can be set at launch and some examples are provided to launch high precision pos ecef</td>
+      <td>llh</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
+
+</code></pre></div></div>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
 
 </code></pre></div></div>
 
@@ -2248,67 +2307,23 @@
 
 <p>Four services are provided to reset odo, cold start, warm start and hot start.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/reset_odo ublox_ubx_interfaces/srv/ResetODO
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/reset_odo ublox_ubx_interfaces/srv/ResetODO
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/cold_start ublox_ubx_interfaces/srv/ColdStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/cold_start ublox_ubx_interfaces/srv/ColdStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/warm_start ublox_ubx_interfaces/srv/WarmStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/warm_start ublox_ubx_interfaces/srv/WarmStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/hot_start ublox_ubx_interfaces/srv/HotStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/hot_start ublox_ubx_interfaces/srv/HotStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
 <h2 id="parameters">Parameters</h2>
-
-<p>Parameter values can be set at any time or passed when the node starts</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 param set /ublox_dgnss CFG_RATE_NAV 2
-
-</code></pre></div></div>
-<p>or the current value retrieved</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 param get /ublox_dgnss CFG_RATE_NAV
-
-</code></pre></div></div>
-<h3 id="ubx-parameters">UBX Parameters</h3>
-
-<p>The following parameters may be set. Its a subset of the full UBX Gen 9 configuration parameter list.</p>
-
-<p>Values will be as described in the integration manual (without scaling applied). Changing a CFG_MSGOUT_* type parameter to a value &gt;0 will cause the corresponding ublox_ubx_msgs to be published.</p>
-
-<p>CFG_INFMSG_NMEA_USB
-  CFG_INFMSG_UBX_USB
-  CFG_MSGOUT_UBX_NAV_CLOCK_USB
-  CFG_MSGOUT_UBX_NAV_COV_USB
-  CFG_MSGOUT_UBX_NAV_DOP_USB
-  CFG_MSGOUT_UBX_NAV_EOE_USB
-  CFG_MSGOUT_UBX_NAV_HPPOSECEF_USB
-  CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB
-  CFG_MSGOUT_UBX_NAV_ODO_USB
-  CFG_MSGOUT_UBX_NAV_ORB_USB
-  CFG_MSGOUT_UBX_NAV_SAT_USB
-  CFG_MSGOUT_UBX_NAV_SIG_USB
-  CFG_MSGOUT_UBX_NAV_POSECEF_USB
-  CFG_MSGOUT_UBX_NAV_POSLLH_USB
-  CFG_MSGOUT_UBX_NAV_PVT_USB
-  CFG_MSGOUT_UBX_NAV_RELPOSNED_USB
-  CFG_MSGOUT_UBX_NAV_STATUS_USB
-  CFG_MSGOUT_UBX_NAV_TIMEUTC_USB
-  CFG_MSGOUT_UBX_NAV_VELECEF_USB
-  CFG_MSGOUT_UBX_NAV_VELNED_USB
-  CFG_MSGOUT_UBX_RXM_COR_USB
-  CFG_MSGOUT_UBX_RXM_RTCM_USB
-  CFG_MSGOUT_UBX_RXM_MEASX_USB
-  CFG_MSGOUT_UBX_RXM_RAWX_USB
-  CFG_MSGOUT_UBX_RXM_SPARTN_USB
-  CFG_MSGOUT_UBX_MON_COMMS_USB
-  CFG_MSGOUT_UBX_ESF_MEAS_USB</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/aussierobots/ublox_dgnss/tree/main/README.md">see the full file</a></p>
 </div>
@@ -2514,7 +2529,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-07-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-08-15
         </span>
       </td>
     </tr>
@@ -2625,13 +2640,15 @@
 
 <h1 id="ublox-dgnss">ublox-dgnss</h1>
 
-<p>This usb based driver is focused on UBLOX Generation 9 UBX messaging, for a DGNSS rover. High precision data is available. A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.</p>
+<p>This usb based driver is focused on UBLOX  UBX messaging, for a DGNSS rover and base station. High precision data is available.</p>
+
+<p>A moving base station configuration has been added. This package also supports a fixed base station and moving rover use case.</p>
 
 <p>RTCM messages can be delivered externally. Alternately the ntrip_client_node can be utilised to retrieve RTCM messages from a castor to publish <code class="language-plaintext highlighter-rouge">/ntrip_client/rtcm</code> messages which will be received by the ublox_dgnss_node.</p>
 
 <p>Work has started on SPARTN support - basic commands are available to enable it on the device and to confirm that the messages are being used (when delivered to the device).</p>
 
-<p>This driver will only work with later generation ublox devices. Testing and development was performed against a ZED-F9P and a ZED-F9R connected via USB, under Ubuntu 22.04/24.04. The driver uses libusb api 1.0.</p>
+<p>This driver supports multiple u-blox device families including ZED-F9P, ZED-F9R, and X20P connected via USB, under Ubuntu 22.04/24.04. The driver uses libusb api 1.0 and automatically adapts to different USB architectures (CDC-ACM for F9 family, Vendor-Specific for X20P).</p>
 
 <p>This release works with Rolling, Kilted, Jazzy and Humble.</p>
 
@@ -2639,29 +2656,74 @@
 
 <p>/etc/udev/rules.d/99-ublox-gnss.rules</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  #UBLOX ZED-F9
-  ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev"
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code># UBLOX ZED-F9P/F9R (CDC-ACM)
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01a9", MODE="0666", GROUP="plugdev"
+
+# UBLOX ZED-X20P (CDC-ACM) - SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="01ab", MODE="0666", GROUP="plugdev"
+# UBLOX X20P UART1 (Vendor-Specific) - NOT SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="050c", MODE="0666", GROUP="plugdev"
+# UBLOX X20P UART2 (Vendor-Specific) - NOT SUPPORTED
+ATTRS{idVendor}=="1546", ATTRS{idProduct}=="050d", MODE="0666", GROUP="plugdev"
 
 </code></pre></div></div>
 
-<p>This driver follows the UBX standards used for the ZED-F9P/F9R as documented in the <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-F9-HPG-1.32_InterfaceDescription_UBX-22008968.pdf">F9P interface description</a> and <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-F9-HPS-1.30_InterfaceDescription_UBX-22010984.pdf">F9R interface description</a>.</p>
+<p>This driver follows the UBX standards used for the ZED-X20P/F9P/F9R as documented in the <a href="https://content.u-blox.com/sites/default/files/documents/ZED-X20P_IntegrationManual_UBXDOC-963802114-12901.pdf">X20P intergration manual</a> and <a href="https://content.u-blox.com/sites/default/files/documents/u-blox-20-HPG-2.00_InterfaceDescription_UBXDOC-304424225-19888.pdf">X20P interface description</a>. Earlier manual versions are available on the u-blox website.</p>
 
-<p>It implements a subset of the specification related to achieving high precision output as a rover. U-center can be used to alter settings. Any configuration parameter changed by this driver, will be applied only in RAM. Upon a restart (hot, cold or warm) or after a hot plug usb attach event, the configuration stored in the driver will be sent to the device.</p>
+<p>It implements a subset of the specification related to achieving high precision output as a rover and base station. U-center can be used to alter settings. Any configuration parameter changed by this driver, will be applied only in RAM. Upon a restart (hot, cold or warm) or after a hot plug usb attach event, the configuration stored in the driver will be sent to the device.</p>
+
+<h2 id="zed-x20p-support">ZED-X20P support</h2>
+
+<p>The UBLOX ZED-X20P has only just been released. There are some differences between the F9P and X20P. On the whole the UBX messages are the same specification but there are some like <code class="language-plaintext highlighter-rouge">/ubx_rxm_rtcm</code> that have been deprecated, on the device, in the manual, in favor of the newer <code class="language-plaintext highlighter-rouge">/ubx_rxm_cor</code>.</p>
+
+<p><strong>⚠️ Important: X20P Interface Limitations</strong></p>
+
+<p>The X20P device presents multiple USB interfaces:</p>
+<ul>
+  <li>
+<strong>✅ Main Interface (0x01ab)</strong>: Fully supported with F9P/F9R compatibility</li>
+  <li>
+<strong>❌ UART1 Interface (0x050c)</strong>: Not currently supported</li>
+  <li>
+<strong>❌ UART2 Interface (0x050d)</strong>: Not currently supported</li>
+</ul>
+
+<p><strong>Use only the main X20P interface (0x01ab) for full functionality.</strong> See <a href="https://github.com/aussierobots/ublox_dgnss/issues/48">GitHub Issue #48</a> for technical details.</p>
+
+<p>Two new launch files with 25 HZ output have been added specific for the X20P main interface:</p>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_x20p_rover_hpposllh.launch.py
+
+</code></pre></div></div>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_x20p_rover_hpposllh_navsatfix.launch.py
+
+</code></pre></div></div>
+
+<p>otherwise all other launch files have been modified such that adding <code class="language-plaintext highlighter-rouge">-- DEVICE_FAMILY:=x20p</code> will enable the launch file and UBLOX NODE to connect to a ZED-X20P main interface. If not added the launch files default to the f9p device family.</p>
 
 <h2 id="start-commands">Start commands</h2>
 
 <p>There are multiple ways to start the node. Its been built using composition. An executable is provider. An example follows which turns off NMEA output at startup.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run ublox_dgnss_node ublox_dgnss_node --ros-args -p CFG_USBOUTPROT_NMEA:=False
-
-</code></pre></div></div>
-<p>Parameters can be set at launch and some examples are provided to launch high precision pos ecef|llh</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run ublox_dgnss_node ublox_dgnss_node <span class="nt">--ros-args</span> <span class="nt">-p</span> CFG_USBOUTPROT_NMEA:<span class="o">=</span>False
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
+<table>
+  <tbody>
+    <tr>
+      <td>Parameters can be set at launch and some examples are provided to launch high precision pos ecef</td>
+      <td>llh</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposecef.launch.py
+
+</code></pre></div></div>
+
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ublox_dgnss ublox_rover_hpposllh.launch.py
 
 </code></pre></div></div>
 
@@ -2669,67 +2731,23 @@
 
 <p>Four services are provided to reset odo, cold start, warm start and hot start.</p>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/reset_odo ublox_ubx_interfaces/srv/ResetODO
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/reset_odo ublox_ubx_interfaces/srv/ResetODO
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/cold_start ublox_ubx_interfaces/srv/ColdStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/cold_start ublox_ubx_interfaces/srv/ColdStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/warm_start ublox_ubx_interfaces/srv/WarmStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/warm_start ublox_ubx_interfaces/srv/WarmStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/hot_start ublox_ubx_interfaces/srv/HotStart '{reset_type: 1}'
+<div class="language-zsh highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 service call /ublox_dgnss/hot_start ublox_ubx_interfaces/srv/HotStart <span class="s1">'{reset_type: 1}'</span>
 
 </code></pre></div></div>
 
 <h2 id="parameters">Parameters</h2>
-
-<p>Parameter values can be set at any time or passed when the node starts</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 param set /ublox_dgnss CFG_RATE_NAV 2
-
-</code></pre></div></div>
-<p>or the current value retrieved</p>
-
-<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 param get /ublox_dgnss CFG_RATE_NAV
-
-</code></pre></div></div>
-<h3 id="ubx-parameters">UBX Parameters</h3>
-
-<p>The following parameters may be set. Its a subset of the full UBX Gen 9 configuration parameter list.</p>
-
-<p>Values will be as described in the integration manual (without scaling applied). Changing a CFG_MSGOUT_* type parameter to a value &gt;0 will cause the corresponding ublox_ubx_msgs to be published.</p>
-
-<p>CFG_INFMSG_NMEA_USB
-  CFG_INFMSG_UBX_USB
-  CFG_MSGOUT_UBX_NAV_CLOCK_USB
-  CFG_MSGOUT_UBX_NAV_COV_USB
-  CFG_MSGOUT_UBX_NAV_DOP_USB
-  CFG_MSGOUT_UBX_NAV_EOE_USB
-  CFG_MSGOUT_UBX_NAV_HPPOSECEF_USB
-  CFG_MSGOUT_UBX_NAV_HPPOSLLH_USB
-  CFG_MSGOUT_UBX_NAV_ODO_USB
-  CFG_MSGOUT_UBX_NAV_ORB_USB
-  CFG_MSGOUT_UBX_NAV_SAT_USB
-  CFG_MSGOUT_UBX_NAV_SIG_USB
-  CFG_MSGOUT_UBX_NAV_POSECEF_USB
-  CFG_MSGOUT_UBX_NAV_POSLLH_USB
-  CFG_MSGOUT_UBX_NAV_PVT_USB
-  CFG_MSGOUT_UBX_NAV_RELPOSNED_USB
-  CFG_MSGOUT_UBX_NAV_STATUS_USB
-  CFG_MSGOUT_UBX_NAV_TIMEUTC_USB
-  CFG_MSGOUT_UBX_NAV_VELECEF_USB
-  CFG_MSGOUT_UBX_NAV_VELNED_USB
-  CFG_MSGOUT_UBX_RXM_COR_USB
-  CFG_MSGOUT_UBX_RXM_RTCM_USB
-  CFG_MSGOUT_UBX_RXM_MEASX_USB
-  CFG_MSGOUT_UBX_RXM_RAWX_USB
-  CFG_MSGOUT_UBX_RXM_SPARTN_USB
-  CFG_MSGOUT_UBX_MON_COMMS_USB
-  CFG_MSGOUT_UBX_ESF_MEAS_USB</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/aussierobots/ublox_dgnss/tree/main/README.md">see the full file</a></p>
 </div>
@@ -3259,7 +3277,7 @@
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2025-08-01</em>
+        <em class="hidden-xs">| generated on 2025-08-15</em>
       
       </div>
       <div style="float:right;">
