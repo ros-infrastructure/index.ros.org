@@ -508,7 +508,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-10-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-11-06
         </span>
       </td>
     </tr>
@@ -599,22 +599,36 @@
                     <div class="rendered-markdown">
 <h1 id="introduction">Introduction</h1>
 
+<h2 id="what-is-this">What Is This?</h2>
+
 <p>ROS 2 introduces the concept of managed nodes, also called
 <code class="language-plaintext highlighter-rouge">LifecycleNode</code>s. In the following tutorial, we explain the purpose of
 these nodes, what makes them different from regular nodes and how they
-comply to a lifecycle management. Managed nodes contain a state machine
-with a set of predefined states. These states can be changed by invoking
-a transition id which indicates the succeeding consecutive state. The
-state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS 2 design
+comply to a lifecycle management.</p>
+
+<h2 id="basic-concept-and-nomenclature">Basic Concept and Nomenclature</h2>
+
+<p>Managed nodes contain a state machine with a set of predefined states.
+These states can be changed by invoking a transition, passing a specific
+transition ID which indicates the succeeding consecutive state. The
+state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
 page</a>.</p>
 
-<p>Our implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and
-<code class="language-plaintext highlighter-rouge">Transition States</code>. Primary States are supposed to be steady states in
-which any node can do the respected task. On the other hand, Transition
-States are meant as temporary intermediate states attached to a
-transition. The result of these intermediate states are used to indicate
-whether a transition between two primary states is considered successful
-or not. Thus, any managed node can be in one of the following states:</p>
+<dl>
+  <dt>The implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and <code class="language-plaintext highlighter-rouge">Transition States</code>.</dt>
+  <dd>
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">Primary states</code> are supposed to be steady states in which any
+node can perform their respective task.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">Transition states</code> are used to indicate whether a transition
+between two primary states is considered successful or not.</li>
+    </ul>
+  </dd>
+</dl>
+
+<p>In the end, any managed node can be in one of the following states:</p>
 
 <p>Primary States (steady states):</p>
 
@@ -622,7 +636,7 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>unconfigured</li>
   <li>inactive</li>
   <li>active</li>
-  <li>shutdown</li>
+  <li>finalized</li>
 </ul>
 
 <p>Transition States (intermediate states):</p>
@@ -645,9 +659,10 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>shutdown</li>
 </ul>
 
-<p>For a more verbose explanation on the applied state machine, we refer to
-the design page which provides an in-detail explanation about each state
-and transition.</p>
+<p>For a detailed explanation of the applied state machine, we refer again
+to the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
+page</a> which
+provides specific info about each state and transition.</p>
 
 <h1 id="the-demo">The demo</h1>
 
@@ -656,56 +671,54 @@ and transition.</p>
 <p>The demo is split into 3 separate applications:</p>
 
 <ul>
-  <li>lifecycle_talker</li>
-  <li>lifecycle_listener</li>
-  <li>lifecycle_service_client</li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_talker</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_listener</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_service_client</code></li>
 </ul>
 
 <p>The <code class="language-plaintext highlighter-rouge">lifecycle_talker</code> represents a managed node and publishes according
-to which state the node is in. We split the tasks of the talker node
-into separate pieces and execute them as follows:</p>
+to which state the node is in. Its primary task (in this example
+publishing) is executed in the <code class="language-plaintext highlighter-rouge">active</code> state.</p>
 
-<ol>
-  <li>configuring: We initialize our publisher and timer</li>
-  <li>activate: We activate the publisher and timer in order to enable a
-publishing</li>
-  <li>deactivate: We stop the publisher and timer</li>
-  <li>cleanup: We destroy the publisher and timer</li>
-</ol>
+<p>Lifecycle transitions invoke callback functions that prepare or tear
+down the resources required for publishing:</p>
 
-<p>This demo shows a typical talker/listener pair of nodes. However,
-imagine a real scenario with attached hardware which may have a rather
-long booting phase, i.e. a laser or camera. One could imagine bringing
-up the device driver in the configuring state, start and stop only the
-publishing of the device's data in active/deactive state, and only in
-the cleanup/shutdown state actually shutdown the device.</p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_configure()</code> (in the <code class="language-plaintext highlighter-rouge">configuring</code> state): Create and initialize
+the publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_activate()</code> (in the <code class="language-plaintext highlighter-rouge">activating</code> state): Activate the publisher
+and timer so that publishing can occur in the <code class="language-plaintext highlighter-rouge">active</code> state.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_deactivate()</code> (in the <code class="language-plaintext highlighter-rouge">deactivating</code> state): Stop the publisher.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_cleanup()</code> (in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> state): Release the pointers to
+publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_shutdown()</code> (in the <code class="language-plaintext highlighter-rouge">shuttingDown</code> state): In this case does the
+same as <code class="language-plaintext highlighter-rouge">on_cleanup()</code>, in general it would for example release
+system resources.</li>
+</ul>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a simple listener which shows the
-characteristics of the lifecycle talker. The talker enables message
-publishing only in the active state and thus the listener only receives
-messages when the talker is in an active state.</p>
+<p>In summary, the node only performs its main functionality (publishing)
+while in the <code class="language-plaintext highlighter-rouge">active</code> state. The transitions and their corresponding
+callbacks ensure that resources are correctly initialized, activated,
+deactivated, and cleaned up as the node moves between lifecycle states.</p>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_service_client</code> is a script calling different transitions
-on the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>. This is meant as the external user
-controlling the lifecycle of nodes.</p>
+<p>This demo shows a simple talker/listener pair of nodes. However, imagine
+a more realistic scenario with attached hardware which may have a rather
+long booting phase, i.e. a laser or camera. In that case, one could
+initialize the device driver in the <code class="language-plaintext highlighter-rouge">configuring</code> transition state,
+start and stop the publishing of the device’s data in the <code class="language-plaintext highlighter-rouge">activating</code>
+and <code class="language-plaintext highlighter-rouge">deactivating</code> transition states, and only shut down the device
+completely in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> or <code class="language-plaintext highlighter-rouge">shuttingdown</code> transition states.</p>
 
-<h1 id="run-the-demo">Run the demo</h1>
-
-<p>In order to run this demo, we open three terminals and source our ROS 2
-environment variables either from the binary distributions or the
-workspace we compiled from source.</p>
-
-<p>lifecycle_talker                                                                     lifecycle_listener                                                                   lifecycle_service_client
-  ———————————————————————————— ———————————————————————————— ————————————————————————————
-  <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_talker</code>                                              <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_listener</code>                                            <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_service_client</code>
-  <a href="https://asciinema.org/a/249049"><img src="https://asciinema.org/a/249049.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249050"><img src="https://asciinema.org/a/249050.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249051"><img src="https://asciinema.org/a/249051.png" alt="asciicast"></a></p>
-
-<p>Alternatively, these three programs can be run together in the same
-terminal using the launch file:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch lifecycle lifecycle_demo.launch.py
-
-</code></pre></div></div>
+<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a regular (non-lifecycle) node that
+subscribes to the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>'s topics. It logs the published
+messages as well as the transition events. The talker publishes only in
+the active state and thus the listener obviously only receives messages
+when the talker is in an active state.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/ros2/demos/tree/humble/lifecycle/README.rst">see the full file</a></p>
 </div>
@@ -1408,7 +1421,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-10-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-11-06
         </span>
       </td>
     </tr>
@@ -1499,22 +1512,36 @@ jQuery(function() {
                     <div class="rendered-markdown">
 <h1 id="introduction">Introduction</h1>
 
+<h2 id="what-is-this">What Is This?</h2>
+
 <p>ROS 2 introduces the concept of managed nodes, also called
 <code class="language-plaintext highlighter-rouge">LifecycleNode</code>s. In the following tutorial, we explain the purpose of
 these nodes, what makes them different from regular nodes and how they
-comply to a lifecycle management. Managed nodes contain a state machine
-with a set of predefined states. These states can be changed by invoking
-a transition id which indicates the succeeding consecutive state. The
-state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS 2 design
+comply to a lifecycle management.</p>
+
+<h2 id="basic-concept-and-nomenclature">Basic Concept and Nomenclature</h2>
+
+<p>Managed nodes contain a state machine with a set of predefined states.
+These states can be changed by invoking a transition, passing a specific
+transition ID which indicates the succeeding consecutive state. The
+state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
 page</a>.</p>
 
-<p>Our implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and
-<code class="language-plaintext highlighter-rouge">Transition States</code>. Primary States are supposed to be steady states in
-which any node can do the respected task. On the other hand, Transition
-States are meant as temporary intermediate states attached to a
-transition. The result of these intermediate states are used to indicate
-whether a transition between two primary states is considered successful
-or not. Thus, any managed node can be in one of the following states:</p>
+<dl>
+  <dt>The implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and <code class="language-plaintext highlighter-rouge">Transition States</code>.</dt>
+  <dd>
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">Primary states</code> are supposed to be steady states in which any
+node can perform their respective task.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">Transition states</code> are used to indicate whether a transition
+between two primary states is considered successful or not.</li>
+    </ul>
+  </dd>
+</dl>
+
+<p>In the end, any managed node can be in one of the following states:</p>
 
 <p>Primary States (steady states):</p>
 
@@ -1522,7 +1549,7 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>unconfigured</li>
   <li>inactive</li>
   <li>active</li>
-  <li>shutdown</li>
+  <li>finalized</li>
 </ul>
 
 <p>Transition States (intermediate states):</p>
@@ -1545,9 +1572,10 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>shutdown</li>
 </ul>
 
-<p>For a more verbose explanation on the applied state machine, we refer to
-the design page which provides an in-detail explanation about each state
-and transition.</p>
+<p>For a detailed explanation of the applied state machine, we refer again
+to the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
+page</a> which
+provides specific info about each state and transition.</p>
 
 <h1 id="the-demo">The demo</h1>
 
@@ -1556,56 +1584,54 @@ and transition.</p>
 <p>The demo is split into 3 separate applications:</p>
 
 <ul>
-  <li>lifecycle_talker</li>
-  <li>lifecycle_listener</li>
-  <li>lifecycle_service_client</li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_talker</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_listener</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_service_client</code></li>
 </ul>
 
 <p>The <code class="language-plaintext highlighter-rouge">lifecycle_talker</code> represents a managed node and publishes according
-to which state the node is in. We split the tasks of the talker node
-into separate pieces and execute them as follows:</p>
+to which state the node is in. Its primary task (in this example
+publishing) is executed in the <code class="language-plaintext highlighter-rouge">active</code> state.</p>
 
-<ol>
-  <li>configuring: We initialize our publisher and timer</li>
-  <li>activate: We activate the publisher and timer in order to enable a
-publishing</li>
-  <li>deactivate: We stop the publisher and timer</li>
-  <li>cleanup: We destroy the publisher and timer</li>
-</ol>
+<p>Lifecycle transitions invoke callback functions that prepare or tear
+down the resources required for publishing:</p>
 
-<p>This demo shows a typical talker/listener pair of nodes. However,
-imagine a real scenario with attached hardware which may have a rather
-long booting phase, i.e. a laser or camera. One could imagine bringing
-up the device driver in the configuring state, start and stop only the
-publishing of the device's data in active/deactive state, and only in
-the cleanup/shutdown state actually shutdown the device.</p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_configure()</code> (in the <code class="language-plaintext highlighter-rouge">configuring</code> state): Create and initialize
+the publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_activate()</code> (in the <code class="language-plaintext highlighter-rouge">activating</code> state): Activate the publisher
+and timer so that publishing can occur in the <code class="language-plaintext highlighter-rouge">active</code> state.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_deactivate()</code> (in the <code class="language-plaintext highlighter-rouge">deactivating</code> state): Stop the publisher.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_cleanup()</code> (in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> state): Release the pointers to
+publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_shutdown()</code> (in the <code class="language-plaintext highlighter-rouge">shuttingDown</code> state): In this case does the
+same as <code class="language-plaintext highlighter-rouge">on_cleanup()</code>, in general it would for example release
+system resources.</li>
+</ul>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a simple listener which shows the
-characteristics of the lifecycle talker. The talker enables message
-publishing only in the active state and thus the listener only receives
-messages when the talker is in an active state.</p>
+<p>In summary, the node only performs its main functionality (publishing)
+while in the <code class="language-plaintext highlighter-rouge">active</code> state. The transitions and their corresponding
+callbacks ensure that resources are correctly initialized, activated,
+deactivated, and cleaned up as the node moves between lifecycle states.</p>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_service_client</code> is a script calling different transitions
-on the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>. This is meant as the external user
-controlling the lifecycle of nodes.</p>
+<p>This demo shows a simple talker/listener pair of nodes. However, imagine
+a more realistic scenario with attached hardware which may have a rather
+long booting phase, i.e. a laser or camera. In that case, one could
+initialize the device driver in the <code class="language-plaintext highlighter-rouge">configuring</code> transition state,
+start and stop the publishing of the device’s data in the <code class="language-plaintext highlighter-rouge">activating</code>
+and <code class="language-plaintext highlighter-rouge">deactivating</code> transition states, and only shut down the device
+completely in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> or <code class="language-plaintext highlighter-rouge">shuttingdown</code> transition states.</p>
 
-<h1 id="run-the-demo">Run the demo</h1>
-
-<p>In order to run this demo, we open three terminals and source our ROS 2
-environment variables either from the binary distributions or the
-workspace we compiled from source.</p>
-
-<p>lifecycle_talker                                                                     lifecycle_listener                                                                   lifecycle_service_client
-  ———————————————————————————— ———————————————————————————— ————————————————————————————
-  <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_talker</code>                                              <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_listener</code>                                            <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_service_client</code>
-  <a href="https://asciinema.org/a/249049"><img src="https://asciinema.org/a/249049.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249050"><img src="https://asciinema.org/a/249050.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249051"><img src="https://asciinema.org/a/249051.png" alt="asciicast"></a></p>
-
-<p>Alternatively, these three programs can be run together in the same
-terminal using the launch file:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch lifecycle lifecycle_demo_launch.py
-
-</code></pre></div></div>
+<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a regular (non-lifecycle) node that
+subscribes to the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>'s topics. It logs the published
+messages as well as the transition events. The talker publishes only in
+the active state and thus the listener obviously only receives messages
+when the talker is in an active state.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/ros2/demos/tree/jazzy/lifecycle/README.rst">see the full file</a></p>
 </div>
@@ -2314,7 +2340,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-10-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-11-06
         </span>
       </td>
     </tr>
@@ -2405,22 +2431,36 @@ jQuery(function() {
                     <div class="rendered-markdown">
 <h1 id="introduction">Introduction</h1>
 
+<h2 id="what-is-this">What Is This?</h2>
+
 <p>ROS 2 introduces the concept of managed nodes, also called
 <code class="language-plaintext highlighter-rouge">LifecycleNode</code>s. In the following tutorial, we explain the purpose of
 these nodes, what makes them different from regular nodes and how they
-comply to a lifecycle management. Managed nodes contain a state machine
-with a set of predefined states. These states can be changed by invoking
-a transition id which indicates the succeeding consecutive state. The
-state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS 2 design
+comply to a lifecycle management.</p>
+
+<h2 id="basic-concept-and-nomenclature">Basic Concept and Nomenclature</h2>
+
+<p>Managed nodes contain a state machine with a set of predefined states.
+These states can be changed by invoking a transition, passing a specific
+transition ID which indicates the succeeding consecutive state. The
+state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
 page</a>.</p>
 
-<p>Our implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and
-<code class="language-plaintext highlighter-rouge">Transition States</code>. Primary States are supposed to be steady states in
-which any node can do the respected task. On the other hand, Transition
-States are meant as temporary intermediate states attached to a
-transition. The result of these intermediate states are used to indicate
-whether a transition between two primary states is considered successful
-or not. Thus, any managed node can be in one of the following states:</p>
+<dl>
+  <dt>The implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and <code class="language-plaintext highlighter-rouge">Transition States</code>.</dt>
+  <dd>
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">Primary states</code> are supposed to be steady states in which any
+node can perform their respective task.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">Transition states</code> are used to indicate whether a transition
+between two primary states is considered successful or not.</li>
+    </ul>
+  </dd>
+</dl>
+
+<p>In the end, any managed node can be in one of the following states:</p>
 
 <p>Primary States (steady states):</p>
 
@@ -2428,7 +2468,7 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>unconfigured</li>
   <li>inactive</li>
   <li>active</li>
-  <li>shutdown</li>
+  <li>finalized</li>
 </ul>
 
 <p>Transition States (intermediate states):</p>
@@ -2451,9 +2491,10 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>shutdown</li>
 </ul>
 
-<p>For a more verbose explanation on the applied state machine, we refer to
-the design page which provides an in-detail explanation about each state
-and transition.</p>
+<p>For a detailed explanation of the applied state machine, we refer again
+to the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
+page</a> which
+provides specific info about each state and transition.</p>
 
 <h1 id="the-demo">The demo</h1>
 
@@ -2462,56 +2503,54 @@ and transition.</p>
 <p>The demo is split into 3 separate applications:</p>
 
 <ul>
-  <li>lifecycle_talker</li>
-  <li>lifecycle_listener</li>
-  <li>lifecycle_service_client</li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_talker</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_listener</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_service_client</code></li>
 </ul>
 
 <p>The <code class="language-plaintext highlighter-rouge">lifecycle_talker</code> represents a managed node and publishes according
-to which state the node is in. We split the tasks of the talker node
-into separate pieces and execute them as follows:</p>
+to which state the node is in. Its primary task (in this example
+publishing) is executed in the <code class="language-plaintext highlighter-rouge">active</code> state.</p>
 
-<ol>
-  <li>configuring: We initialize our publisher and timer</li>
-  <li>activate: We activate the publisher and timer in order to enable a
-publishing</li>
-  <li>deactivate: We stop the publisher and timer</li>
-  <li>cleanup: We destroy the publisher and timer</li>
-</ol>
+<p>Lifecycle transitions invoke callback functions that prepare or tear
+down the resources required for publishing:</p>
 
-<p>This demo shows a typical talker/listener pair of nodes. However,
-imagine a real scenario with attached hardware which may have a rather
-long booting phase, i.e. a laser or camera. One could imagine bringing
-up the device driver in the configuring state, start and stop only the
-publishing of the device's data in active/deactive state, and only in
-the cleanup/shutdown state actually shutdown the device.</p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_configure()</code> (in the <code class="language-plaintext highlighter-rouge">configuring</code> state): Create and initialize
+the publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_activate()</code> (in the <code class="language-plaintext highlighter-rouge">activating</code> state): Activate the publisher
+and timer so that publishing can occur in the <code class="language-plaintext highlighter-rouge">active</code> state.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_deactivate()</code> (in the <code class="language-plaintext highlighter-rouge">deactivating</code> state): Stop the publisher.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_cleanup()</code> (in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> state): Release the pointers to
+publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_shutdown()</code> (in the <code class="language-plaintext highlighter-rouge">shuttingDown</code> state): In this case does the
+same as <code class="language-plaintext highlighter-rouge">on_cleanup()</code>, in general it would for example release
+system resources.</li>
+</ul>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a simple listener which shows the
-characteristics of the lifecycle talker. The talker enables message
-publishing only in the active state and thus the listener only receives
-messages when the talker is in an active state.</p>
+<p>In summary, the node only performs its main functionality (publishing)
+while in the <code class="language-plaintext highlighter-rouge">active</code> state. The transitions and their corresponding
+callbacks ensure that resources are correctly initialized, activated,
+deactivated, and cleaned up as the node moves between lifecycle states.</p>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_service_client</code> is a script calling different transitions
-on the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>. This is meant as the external user
-controlling the lifecycle of nodes.</p>
+<p>This demo shows a simple talker/listener pair of nodes. However, imagine
+a more realistic scenario with attached hardware which may have a rather
+long booting phase, i.e. a laser or camera. In that case, one could
+initialize the device driver in the <code class="language-plaintext highlighter-rouge">configuring</code> transition state,
+start and stop the publishing of the device’s data in the <code class="language-plaintext highlighter-rouge">activating</code>
+and <code class="language-plaintext highlighter-rouge">deactivating</code> transition states, and only shut down the device
+completely in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> or <code class="language-plaintext highlighter-rouge">shuttingdown</code> transition states.</p>
 
-<h1 id="run-the-demo">Run the demo</h1>
-
-<p>In order to run this demo, we open three terminals and source our ROS 2
-environment variables either from the binary distributions or the
-workspace we compiled from source.</p>
-
-<p>lifecycle_talker                                                                     lifecycle_listener                                                                   lifecycle_service_client
-  ———————————————————————————— ———————————————————————————— ————————————————————————————
-  <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_talker</code>                                              <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_listener</code>                                            <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_service_client</code>
-  <a href="https://asciinema.org/a/249049"><img src="https://asciinema.org/a/249049.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249050"><img src="https://asciinema.org/a/249050.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249051"><img src="https://asciinema.org/a/249051.png" alt="asciicast"></a></p>
-
-<p>Alternatively, these three programs can be run together in the same
-terminal using the launch file:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch lifecycle lifecycle_demo_launch.py
-
-</code></pre></div></div>
+<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a regular (non-lifecycle) node that
+subscribes to the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>'s topics. It logs the published
+messages as well as the transition events. The talker publishes only in
+the active state and thus the listener obviously only receives messages
+when the talker is in an active state.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/ros2/demos/tree/kilted/lifecycle/README.rst">see the full file</a></p>
 </div>
@@ -3217,7 +3256,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-10-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-11-06
         </span>
       </td>
     </tr>
@@ -3308,22 +3347,36 @@ jQuery(function() {
                     <div class="rendered-markdown">
 <h1 id="introduction">Introduction</h1>
 
+<h2 id="what-is-this">What Is This?</h2>
+
 <p>ROS 2 introduces the concept of managed nodes, also called
 <code class="language-plaintext highlighter-rouge">LifecycleNode</code>s. In the following tutorial, we explain the purpose of
 these nodes, what makes them different from regular nodes and how they
-comply to a lifecycle management. Managed nodes contain a state machine
-with a set of predefined states. These states can be changed by invoking
-a transition id which indicates the succeeding consecutive state. The
-state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS 2 design
+comply to a lifecycle management.</p>
+
+<h2 id="basic-concept-and-nomenclature">Basic Concept and Nomenclature</h2>
+
+<p>Managed nodes contain a state machine with a set of predefined states.
+These states can be changed by invoking a transition, passing a specific
+transition ID which indicates the succeeding consecutive state. The
+state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
 page</a>.</p>
 
-<p>Our implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and
-<code class="language-plaintext highlighter-rouge">Transition States</code>. Primary States are supposed to be steady states in
-which any node can do the respected task. On the other hand, Transition
-States are meant as temporary intermediate states attached to a
-transition. The result of these intermediate states are used to indicate
-whether a transition between two primary states is considered successful
-or not. Thus, any managed node can be in one of the following states:</p>
+<dl>
+  <dt>The implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and <code class="language-plaintext highlighter-rouge">Transition States</code>.</dt>
+  <dd>
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">Primary states</code> are supposed to be steady states in which any
+node can perform their respective task.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">Transition states</code> are used to indicate whether a transition
+between two primary states is considered successful or not.</li>
+    </ul>
+  </dd>
+</dl>
+
+<p>In the end, any managed node can be in one of the following states:</p>
 
 <p>Primary States (steady states):</p>
 
@@ -3331,7 +3384,7 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>unconfigured</li>
   <li>inactive</li>
   <li>active</li>
-  <li>shutdown</li>
+  <li>finalized</li>
 </ul>
 
 <p>Transition States (intermediate states):</p>
@@ -3354,9 +3407,10 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>shutdown</li>
 </ul>
 
-<p>For a more verbose explanation on the applied state machine, we refer to
-the design page which provides an in-detail explanation about each state
-and transition.</p>
+<p>For a detailed explanation of the applied state machine, we refer again
+to the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
+page</a> which
+provides specific info about each state and transition.</p>
 
 <h1 id="the-demo">The demo</h1>
 
@@ -3365,56 +3419,54 @@ and transition.</p>
 <p>The demo is split into 3 separate applications:</p>
 
 <ul>
-  <li>lifecycle_talker</li>
-  <li>lifecycle_listener</li>
-  <li>lifecycle_service_client</li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_talker</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_listener</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_service_client</code></li>
 </ul>
 
 <p>The <code class="language-plaintext highlighter-rouge">lifecycle_talker</code> represents a managed node and publishes according
-to which state the node is in. We split the tasks of the talker node
-into separate pieces and execute them as follows:</p>
+to which state the node is in. Its primary task (in this example
+publishing) is executed in the <code class="language-plaintext highlighter-rouge">active</code> state.</p>
 
-<ol>
-  <li>configuring: We initialize our publisher and timer</li>
-  <li>activate: We activate the publisher and timer in order to enable a
-publishing</li>
-  <li>deactivate: We stop the publisher and timer</li>
-  <li>cleanup: We destroy the publisher and timer</li>
-</ol>
+<p>Lifecycle transitions invoke callback functions that prepare or tear
+down the resources required for publishing:</p>
 
-<p>This demo shows a typical talker/listener pair of nodes. However,
-imagine a real scenario with attached hardware which may have a rather
-long booting phase, i.e. a laser or camera. One could imagine bringing
-up the device driver in the configuring state, start and stop only the
-publishing of the device's data in active/deactive state, and only in
-the cleanup/shutdown state actually shutdown the device.</p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_configure()</code> (in the <code class="language-plaintext highlighter-rouge">configuring</code> state): Create and initialize
+the publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_activate()</code> (in the <code class="language-plaintext highlighter-rouge">activating</code> state): Activate the publisher
+and timer so that publishing can occur in the <code class="language-plaintext highlighter-rouge">active</code> state.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_deactivate()</code> (in the <code class="language-plaintext highlighter-rouge">deactivating</code> state): Stop the publisher.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_cleanup()</code> (in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> state): Release the pointers to
+publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_shutdown()</code> (in the <code class="language-plaintext highlighter-rouge">shuttingDown</code> state): In this case does the
+same as <code class="language-plaintext highlighter-rouge">on_cleanup()</code>, in general it would for example release
+system resources.</li>
+</ul>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a simple listener which shows the
-characteristics of the lifecycle talker. The talker enables message
-publishing only in the active state and thus the listener only receives
-messages when the talker is in an active state.</p>
+<p>In summary, the node only performs its main functionality (publishing)
+while in the <code class="language-plaintext highlighter-rouge">active</code> state. The transitions and their corresponding
+callbacks ensure that resources are correctly initialized, activated,
+deactivated, and cleaned up as the node moves between lifecycle states.</p>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_service_client</code> is a script calling different transitions
-on the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>. This is meant as the external user
-controlling the lifecycle of nodes.</p>
+<p>This demo shows a simple talker/listener pair of nodes. However, imagine
+a more realistic scenario with attached hardware which may have a rather
+long booting phase, i.e. a laser or camera. In that case, one could
+initialize the device driver in the <code class="language-plaintext highlighter-rouge">configuring</code> transition state,
+start and stop the publishing of the device’s data in the <code class="language-plaintext highlighter-rouge">activating</code>
+and <code class="language-plaintext highlighter-rouge">deactivating</code> transition states, and only shut down the device
+completely in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> or <code class="language-plaintext highlighter-rouge">shuttingdown</code> transition states.</p>
 
-<h1 id="run-the-demo">Run the demo</h1>
-
-<p>In order to run this demo, we open three terminals and source our ROS 2
-environment variables either from the binary distributions or the
-workspace we compiled from source.</p>
-
-<p>lifecycle_talker                                                                     lifecycle_listener                                                                   lifecycle_service_client
-  ———————————————————————————— ———————————————————————————— ————————————————————————————
-  <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_talker</code>                                              <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_listener</code>                                            <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_service_client</code>
-  <a href="https://asciinema.org/a/249049"><img src="https://asciinema.org/a/249049.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249050"><img src="https://asciinema.org/a/249050.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249051"><img src="https://asciinema.org/a/249051.png" alt="asciicast"></a></p>
-
-<p>Alternatively, these three programs can be run together in the same
-terminal using the launch file:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch lifecycle lifecycle_demo_launch.py
-
-</code></pre></div></div>
+<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a regular (non-lifecycle) node that
+subscribes to the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>'s topics. It logs the published
+messages as well as the transition events. The talker publishes only in
+the active state and thus the listener obviously only receives messages
+when the talker is in an active state.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/ros2/demos/tree/rolling/lifecycle/README.rst">see the full file</a></p>
 </div>
@@ -10565,7 +10617,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-10-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-11-06
         </span>
       </td>
     </tr>
@@ -10656,22 +10708,36 @@ jQuery(function() {
                     <div class="rendered-markdown">
 <h1 id="introduction">Introduction</h1>
 
+<h2 id="what-is-this">What Is This?</h2>
+
 <p>ROS 2 introduces the concept of managed nodes, also called
 <code class="language-plaintext highlighter-rouge">LifecycleNode</code>s. In the following tutorial, we explain the purpose of
 these nodes, what makes them different from regular nodes and how they
-comply to a lifecycle management. Managed nodes contain a state machine
-with a set of predefined states. These states can be changed by invoking
-a transition id which indicates the succeeding consecutive state. The
-state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS 2 design
+comply to a lifecycle management.</p>
+
+<h2 id="basic-concept-and-nomenclature">Basic Concept and Nomenclature</h2>
+
+<p>Managed nodes contain a state machine with a set of predefined states.
+These states can be changed by invoking a transition, passing a specific
+transition ID which indicates the succeeding consecutive state. The
+state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
 page</a>.</p>
 
-<p>Our implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and
-<code class="language-plaintext highlighter-rouge">Transition States</code>. Primary States are supposed to be steady states in
-which any node can do the respected task. On the other hand, Transition
-States are meant as temporary intermediate states attached to a
-transition. The result of these intermediate states are used to indicate
-whether a transition between two primary states is considered successful
-or not. Thus, any managed node can be in one of the following states:</p>
+<dl>
+  <dt>The implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and <code class="language-plaintext highlighter-rouge">Transition States</code>.</dt>
+  <dd>
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">Primary states</code> are supposed to be steady states in which any
+node can perform their respective task.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">Transition states</code> are used to indicate whether a transition
+between two primary states is considered successful or not.</li>
+    </ul>
+  </dd>
+</dl>
+
+<p>In the end, any managed node can be in one of the following states:</p>
 
 <p>Primary States (steady states):</p>
 
@@ -10679,7 +10745,7 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>unconfigured</li>
   <li>inactive</li>
   <li>active</li>
-  <li>shutdown</li>
+  <li>finalized</li>
 </ul>
 
 <p>Transition States (intermediate states):</p>
@@ -10702,9 +10768,10 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>shutdown</li>
 </ul>
 
-<p>For a more verbose explanation on the applied state machine, we refer to
-the design page which provides an in-detail explanation about each state
-and transition.</p>
+<p>For a detailed explanation of the applied state machine, we refer again
+to the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
+page</a> which
+provides specific info about each state and transition.</p>
 
 <h1 id="the-demo">The demo</h1>
 
@@ -10713,56 +10780,54 @@ and transition.</p>
 <p>The demo is split into 3 separate applications:</p>
 
 <ul>
-  <li>lifecycle_talker</li>
-  <li>lifecycle_listener</li>
-  <li>lifecycle_service_client</li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_talker</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_listener</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_service_client</code></li>
 </ul>
 
 <p>The <code class="language-plaintext highlighter-rouge">lifecycle_talker</code> represents a managed node and publishes according
-to which state the node is in. We split the tasks of the talker node
-into separate pieces and execute them as follows:</p>
+to which state the node is in. Its primary task (in this example
+publishing) is executed in the <code class="language-plaintext highlighter-rouge">active</code> state.</p>
 
-<ol>
-  <li>configuring: We initialize our publisher and timer</li>
-  <li>activate: We activate the publisher and timer in order to enable a
-publishing</li>
-  <li>deactivate: We stop the publisher and timer</li>
-  <li>cleanup: We destroy the publisher and timer</li>
-</ol>
+<p>Lifecycle transitions invoke callback functions that prepare or tear
+down the resources required for publishing:</p>
 
-<p>This demo shows a typical talker/listener pair of nodes. However,
-imagine a real scenario with attached hardware which may have a rather
-long booting phase, i.e. a laser or camera. One could imagine bringing
-up the device driver in the configuring state, start and stop only the
-publishing of the device's data in active/deactive state, and only in
-the cleanup/shutdown state actually shutdown the device.</p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_configure()</code> (in the <code class="language-plaintext highlighter-rouge">configuring</code> state): Create and initialize
+the publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_activate()</code> (in the <code class="language-plaintext highlighter-rouge">activating</code> state): Activate the publisher
+and timer so that publishing can occur in the <code class="language-plaintext highlighter-rouge">active</code> state.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_deactivate()</code> (in the <code class="language-plaintext highlighter-rouge">deactivating</code> state): Stop the publisher.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_cleanup()</code> (in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> state): Release the pointers to
+publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_shutdown()</code> (in the <code class="language-plaintext highlighter-rouge">shuttingDown</code> state): In this case does the
+same as <code class="language-plaintext highlighter-rouge">on_cleanup()</code>, in general it would for example release
+system resources.</li>
+</ul>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a simple listener which shows the
-characteristics of the lifecycle talker. The talker enables message
-publishing only in the active state and thus the listener only receives
-messages when the talker is in an active state.</p>
+<p>In summary, the node only performs its main functionality (publishing)
+while in the <code class="language-plaintext highlighter-rouge">active</code> state. The transitions and their corresponding
+callbacks ensure that resources are correctly initialized, activated,
+deactivated, and cleaned up as the node moves between lifecycle states.</p>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_service_client</code> is a script calling different transitions
-on the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>. This is meant as the external user
-controlling the lifecycle of nodes.</p>
+<p>This demo shows a simple talker/listener pair of nodes. However, imagine
+a more realistic scenario with attached hardware which may have a rather
+long booting phase, i.e. a laser or camera. In that case, one could
+initialize the device driver in the <code class="language-plaintext highlighter-rouge">configuring</code> transition state,
+start and stop the publishing of the device’s data in the <code class="language-plaintext highlighter-rouge">activating</code>
+and <code class="language-plaintext highlighter-rouge">deactivating</code> transition states, and only shut down the device
+completely in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> or <code class="language-plaintext highlighter-rouge">shuttingdown</code> transition states.</p>
 
-<h1 id="run-the-demo">Run the demo</h1>
-
-<p>In order to run this demo, we open three terminals and source our ROS 2
-environment variables either from the binary distributions or the
-workspace we compiled from source.</p>
-
-<p>lifecycle_talker                                                                     lifecycle_listener                                                                   lifecycle_service_client
-  ———————————————————————————— ———————————————————————————— ————————————————————————————
-  <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_talker</code>                                              <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_listener</code>                                            <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_service_client</code>
-  <a href="https://asciinema.org/a/249049"><img src="https://asciinema.org/a/249049.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249050"><img src="https://asciinema.org/a/249050.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249051"><img src="https://asciinema.org/a/249051.png" alt="asciicast"></a></p>
-
-<p>Alternatively, these three programs can be run together in the same
-terminal using the launch file:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch lifecycle lifecycle_demo.launch.py
-
-</code></pre></div></div>
+<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a regular (non-lifecycle) node that
+subscribes to the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>'s topics. It logs the published
+messages as well as the transition events. The talker publishes only in
+the active state and thus the listener obviously only receives messages
+when the talker is in an active state.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/ros2/demos/tree/humble/lifecycle/README.rst">see the full file</a></p>
 </div>
@@ -11487,7 +11552,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-10-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-11-06
         </span>
       </td>
     </tr>
@@ -11578,22 +11643,36 @@ jQuery(function() {
                     <div class="rendered-markdown">
 <h1 id="introduction">Introduction</h1>
 
+<h2 id="what-is-this">What Is This?</h2>
+
 <p>ROS 2 introduces the concept of managed nodes, also called
 <code class="language-plaintext highlighter-rouge">LifecycleNode</code>s. In the following tutorial, we explain the purpose of
 these nodes, what makes them different from regular nodes and how they
-comply to a lifecycle management. Managed nodes contain a state machine
-with a set of predefined states. These states can be changed by invoking
-a transition id which indicates the succeeding consecutive state. The
-state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS 2 design
+comply to a lifecycle management.</p>
+
+<h2 id="basic-concept-and-nomenclature">Basic Concept and Nomenclature</h2>
+
+<p>Managed nodes contain a state machine with a set of predefined states.
+These states can be changed by invoking a transition, passing a specific
+transition ID which indicates the succeeding consecutive state. The
+state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
 page</a>.</p>
 
-<p>Our implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and
-<code class="language-plaintext highlighter-rouge">Transition States</code>. Primary States are supposed to be steady states in
-which any node can do the respected task. On the other hand, Transition
-States are meant as temporary intermediate states attached to a
-transition. The result of these intermediate states are used to indicate
-whether a transition between two primary states is considered successful
-or not. Thus, any managed node can be in one of the following states:</p>
+<dl>
+  <dt>The implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and <code class="language-plaintext highlighter-rouge">Transition States</code>.</dt>
+  <dd>
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">Primary states</code> are supposed to be steady states in which any
+node can perform their respective task.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">Transition states</code> are used to indicate whether a transition
+between two primary states is considered successful or not.</li>
+    </ul>
+  </dd>
+</dl>
+
+<p>In the end, any managed node can be in one of the following states:</p>
 
 <p>Primary States (steady states):</p>
 
@@ -11601,7 +11680,7 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>unconfigured</li>
   <li>inactive</li>
   <li>active</li>
-  <li>shutdown</li>
+  <li>finalized</li>
 </ul>
 
 <p>Transition States (intermediate states):</p>
@@ -11624,9 +11703,10 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>shutdown</li>
 </ul>
 
-<p>For a more verbose explanation on the applied state machine, we refer to
-the design page which provides an in-detail explanation about each state
-and transition.</p>
+<p>For a detailed explanation of the applied state machine, we refer again
+to the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
+page</a> which
+provides specific info about each state and transition.</p>
 
 <h1 id="the-demo">The demo</h1>
 
@@ -11635,56 +11715,54 @@ and transition.</p>
 <p>The demo is split into 3 separate applications:</p>
 
 <ul>
-  <li>lifecycle_talker</li>
-  <li>lifecycle_listener</li>
-  <li>lifecycle_service_client</li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_talker</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_listener</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_service_client</code></li>
 </ul>
 
 <p>The <code class="language-plaintext highlighter-rouge">lifecycle_talker</code> represents a managed node and publishes according
-to which state the node is in. We split the tasks of the talker node
-into separate pieces and execute them as follows:</p>
+to which state the node is in. Its primary task (in this example
+publishing) is executed in the <code class="language-plaintext highlighter-rouge">active</code> state.</p>
 
-<ol>
-  <li>configuring: We initialize our publisher and timer</li>
-  <li>activate: We activate the publisher and timer in order to enable a
-publishing</li>
-  <li>deactivate: We stop the publisher and timer</li>
-  <li>cleanup: We destroy the publisher and timer</li>
-</ol>
+<p>Lifecycle transitions invoke callback functions that prepare or tear
+down the resources required for publishing:</p>
 
-<p>This demo shows a typical talker/listener pair of nodes. However,
-imagine a real scenario with attached hardware which may have a rather
-long booting phase, i.e. a laser or camera. One could imagine bringing
-up the device driver in the configuring state, start and stop only the
-publishing of the device's data in active/deactive state, and only in
-the cleanup/shutdown state actually shutdown the device.</p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_configure()</code> (in the <code class="language-plaintext highlighter-rouge">configuring</code> state): Create and initialize
+the publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_activate()</code> (in the <code class="language-plaintext highlighter-rouge">activating</code> state): Activate the publisher
+and timer so that publishing can occur in the <code class="language-plaintext highlighter-rouge">active</code> state.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_deactivate()</code> (in the <code class="language-plaintext highlighter-rouge">deactivating</code> state): Stop the publisher.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_cleanup()</code> (in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> state): Release the pointers to
+publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_shutdown()</code> (in the <code class="language-plaintext highlighter-rouge">shuttingDown</code> state): In this case does the
+same as <code class="language-plaintext highlighter-rouge">on_cleanup()</code>, in general it would for example release
+system resources.</li>
+</ul>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a simple listener which shows the
-characteristics of the lifecycle talker. The talker enables message
-publishing only in the active state and thus the listener only receives
-messages when the talker is in an active state.</p>
+<p>In summary, the node only performs its main functionality (publishing)
+while in the <code class="language-plaintext highlighter-rouge">active</code> state. The transitions and their corresponding
+callbacks ensure that resources are correctly initialized, activated,
+deactivated, and cleaned up as the node moves between lifecycle states.</p>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_service_client</code> is a script calling different transitions
-on the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>. This is meant as the external user
-controlling the lifecycle of nodes.</p>
+<p>This demo shows a simple talker/listener pair of nodes. However, imagine
+a more realistic scenario with attached hardware which may have a rather
+long booting phase, i.e. a laser or camera. In that case, one could
+initialize the device driver in the <code class="language-plaintext highlighter-rouge">configuring</code> transition state,
+start and stop the publishing of the device’s data in the <code class="language-plaintext highlighter-rouge">activating</code>
+and <code class="language-plaintext highlighter-rouge">deactivating</code> transition states, and only shut down the device
+completely in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> or <code class="language-plaintext highlighter-rouge">shuttingdown</code> transition states.</p>
 
-<h1 id="run-the-demo">Run the demo</h1>
-
-<p>In order to run this demo, we open three terminals and source our ROS 2
-environment variables either from the binary distributions or the
-workspace we compiled from source.</p>
-
-<p>lifecycle_talker                                                                     lifecycle_listener                                                                   lifecycle_service_client
-  ———————————————————————————— ———————————————————————————— ————————————————————————————
-  <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_talker</code>                                              <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_listener</code>                                            <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_service_client</code>
-  <a href="https://asciinema.org/a/249049"><img src="https://asciinema.org/a/249049.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249050"><img src="https://asciinema.org/a/249050.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249051"><img src="https://asciinema.org/a/249051.png" alt="asciicast"></a></p>
-
-<p>Alternatively, these three programs can be run together in the same
-terminal using the launch file:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch lifecycle lifecycle_demo.launch.py
-
-</code></pre></div></div>
+<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a regular (non-lifecycle) node that
+subscribes to the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>'s topics. It logs the published
+messages as well as the transition events. The talker publishes only in
+the active state and thus the listener obviously only receives messages
+when the talker is in an active state.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/ros2/demos/tree/humble/lifecycle/README.rst">see the full file</a></p>
 </div>
@@ -12409,7 +12487,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-10-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-11-06
         </span>
       </td>
     </tr>
@@ -12500,22 +12578,36 @@ jQuery(function() {
                     <div class="rendered-markdown">
 <h1 id="introduction">Introduction</h1>
 
+<h2 id="what-is-this">What Is This?</h2>
+
 <p>ROS 2 introduces the concept of managed nodes, also called
 <code class="language-plaintext highlighter-rouge">LifecycleNode</code>s. In the following tutorial, we explain the purpose of
 these nodes, what makes them different from regular nodes and how they
-comply to a lifecycle management. Managed nodes contain a state machine
-with a set of predefined states. These states can be changed by invoking
-a transition id which indicates the succeeding consecutive state. The
-state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS 2 design
+comply to a lifecycle management.</p>
+
+<h2 id="basic-concept-and-nomenclature">Basic Concept and Nomenclature</h2>
+
+<p>Managed nodes contain a state machine with a set of predefined states.
+These states can be changed by invoking a transition, passing a specific
+transition ID which indicates the succeeding consecutive state. The
+state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
 page</a>.</p>
 
-<p>Our implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and
-<code class="language-plaintext highlighter-rouge">Transition States</code>. Primary States are supposed to be steady states in
-which any node can do the respected task. On the other hand, Transition
-States are meant as temporary intermediate states attached to a
-transition. The result of these intermediate states are used to indicate
-whether a transition between two primary states is considered successful
-or not. Thus, any managed node can be in one of the following states:</p>
+<dl>
+  <dt>The implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and <code class="language-plaintext highlighter-rouge">Transition States</code>.</dt>
+  <dd>
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">Primary states</code> are supposed to be steady states in which any
+node can perform their respective task.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">Transition states</code> are used to indicate whether a transition
+between two primary states is considered successful or not.</li>
+    </ul>
+  </dd>
+</dl>
+
+<p>In the end, any managed node can be in one of the following states:</p>
 
 <p>Primary States (steady states):</p>
 
@@ -12523,7 +12615,7 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>unconfigured</li>
   <li>inactive</li>
   <li>active</li>
-  <li>shutdown</li>
+  <li>finalized</li>
 </ul>
 
 <p>Transition States (intermediate states):</p>
@@ -12546,9 +12638,10 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>shutdown</li>
 </ul>
 
-<p>For a more verbose explanation on the applied state machine, we refer to
-the design page which provides an in-detail explanation about each state
-and transition.</p>
+<p>For a detailed explanation of the applied state machine, we refer again
+to the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
+page</a> which
+provides specific info about each state and transition.</p>
 
 <h1 id="the-demo">The demo</h1>
 
@@ -12557,56 +12650,54 @@ and transition.</p>
 <p>The demo is split into 3 separate applications:</p>
 
 <ul>
-  <li>lifecycle_talker</li>
-  <li>lifecycle_listener</li>
-  <li>lifecycle_service_client</li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_talker</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_listener</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_service_client</code></li>
 </ul>
 
 <p>The <code class="language-plaintext highlighter-rouge">lifecycle_talker</code> represents a managed node and publishes according
-to which state the node is in. We split the tasks of the talker node
-into separate pieces and execute them as follows:</p>
+to which state the node is in. Its primary task (in this example
+publishing) is executed in the <code class="language-plaintext highlighter-rouge">active</code> state.</p>
 
-<ol>
-  <li>configuring: We initialize our publisher and timer</li>
-  <li>activate: We activate the publisher and timer in order to enable a
-publishing</li>
-  <li>deactivate: We stop the publisher and timer</li>
-  <li>cleanup: We destroy the publisher and timer</li>
-</ol>
+<p>Lifecycle transitions invoke callback functions that prepare or tear
+down the resources required for publishing:</p>
 
-<p>This demo shows a typical talker/listener pair of nodes. However,
-imagine a real scenario with attached hardware which may have a rather
-long booting phase, i.e. a laser or camera. One could imagine bringing
-up the device driver in the configuring state, start and stop only the
-publishing of the device's data in active/deactive state, and only in
-the cleanup/shutdown state actually shutdown the device.</p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_configure()</code> (in the <code class="language-plaintext highlighter-rouge">configuring</code> state): Create and initialize
+the publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_activate()</code> (in the <code class="language-plaintext highlighter-rouge">activating</code> state): Activate the publisher
+and timer so that publishing can occur in the <code class="language-plaintext highlighter-rouge">active</code> state.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_deactivate()</code> (in the <code class="language-plaintext highlighter-rouge">deactivating</code> state): Stop the publisher.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_cleanup()</code> (in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> state): Release the pointers to
+publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_shutdown()</code> (in the <code class="language-plaintext highlighter-rouge">shuttingDown</code> state): In this case does the
+same as <code class="language-plaintext highlighter-rouge">on_cleanup()</code>, in general it would for example release
+system resources.</li>
+</ul>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a simple listener which shows the
-characteristics of the lifecycle talker. The talker enables message
-publishing only in the active state and thus the listener only receives
-messages when the talker is in an active state.</p>
+<p>In summary, the node only performs its main functionality (publishing)
+while in the <code class="language-plaintext highlighter-rouge">active</code> state. The transitions and their corresponding
+callbacks ensure that resources are correctly initialized, activated,
+deactivated, and cleaned up as the node moves between lifecycle states.</p>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_service_client</code> is a script calling different transitions
-on the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>. This is meant as the external user
-controlling the lifecycle of nodes.</p>
+<p>This demo shows a simple talker/listener pair of nodes. However, imagine
+a more realistic scenario with attached hardware which may have a rather
+long booting phase, i.e. a laser or camera. In that case, one could
+initialize the device driver in the <code class="language-plaintext highlighter-rouge">configuring</code> transition state,
+start and stop the publishing of the device’s data in the <code class="language-plaintext highlighter-rouge">activating</code>
+and <code class="language-plaintext highlighter-rouge">deactivating</code> transition states, and only shut down the device
+completely in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> or <code class="language-plaintext highlighter-rouge">shuttingdown</code> transition states.</p>
 
-<h1 id="run-the-demo">Run the demo</h1>
-
-<p>In order to run this demo, we open three terminals and source our ROS 2
-environment variables either from the binary distributions or the
-workspace we compiled from source.</p>
-
-<p>lifecycle_talker                                                                     lifecycle_listener                                                                   lifecycle_service_client
-  ———————————————————————————— ———————————————————————————— ————————————————————————————
-  <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_talker</code>                                              <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_listener</code>                                            <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_service_client</code>
-  <a href="https://asciinema.org/a/249049"><img src="https://asciinema.org/a/249049.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249050"><img src="https://asciinema.org/a/249050.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249051"><img src="https://asciinema.org/a/249051.png" alt="asciicast"></a></p>
-
-<p>Alternatively, these three programs can be run together in the same
-terminal using the launch file:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch lifecycle lifecycle_demo.launch.py
-
-</code></pre></div></div>
+<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a regular (non-lifecycle) node that
+subscribes to the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>'s topics. It logs the published
+messages as well as the transition events. The talker publishes only in
+the active state and thus the listener obviously only receives messages
+when the talker is in an active state.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/ros2/demos/tree/humble/lifecycle/README.rst">see the full file</a></p>
 </div>
@@ -13331,7 +13422,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-10-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-11-06
         </span>
       </td>
     </tr>
@@ -13422,22 +13513,36 @@ jQuery(function() {
                     <div class="rendered-markdown">
 <h1 id="introduction">Introduction</h1>
 
+<h2 id="what-is-this">What Is This?</h2>
+
 <p>ROS 2 introduces the concept of managed nodes, also called
 <code class="language-plaintext highlighter-rouge">LifecycleNode</code>s. In the following tutorial, we explain the purpose of
 these nodes, what makes them different from regular nodes and how they
-comply to a lifecycle management. Managed nodes contain a state machine
-with a set of predefined states. These states can be changed by invoking
-a transition id which indicates the succeeding consecutive state. The
-state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS 2 design
+comply to a lifecycle management.</p>
+
+<h2 id="basic-concept-and-nomenclature">Basic Concept and Nomenclature</h2>
+
+<p>Managed nodes contain a state machine with a set of predefined states.
+These states can be changed by invoking a transition, passing a specific
+transition ID which indicates the succeeding consecutive state. The
+state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
 page</a>.</p>
 
-<p>Our implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and
-<code class="language-plaintext highlighter-rouge">Transition States</code>. Primary States are supposed to be steady states in
-which any node can do the respected task. On the other hand, Transition
-States are meant as temporary intermediate states attached to a
-transition. The result of these intermediate states are used to indicate
-whether a transition between two primary states is considered successful
-or not. Thus, any managed node can be in one of the following states:</p>
+<dl>
+  <dt>The implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and <code class="language-plaintext highlighter-rouge">Transition States</code>.</dt>
+  <dd>
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">Primary states</code> are supposed to be steady states in which any
+node can perform their respective task.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">Transition states</code> are used to indicate whether a transition
+between two primary states is considered successful or not.</li>
+    </ul>
+  </dd>
+</dl>
+
+<p>In the end, any managed node can be in one of the following states:</p>
 
 <p>Primary States (steady states):</p>
 
@@ -13445,7 +13550,7 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>unconfigured</li>
   <li>inactive</li>
   <li>active</li>
-  <li>shutdown</li>
+  <li>finalized</li>
 </ul>
 
 <p>Transition States (intermediate states):</p>
@@ -13468,9 +13573,10 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>shutdown</li>
 </ul>
 
-<p>For a more verbose explanation on the applied state machine, we refer to
-the design page which provides an in-detail explanation about each state
-and transition.</p>
+<p>For a detailed explanation of the applied state machine, we refer again
+to the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
+page</a> which
+provides specific info about each state and transition.</p>
 
 <h1 id="the-demo">The demo</h1>
 
@@ -13479,56 +13585,54 @@ and transition.</p>
 <p>The demo is split into 3 separate applications:</p>
 
 <ul>
-  <li>lifecycle_talker</li>
-  <li>lifecycle_listener</li>
-  <li>lifecycle_service_client</li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_talker</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_listener</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_service_client</code></li>
 </ul>
 
 <p>The <code class="language-plaintext highlighter-rouge">lifecycle_talker</code> represents a managed node and publishes according
-to which state the node is in. We split the tasks of the talker node
-into separate pieces and execute them as follows:</p>
+to which state the node is in. Its primary task (in this example
+publishing) is executed in the <code class="language-plaintext highlighter-rouge">active</code> state.</p>
 
-<ol>
-  <li>configuring: We initialize our publisher and timer</li>
-  <li>activate: We activate the publisher and timer in order to enable a
-publishing</li>
-  <li>deactivate: We stop the publisher and timer</li>
-  <li>cleanup: We destroy the publisher and timer</li>
-</ol>
+<p>Lifecycle transitions invoke callback functions that prepare or tear
+down the resources required for publishing:</p>
 
-<p>This demo shows a typical talker/listener pair of nodes. However,
-imagine a real scenario with attached hardware which may have a rather
-long booting phase, i.e. a laser or camera. One could imagine bringing
-up the device driver in the configuring state, start and stop only the
-publishing of the device's data in active/deactive state, and only in
-the cleanup/shutdown state actually shutdown the device.</p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_configure()</code> (in the <code class="language-plaintext highlighter-rouge">configuring</code> state): Create and initialize
+the publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_activate()</code> (in the <code class="language-plaintext highlighter-rouge">activating</code> state): Activate the publisher
+and timer so that publishing can occur in the <code class="language-plaintext highlighter-rouge">active</code> state.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_deactivate()</code> (in the <code class="language-plaintext highlighter-rouge">deactivating</code> state): Stop the publisher.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_cleanup()</code> (in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> state): Release the pointers to
+publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_shutdown()</code> (in the <code class="language-plaintext highlighter-rouge">shuttingDown</code> state): In this case does the
+same as <code class="language-plaintext highlighter-rouge">on_cleanup()</code>, in general it would for example release
+system resources.</li>
+</ul>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a simple listener which shows the
-characteristics of the lifecycle talker. The talker enables message
-publishing only in the active state and thus the listener only receives
-messages when the talker is in an active state.</p>
+<p>In summary, the node only performs its main functionality (publishing)
+while in the <code class="language-plaintext highlighter-rouge">active</code> state. The transitions and their corresponding
+callbacks ensure that resources are correctly initialized, activated,
+deactivated, and cleaned up as the node moves between lifecycle states.</p>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_service_client</code> is a script calling different transitions
-on the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>. This is meant as the external user
-controlling the lifecycle of nodes.</p>
+<p>This demo shows a simple talker/listener pair of nodes. However, imagine
+a more realistic scenario with attached hardware which may have a rather
+long booting phase, i.e. a laser or camera. In that case, one could
+initialize the device driver in the <code class="language-plaintext highlighter-rouge">configuring</code> transition state,
+start and stop the publishing of the device’s data in the <code class="language-plaintext highlighter-rouge">activating</code>
+and <code class="language-plaintext highlighter-rouge">deactivating</code> transition states, and only shut down the device
+completely in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> or <code class="language-plaintext highlighter-rouge">shuttingdown</code> transition states.</p>
 
-<h1 id="run-the-demo">Run the demo</h1>
-
-<p>In order to run this demo, we open three terminals and source our ROS 2
-environment variables either from the binary distributions or the
-workspace we compiled from source.</p>
-
-<p>lifecycle_talker                                                                     lifecycle_listener                                                                   lifecycle_service_client
-  ———————————————————————————— ———————————————————————————— ————————————————————————————
-  <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_talker</code>                                              <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_listener</code>                                            <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_service_client</code>
-  <a href="https://asciinema.org/a/249049"><img src="https://asciinema.org/a/249049.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249050"><img src="https://asciinema.org/a/249050.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249051"><img src="https://asciinema.org/a/249051.png" alt="asciicast"></a></p>
-
-<p>Alternatively, these three programs can be run together in the same
-terminal using the launch file:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch lifecycle lifecycle_demo.launch.py
-
-</code></pre></div></div>
+<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a regular (non-lifecycle) node that
+subscribes to the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>'s topics. It logs the published
+messages as well as the transition events. The talker publishes only in
+the active state and thus the listener obviously only receives messages
+when the talker is in an active state.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/ros2/demos/tree/humble/lifecycle/README.rst">see the full file</a></p>
 </div>
@@ -14253,7 +14357,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-10-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-11-06
         </span>
       </td>
     </tr>
@@ -14344,22 +14448,36 @@ jQuery(function() {
                     <div class="rendered-markdown">
 <h1 id="introduction">Introduction</h1>
 
+<h2 id="what-is-this">What Is This?</h2>
+
 <p>ROS 2 introduces the concept of managed nodes, also called
 <code class="language-plaintext highlighter-rouge">LifecycleNode</code>s. In the following tutorial, we explain the purpose of
 these nodes, what makes them different from regular nodes and how they
-comply to a lifecycle management. Managed nodes contain a state machine
-with a set of predefined states. These states can be changed by invoking
-a transition id which indicates the succeeding consecutive state. The
-state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS 2 design
+comply to a lifecycle management.</p>
+
+<h2 id="basic-concept-and-nomenclature">Basic Concept and Nomenclature</h2>
+
+<p>Managed nodes contain a state machine with a set of predefined states.
+These states can be changed by invoking a transition, passing a specific
+transition ID which indicates the succeeding consecutive state. The
+state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
 page</a>.</p>
 
-<p>Our implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and
-<code class="language-plaintext highlighter-rouge">Transition States</code>. Primary States are supposed to be steady states in
-which any node can do the respected task. On the other hand, Transition
-States are meant as temporary intermediate states attached to a
-transition. The result of these intermediate states are used to indicate
-whether a transition between two primary states is considered successful
-or not. Thus, any managed node can be in one of the following states:</p>
+<dl>
+  <dt>The implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and <code class="language-plaintext highlighter-rouge">Transition States</code>.</dt>
+  <dd>
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">Primary states</code> are supposed to be steady states in which any
+node can perform their respective task.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">Transition states</code> are used to indicate whether a transition
+between two primary states is considered successful or not.</li>
+    </ul>
+  </dd>
+</dl>
+
+<p>In the end, any managed node can be in one of the following states:</p>
 
 <p>Primary States (steady states):</p>
 
@@ -14367,7 +14485,7 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>unconfigured</li>
   <li>inactive</li>
   <li>active</li>
-  <li>shutdown</li>
+  <li>finalized</li>
 </ul>
 
 <p>Transition States (intermediate states):</p>
@@ -14390,9 +14508,10 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>shutdown</li>
 </ul>
 
-<p>For a more verbose explanation on the applied state machine, we refer to
-the design page which provides an in-detail explanation about each state
-and transition.</p>
+<p>For a detailed explanation of the applied state machine, we refer again
+to the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
+page</a> which
+provides specific info about each state and transition.</p>
 
 <h1 id="the-demo">The demo</h1>
 
@@ -14401,56 +14520,54 @@ and transition.</p>
 <p>The demo is split into 3 separate applications:</p>
 
 <ul>
-  <li>lifecycle_talker</li>
-  <li>lifecycle_listener</li>
-  <li>lifecycle_service_client</li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_talker</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_listener</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_service_client</code></li>
 </ul>
 
 <p>The <code class="language-plaintext highlighter-rouge">lifecycle_talker</code> represents a managed node and publishes according
-to which state the node is in. We split the tasks of the talker node
-into separate pieces and execute them as follows:</p>
+to which state the node is in. Its primary task (in this example
+publishing) is executed in the <code class="language-plaintext highlighter-rouge">active</code> state.</p>
 
-<ol>
-  <li>configuring: We initialize our publisher and timer</li>
-  <li>activate: We activate the publisher and timer in order to enable a
-publishing</li>
-  <li>deactivate: We stop the publisher and timer</li>
-  <li>cleanup: We destroy the publisher and timer</li>
-</ol>
+<p>Lifecycle transitions invoke callback functions that prepare or tear
+down the resources required for publishing:</p>
 
-<p>This demo shows a typical talker/listener pair of nodes. However,
-imagine a real scenario with attached hardware which may have a rather
-long booting phase, i.e. a laser or camera. One could imagine bringing
-up the device driver in the configuring state, start and stop only the
-publishing of the device's data in active/deactive state, and only in
-the cleanup/shutdown state actually shutdown the device.</p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_configure()</code> (in the <code class="language-plaintext highlighter-rouge">configuring</code> state): Create and initialize
+the publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_activate()</code> (in the <code class="language-plaintext highlighter-rouge">activating</code> state): Activate the publisher
+and timer so that publishing can occur in the <code class="language-plaintext highlighter-rouge">active</code> state.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_deactivate()</code> (in the <code class="language-plaintext highlighter-rouge">deactivating</code> state): Stop the publisher.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_cleanup()</code> (in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> state): Release the pointers to
+publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_shutdown()</code> (in the <code class="language-plaintext highlighter-rouge">shuttingDown</code> state): In this case does the
+same as <code class="language-plaintext highlighter-rouge">on_cleanup()</code>, in general it would for example release
+system resources.</li>
+</ul>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a simple listener which shows the
-characteristics of the lifecycle talker. The talker enables message
-publishing only in the active state and thus the listener only receives
-messages when the talker is in an active state.</p>
+<p>In summary, the node only performs its main functionality (publishing)
+while in the <code class="language-plaintext highlighter-rouge">active</code> state. The transitions and their corresponding
+callbacks ensure that resources are correctly initialized, activated,
+deactivated, and cleaned up as the node moves between lifecycle states.</p>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_service_client</code> is a script calling different transitions
-on the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>. This is meant as the external user
-controlling the lifecycle of nodes.</p>
+<p>This demo shows a simple talker/listener pair of nodes. However, imagine
+a more realistic scenario with attached hardware which may have a rather
+long booting phase, i.e. a laser or camera. In that case, one could
+initialize the device driver in the <code class="language-plaintext highlighter-rouge">configuring</code> transition state,
+start and stop the publishing of the device’s data in the <code class="language-plaintext highlighter-rouge">activating</code>
+and <code class="language-plaintext highlighter-rouge">deactivating</code> transition states, and only shut down the device
+completely in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> or <code class="language-plaintext highlighter-rouge">shuttingdown</code> transition states.</p>
 
-<h1 id="run-the-demo">Run the demo</h1>
-
-<p>In order to run this demo, we open three terminals and source our ROS 2
-environment variables either from the binary distributions or the
-workspace we compiled from source.</p>
-
-<p>lifecycle_talker                                                                     lifecycle_listener                                                                   lifecycle_service_client
-  ———————————————————————————— ———————————————————————————— ————————————————————————————
-  <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_talker</code>                                              <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_listener</code>                                            <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_service_client</code>
-  <a href="https://asciinema.org/a/249049"><img src="https://asciinema.org/a/249049.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249050"><img src="https://asciinema.org/a/249050.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249051"><img src="https://asciinema.org/a/249051.png" alt="asciicast"></a></p>
-
-<p>Alternatively, these three programs can be run together in the same
-terminal using the launch file:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch lifecycle lifecycle_demo.launch.py
-
-</code></pre></div></div>
+<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a regular (non-lifecycle) node that
+subscribes to the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>'s topics. It logs the published
+messages as well as the transition events. The talker publishes only in
+the active state and thus the listener obviously only receives messages
+when the talker is in an active state.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/ros2/demos/tree/humble/lifecycle/README.rst">see the full file</a></p>
 </div>
@@ -15175,7 +15292,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-10-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-11-06
         </span>
       </td>
     </tr>
@@ -15266,22 +15383,36 @@ jQuery(function() {
                     <div class="rendered-markdown">
 <h1 id="introduction">Introduction</h1>
 
+<h2 id="what-is-this">What Is This?</h2>
+
 <p>ROS 2 introduces the concept of managed nodes, also called
 <code class="language-plaintext highlighter-rouge">LifecycleNode</code>s. In the following tutorial, we explain the purpose of
 these nodes, what makes them different from regular nodes and how they
-comply to a lifecycle management. Managed nodes contain a state machine
-with a set of predefined states. These states can be changed by invoking
-a transition id which indicates the succeeding consecutive state. The
-state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS 2 design
+comply to a lifecycle management.</p>
+
+<h2 id="basic-concept-and-nomenclature">Basic Concept and Nomenclature</h2>
+
+<p>Managed nodes contain a state machine with a set of predefined states.
+These states can be changed by invoking a transition, passing a specific
+transition ID which indicates the succeeding consecutive state. The
+state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
 page</a>.</p>
 
-<p>Our implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and
-<code class="language-plaintext highlighter-rouge">Transition States</code>. Primary States are supposed to be steady states in
-which any node can do the respected task. On the other hand, Transition
-States are meant as temporary intermediate states attached to a
-transition. The result of these intermediate states are used to indicate
-whether a transition between two primary states is considered successful
-or not. Thus, any managed node can be in one of the following states:</p>
+<dl>
+  <dt>The implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and <code class="language-plaintext highlighter-rouge">Transition States</code>.</dt>
+  <dd>
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">Primary states</code> are supposed to be steady states in which any
+node can perform their respective task.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">Transition states</code> are used to indicate whether a transition
+between two primary states is considered successful or not.</li>
+    </ul>
+  </dd>
+</dl>
+
+<p>In the end, any managed node can be in one of the following states:</p>
 
 <p>Primary States (steady states):</p>
 
@@ -15289,7 +15420,7 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>unconfigured</li>
   <li>inactive</li>
   <li>active</li>
-  <li>shutdown</li>
+  <li>finalized</li>
 </ul>
 
 <p>Transition States (intermediate states):</p>
@@ -15312,9 +15443,10 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>shutdown</li>
 </ul>
 
-<p>For a more verbose explanation on the applied state machine, we refer to
-the design page which provides an in-detail explanation about each state
-and transition.</p>
+<p>For a detailed explanation of the applied state machine, we refer again
+to the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
+page</a> which
+provides specific info about each state and transition.</p>
 
 <h1 id="the-demo">The demo</h1>
 
@@ -15323,56 +15455,54 @@ and transition.</p>
 <p>The demo is split into 3 separate applications:</p>
 
 <ul>
-  <li>lifecycle_talker</li>
-  <li>lifecycle_listener</li>
-  <li>lifecycle_service_client</li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_talker</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_listener</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_service_client</code></li>
 </ul>
 
 <p>The <code class="language-plaintext highlighter-rouge">lifecycle_talker</code> represents a managed node and publishes according
-to which state the node is in. We split the tasks of the talker node
-into separate pieces and execute them as follows:</p>
+to which state the node is in. Its primary task (in this example
+publishing) is executed in the <code class="language-plaintext highlighter-rouge">active</code> state.</p>
 
-<ol>
-  <li>configuring: We initialize our publisher and timer</li>
-  <li>activate: We activate the publisher and timer in order to enable a
-publishing</li>
-  <li>deactivate: We stop the publisher and timer</li>
-  <li>cleanup: We destroy the publisher and timer</li>
-</ol>
+<p>Lifecycle transitions invoke callback functions that prepare or tear
+down the resources required for publishing:</p>
 
-<p>This demo shows a typical talker/listener pair of nodes. However,
-imagine a real scenario with attached hardware which may have a rather
-long booting phase, i.e. a laser or camera. One could imagine bringing
-up the device driver in the configuring state, start and stop only the
-publishing of the device's data in active/deactive state, and only in
-the cleanup/shutdown state actually shutdown the device.</p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_configure()</code> (in the <code class="language-plaintext highlighter-rouge">configuring</code> state): Create and initialize
+the publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_activate()</code> (in the <code class="language-plaintext highlighter-rouge">activating</code> state): Activate the publisher
+and timer so that publishing can occur in the <code class="language-plaintext highlighter-rouge">active</code> state.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_deactivate()</code> (in the <code class="language-plaintext highlighter-rouge">deactivating</code> state): Stop the publisher.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_cleanup()</code> (in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> state): Release the pointers to
+publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_shutdown()</code> (in the <code class="language-plaintext highlighter-rouge">shuttingDown</code> state): In this case does the
+same as <code class="language-plaintext highlighter-rouge">on_cleanup()</code>, in general it would for example release
+system resources.</li>
+</ul>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a simple listener which shows the
-characteristics of the lifecycle talker. The talker enables message
-publishing only in the active state and thus the listener only receives
-messages when the talker is in an active state.</p>
+<p>In summary, the node only performs its main functionality (publishing)
+while in the <code class="language-plaintext highlighter-rouge">active</code> state. The transitions and their corresponding
+callbacks ensure that resources are correctly initialized, activated,
+deactivated, and cleaned up as the node moves between lifecycle states.</p>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_service_client</code> is a script calling different transitions
-on the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>. This is meant as the external user
-controlling the lifecycle of nodes.</p>
+<p>This demo shows a simple talker/listener pair of nodes. However, imagine
+a more realistic scenario with attached hardware which may have a rather
+long booting phase, i.e. a laser or camera. In that case, one could
+initialize the device driver in the <code class="language-plaintext highlighter-rouge">configuring</code> transition state,
+start and stop the publishing of the device’s data in the <code class="language-plaintext highlighter-rouge">activating</code>
+and <code class="language-plaintext highlighter-rouge">deactivating</code> transition states, and only shut down the device
+completely in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> or <code class="language-plaintext highlighter-rouge">shuttingdown</code> transition states.</p>
 
-<h1 id="run-the-demo">Run the demo</h1>
-
-<p>In order to run this demo, we open three terminals and source our ROS 2
-environment variables either from the binary distributions or the
-workspace we compiled from source.</p>
-
-<p>lifecycle_talker                                                                     lifecycle_listener                                                                   lifecycle_service_client
-  ———————————————————————————— ———————————————————————————— ————————————————————————————
-  <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_talker</code>                                              <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_listener</code>                                            <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_service_client</code>
-  <a href="https://asciinema.org/a/249049"><img src="https://asciinema.org/a/249049.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249050"><img src="https://asciinema.org/a/249050.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249051"><img src="https://asciinema.org/a/249051.png" alt="asciicast"></a></p>
-
-<p>Alternatively, these three programs can be run together in the same
-terminal using the launch file:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch lifecycle lifecycle_demo.launch.py
-
-</code></pre></div></div>
+<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a regular (non-lifecycle) node that
+subscribes to the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>'s topics. It logs the published
+messages as well as the transition events. The talker publishes only in
+the active state and thus the listener obviously only receives messages
+when the talker is in an active state.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/ros2/demos/tree/humble/lifecycle/README.rst">see the full file</a></p>
 </div>
@@ -16097,7 +16227,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-10-06
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2025-11-06
         </span>
       </td>
     </tr>
@@ -16188,22 +16318,36 @@ jQuery(function() {
                     <div class="rendered-markdown">
 <h1 id="introduction">Introduction</h1>
 
+<h2 id="what-is-this">What Is This?</h2>
+
 <p>ROS 2 introduces the concept of managed nodes, also called
 <code class="language-plaintext highlighter-rouge">LifecycleNode</code>s. In the following tutorial, we explain the purpose of
 these nodes, what makes them different from regular nodes and how they
-comply to a lifecycle management. Managed nodes contain a state machine
-with a set of predefined states. These states can be changed by invoking
-a transition id which indicates the succeeding consecutive state. The
-state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">ROS 2 design
+comply to a lifecycle management.</p>
+
+<h2 id="basic-concept-and-nomenclature">Basic Concept and Nomenclature</h2>
+
+<p>Managed nodes contain a state machine with a set of predefined states.
+These states can be changed by invoking a transition, passing a specific
+transition ID which indicates the succeeding consecutive state. The
+state machine is implemented as described at the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
 page</a>.</p>
 
-<p>Our implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and
-<code class="language-plaintext highlighter-rouge">Transition States</code>. Primary States are supposed to be steady states in
-which any node can do the respected task. On the other hand, Transition
-States are meant as temporary intermediate states attached to a
-transition. The result of these intermediate states are used to indicate
-whether a transition between two primary states is considered successful
-or not. Thus, any managed node can be in one of the following states:</p>
+<dl>
+  <dt>The implementation differentiates between <code class="language-plaintext highlighter-rouge">Primary States</code> and <code class="language-plaintext highlighter-rouge">Transition States</code>.</dt>
+  <dd>
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">Primary states</code> are supposed to be steady states in which any
+node can perform their respective task.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">Transition states</code> are used to indicate whether a transition
+between two primary states is considered successful or not.</li>
+    </ul>
+  </dd>
+</dl>
+
+<p>In the end, any managed node can be in one of the following states:</p>
 
 <p>Primary States (steady states):</p>
 
@@ -16211,7 +16355,7 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>unconfigured</li>
   <li>inactive</li>
   <li>active</li>
-  <li>shutdown</li>
+  <li>finalized</li>
 </ul>
 
 <p>Transition States (intermediate states):</p>
@@ -16234,9 +16378,10 @@ or not. Thus, any managed node can be in one of the following states:</p>
   <li>shutdown</li>
 </ul>
 
-<p>For a more verbose explanation on the applied state machine, we refer to
-the design page which provides an in-detail explanation about each state
-and transition.</p>
+<p>For a detailed explanation of the applied state machine, we refer again
+to the <a href="http://design.ros2.org/articles/node_lifecycle.html">Managed nodes design
+page</a> which
+provides specific info about each state and transition.</p>
 
 <h1 id="the-demo">The demo</h1>
 
@@ -16245,56 +16390,54 @@ and transition.</p>
 <p>The demo is split into 3 separate applications:</p>
 
 <ul>
-  <li>lifecycle_talker</li>
-  <li>lifecycle_listener</li>
-  <li>lifecycle_service_client</li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_talker</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_listener</code></li>
+  <li><code class="language-plaintext highlighter-rouge">lifecycle_service_client</code></li>
 </ul>
 
 <p>The <code class="language-plaintext highlighter-rouge">lifecycle_talker</code> represents a managed node and publishes according
-to which state the node is in. We split the tasks of the talker node
-into separate pieces and execute them as follows:</p>
+to which state the node is in. Its primary task (in this example
+publishing) is executed in the <code class="language-plaintext highlighter-rouge">active</code> state.</p>
 
-<ol>
-  <li>configuring: We initialize our publisher and timer</li>
-  <li>activate: We activate the publisher and timer in order to enable a
-publishing</li>
-  <li>deactivate: We stop the publisher and timer</li>
-  <li>cleanup: We destroy the publisher and timer</li>
-</ol>
+<p>Lifecycle transitions invoke callback functions that prepare or tear
+down the resources required for publishing:</p>
 
-<p>This demo shows a typical talker/listener pair of nodes. However,
-imagine a real scenario with attached hardware which may have a rather
-long booting phase, i.e. a laser or camera. One could imagine bringing
-up the device driver in the configuring state, start and stop only the
-publishing of the device's data in active/deactive state, and only in
-the cleanup/shutdown state actually shutdown the device.</p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_configure()</code> (in the <code class="language-plaintext highlighter-rouge">configuring</code> state): Create and initialize
+the publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_activate()</code> (in the <code class="language-plaintext highlighter-rouge">activating</code> state): Activate the publisher
+and timer so that publishing can occur in the <code class="language-plaintext highlighter-rouge">active</code> state.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_deactivate()</code> (in the <code class="language-plaintext highlighter-rouge">deactivating</code> state): Stop the publisher.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_cleanup()</code> (in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> state): Release the pointers to
+publisher and timer.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">on_shutdown()</code> (in the <code class="language-plaintext highlighter-rouge">shuttingDown</code> state): In this case does the
+same as <code class="language-plaintext highlighter-rouge">on_cleanup()</code>, in general it would for example release
+system resources.</li>
+</ul>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a simple listener which shows the
-characteristics of the lifecycle talker. The talker enables message
-publishing only in the active state and thus the listener only receives
-messages when the talker is in an active state.</p>
+<p>In summary, the node only performs its main functionality (publishing)
+while in the <code class="language-plaintext highlighter-rouge">active</code> state. The transitions and their corresponding
+callbacks ensure that resources are correctly initialized, activated,
+deactivated, and cleaned up as the node moves between lifecycle states.</p>
 
-<p>The <code class="language-plaintext highlighter-rouge">lifecycle_service_client</code> is a script calling different transitions
-on the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>. This is meant as the external user
-controlling the lifecycle of nodes.</p>
+<p>This demo shows a simple talker/listener pair of nodes. However, imagine
+a more realistic scenario with attached hardware which may have a rather
+long booting phase, i.e. a laser or camera. In that case, one could
+initialize the device driver in the <code class="language-plaintext highlighter-rouge">configuring</code> transition state,
+start and stop the publishing of the device’s data in the <code class="language-plaintext highlighter-rouge">activating</code>
+and <code class="language-plaintext highlighter-rouge">deactivating</code> transition states, and only shut down the device
+completely in the <code class="language-plaintext highlighter-rouge">cleaningUp</code> or <code class="language-plaintext highlighter-rouge">shuttingdown</code> transition states.</p>
 
-<h1 id="run-the-demo">Run the demo</h1>
-
-<p>In order to run this demo, we open three terminals and source our ROS 2
-environment variables either from the binary distributions or the
-workspace we compiled from source.</p>
-
-<p>lifecycle_talker                                                                     lifecycle_listener                                                                   lifecycle_service_client
-  ———————————————————————————— ———————————————————————————— ————————————————————————————
-  <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_talker</code>                                              <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_listener</code>                                            <code class="language-plaintext highlighter-rouge">$ ros2 run lifecycle lifecycle_service_client</code>
-  <a href="https://asciinema.org/a/249049"><img src="https://asciinema.org/a/249049.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249050"><img src="https://asciinema.org/a/249050.png" alt="asciicast"></a>   <a href="https://asciinema.org/a/249051"><img src="https://asciinema.org/a/249051.png" alt="asciicast"></a></p>
-
-<p>Alternatively, these three programs can be run together in the same
-terminal using the launch file:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch lifecycle lifecycle_demo.launch.py
-
-</code></pre></div></div>
+<p>The <code class="language-plaintext highlighter-rouge">lifecycle_listener</code> is a regular (non-lifecycle) node that
+subscribes to the <code class="language-plaintext highlighter-rouge">lifecycle_talker</code>'s topics. It logs the published
+messages as well as the transition events. The talker publishes only in
+the active state and thus the listener obviously only receives messages
+when the talker is in an active state.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/ros2/demos/tree/humble/lifecycle/README.rst">see the full file</a></p>
 </div>
@@ -17042,7 +17185,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2025-10-06</em>
+        <em class="hidden-xs">| generated on 2025-11-06</em>
       
       </div>
       <div style="float:right;">
