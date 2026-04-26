@@ -408,7 +408,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -550,11 +550,113 @@
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -1296,7 +1398,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -1438,11 +1540,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -2184,7 +2388,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -2326,11 +2530,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -3072,7 +3378,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -3214,11 +3520,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -3964,7 +4372,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -4106,11 +4514,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -4856,7 +5366,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -4998,11 +5508,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -5748,7 +6360,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -5890,11 +6502,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -6640,7 +7354,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -6782,11 +7496,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -7532,7 +8348,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -7674,11 +8490,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -8424,7 +9342,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -8566,11 +9484,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -9316,7 +10336,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -9458,11 +10478,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -10208,7 +11330,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -10350,11 +11472,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -11109,7 +12333,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -11251,11 +12475,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -12019,7 +13345,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -12161,11 +13487,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -12929,7 +14357,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -13071,11 +14499,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -13839,7 +15369,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -13981,11 +15511,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -14749,7 +16381,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -14891,11 +16523,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -15659,7 +17393,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -15801,11 +17535,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -16569,7 +18405,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-25
         </span>
       </td>
     </tr>
@@ -16711,11 +18547,113 @@ jQuery(function() {
 </table>
 
 <h1 id="mola_sm_loop_closure">mola_sm_loop_closure</h1>
-<p>Offline tool for loop-closure on simple-maps</p>
 
-<h1 id="loop-closure-detection">Loop closure detection</h1>
+<p>Offline loop-closure engine for MOLA <code class="language-plaintext highlighter-rouge">CSimpleMap</code> files.  Given an input
+simplemap produced by any MOLA odometry front-end, the package re-optimises
+all keyframe poses by detecting and closing loops, then writes the corrected
+simplemap back to disk.</p>
 
-<p>Example usage: refer to <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">tutorial online</a>.</p>
+<h2 id="two-algorithms">Two algorithms</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Algorithm</th>
+      <th>Class</th>
+      <th>Best for</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>SimplemapLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::SimplemapLoopClosure</code></td>
+      <td>Long maps with noticeable drift; groups keyframes into submaps and runs heavy point-cloud ICP between submap pairs</td>
+    </tr>
+    <tr>
+      <td><strong>FrameToFrameLoopClosure</strong></td>
+      <td><code class="language-plaintext highlighter-rouge">mola::FrameToFrameLoopClosure</code></td>
+      <td>GNSS-augmented datasets or quick re-optimisation; runs frame-to-frame ICP with a GNC graph optimizer</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="cli-usage">CLI usage</h2>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c"># SimplemapLoopClosure (default algorithm):</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-lidar3d-gicp.yaml
+
+<span class="c"># FrameToFrameLoopClosure:</span>
+mola-sm-lc-cli <span class="nt">-i</span> <span class="k">in</span>.simplemap <span class="nt">-o</span> out.simplemap <span class="se">\</span>
+    <span class="nt">-a</span> mola::FrameToFrameLoopClosure <span class="se">\</span>
+    <span class="nt">-p</span> pipelines/loop-closure-f2f-lidar3d-gicp.yaml
+
+</code></pre></div></div>
+
+<h2 id="available-pipelines">Available pipelines</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>YAML file</th>
+      <th>Sensor type</th>
+      <th>Algorithm</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar3d-icp.yaml</code></td>
+      <td>3-D LiDAR (point-to-point ICP)</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-lidar2d.yaml</code></td>
+      <td>2-D LiDAR</td>
+      <td>SimplemapLoopClosure</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">loop-closure-f2f-lidar3d-gicp.yaml</code></td>
+      <td>3-D LiDAR (GICP)</td>
+      <td>FrameToFrameLoopClosure</td>
+    </tr>
+  </tbody>
+</table>
+
+<h2 id="key-yaml-knobs">Key YAML knobs</h2>
+
+<p><strong>SimplemapLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">submap_max_absolute_length</code> / <code class="language-plaintext highlighter-rouge">submap_min_absolute_length</code> — controls submap granularity.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> enables annealed soft planar constraints (z, roll, pitch).
+    <ul>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_z</code>, <code class="language-plaintext highlighter-rouge">planar_world_initial_sigma_ang</code>, <code class="language-plaintext highlighter-rouge">planar_world_annealing_rounds</code> — tune the annealing schedule.</li>
+      <li>
+<code class="language-plaintext highlighter-rouge">planar_world_hard_flatten: true</code> restores the old hard-flattening behaviour.</li>
+    </ul>
+  </li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> / <code class="language-plaintext highlighter-rouge">gnss_add_horizontality: true</code> — GNSS-assisted global alignment.</li>
+</ul>
+
+<p><strong>FrameToFrameLoopClosure</strong></p>
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">lc_candidate_strategy</code> — <code class="language-plaintext highlighter-rouge">DISTANCE_STRATIFIED</code> (default), <code class="language-plaintext highlighter-rouge">PROXIMITY_ONLY</code>, or <code class="language-plaintext highlighter-rouge">MULTI_OBJECTIVE</code>.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">assume_planar_world: true</code> — planar-world annealing.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">use_gnss: true</code> — per-keyframe GNSS factors (<code class="language-plaintext highlighter-rouge">FactorGnssEnu</code>).</li>
+</ul>
+
+<p>See the <a href="https://docs.mola-slam.org/latest/tutorial-ouster-mapping-lc.html">online tutorial</a> for a step-by-step example.</p>
 
 <h1 id="license">License</h1>
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
@@ -17602,7 +19540,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-04-25</em>
+        <em class="hidden-xs">| generated on 2026-04-26</em>
       
       </div>
       <div style="float:right;">
