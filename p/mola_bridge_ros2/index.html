@@ -466,7 +466,7 @@
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -513,7 +513,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -652,6 +652,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -670,95 +762,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -1471,7 +1476,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -1518,7 +1523,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -1657,6 +1662,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -1675,95 +1772,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -2476,7 +2486,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -2523,7 +2533,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -2662,6 +2672,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -2680,95 +2782,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -3481,7 +3496,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -3528,7 +3543,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -3667,6 +3682,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -3685,95 +3792,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -4490,7 +4510,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -4537,7 +4557,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -4676,6 +4696,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -4694,95 +4806,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -5499,7 +5524,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -5546,7 +5571,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -5685,6 +5710,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -5703,95 +5820,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -6508,7 +6538,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -6555,7 +6585,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -6694,6 +6724,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -6712,95 +6834,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -7517,7 +7552,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -7564,7 +7599,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -7703,6 +7738,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -7721,95 +7848,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -8526,7 +8566,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -8573,7 +8613,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -8712,6 +8752,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -8730,95 +8862,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -9535,7 +9580,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -9582,7 +9627,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -9721,6 +9766,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -9739,95 +9876,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -10544,7 +10594,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -10591,7 +10641,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -10730,6 +10780,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -10748,95 +10890,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -11549,7 +11604,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -11596,7 +11651,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -11735,6 +11790,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -11753,95 +11900,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -12567,7 +12627,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -12614,7 +12674,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -12753,6 +12813,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -12771,95 +12923,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -13594,7 +13659,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -13641,7 +13706,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -13780,6 +13845,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -13798,95 +13955,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -14621,7 +14691,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -14668,7 +14738,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -14807,6 +14877,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -14825,95 +14987,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -15648,7 +15723,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -15695,7 +15770,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -15834,6 +15909,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -15852,95 +16019,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -16675,7 +16755,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -16722,7 +16802,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -16861,6 +16941,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -16879,95 +17051,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -17702,7 +17787,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -17749,7 +17834,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -17888,6 +17973,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -17906,95 +18083,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -18729,7 +18819,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.7.0</td>
+                <td>2.8.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -18776,7 +18866,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-04-29
         </span>
       </td>
     </tr>
@@ -18915,6 +19005,98 @@ activation script being sourced <strong>before</strong> invoking CMake to config
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_bridge_ros2">Changelog for package mola_bridge_ros2</h1>
 
+<h2 id="280-2026-04-29">2.8.0 (2026-04-29)</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/140">#140</a> from
+MOLAorg/feat/bridge-ros2-qos feat: BridgeROS2 now have configurable
+QoS</p>
+  </li>
+  <li>
+    <p>fix: harden parameter parsing</p>
+  </li>
+  <li>
+    <p>feat: BridgeROS2 now have configurable QoS</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/135">#135</a> from
+MOLAorg/pr-132 feat(bridge_ros2): align REP-105 TF with Nav2
+conventions without regressing direct-publish mode</p>
+  </li>
+  <li>
+    <p>feat(bridge_ros2): align REP-105 TF publishing with Nav2 conventions
+This brings the localization /tf publisher in line with the
+convention used by AMCL, slam_toolbox, RTAB-Map and Cartographer,
+addressing three issues observed when MOLA is consumed by Nav2-style
+downstream nodes:</p>
+
+    <p>1. REP-105 composition bug (fix). The inner factor of map -&gt; odom
+= (map -&gt; base)(t_scan) * (base -&gt; odom)(t) was sampled at
+"latest" via waitForTransform(), which only supports
+tf2::TimePoint{}. The two factors must be sampled at the same
+instant or the published correction is biased by the odom-frame
+motion accumulated during the localizer's processing latency.
+Switch to tf_buffer_-&gt;lookupTransform(..., scan_tp). On lookup
+failure the publish is skipped (an empty default-constructed
+TransformStamped would inject TF_NO_FRAME_ID into every consumer's
+tf2 buffer).</p>
+
+    <p>2. transform_tolerance (new param, default 0.1s). The published
+stamp is now node-&gt;now() + transform_tolerance so consumers can do
+lookupTransform(map, base_link, now()) without
+ExtrapolationException. Mirrors AMCL's transform_tolerance and
+RTAB-Map's tf_tolerance. Uses the ROS clock so use_sim_time is
+honored automatically.</p>
+
+    <p>3. transform_publish_period (new param, default 0.05s = 20 Hz). A
+wall timer re-broadcasts the cached map -&gt; odom independent of
+localization update rate, keeping the TF buffer continuously fresh
+even when the localizer runs slower than the consumer query rate.
+Set to 0 to disable. Mirrors slam_toolbox's
+transform_publish_period and RTAB-Map's tf_delay. Backwards compat:
+to exactly preserve the prior (post-bugfix) stamping behavior set
+transform_tolerance: 0 and transform_publish_period: 0.
+publish_in_sim_time retains its meaning for all other publishers
+(sensor TFs, odom messages, etc.); only the localization /tf stamp
+source changed.</p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into perf/keyframe-prewarm-global-submap</p>
+  </li>
+  <li>
+    <p>Merge pull request
+<a href="https://github.com/MOLAorg/mola/issues/133">#133</a> from
+Zeal-Robotics/fix/bridge-ros2-throttle-tf-lookup-errors
+fix(bridge_ros2): throttle TF lookup error logging</p>
+  </li>
+  <li>
+    <p>fix(bridge_ros2): throttle TF lookup error logging Failed sensor TF
+lookups (e.g. missing static URDF transforms during bring-up)
+flooded the console with two unthrottled ERROR lines per
+observation. With a Livox IMU at ~100 Hz this produced ~200
+lines/s per affected topic, drowning out other diagnostics.</p>
+
+    <p>- Throttle (5 s) every per-observation "Could not forward ROS2
+observation to MOLA due to timeout..." in the PointCloud2,
+LaserScan, Imu, NavSatFix and gps_msgs paths, plus the "Could not
+get /tf" path that uses lookupSensorPose, and the REP-105
+odom-&gt;base_link recompute warning in publishLocalizationTf.</p>
+
+    <p>- Drop the redundant printErrors plumbing from waitForTransform:
+the inner MRPT_LOG_ERROR(ex.what()) duplicated what callers already
+print with more context (frames + timestamp). The raw tf2 reason is
+still emitted at DEBUG for deep diagnostics. Per-callsite throttle
+state means independent sensors still surface "this stream
+stopped" promptly; we just stop spamming the same one.</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</p>
+  </li>
+</ul>
+
 <h2 id="270-2026-04-22">2.7.0 (2026-04-22)</h2>
 
 <ul>
@@ -18933,95 +19115,8 @@ to compose [map -&gt; odom]{.title-ref}. If that lookup fails (e.g.
 wheel odometry hasn't started publishing yet during system
 startup), the previous code logged the error but still fell through
 to [tf_bc_-&gt;sendTransform(tf)]{.title-ref} with a
-default-constructed [TransformStamped]{.title-ref} (empty
-[frame_id]{.title-ref} and [child_frame_id]{.title-ref}). This
-poisoned every subscriber's tf2 buffer at the localization rate,
-producing a continuous stream of [TF_NO_FRAME_ID]{.title-ref},
-[TF_NO_CHILD_FRAME_ID]{.title-ref}, and
-[TF_SELF_TRANSFORM]{.title-ref} errors across every node in the
-system until the odom TF became available. Fix: return early on
-lookup failure so no broadcast happens. While here, restructure the
-function with an early-return guard for
-[publish_tf_from_slam]{.title-ref} to flatten the nesting, and
-include the actual frame names in the error message. Behavior
-unchanged in the success path.</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/129">#129</a> from
-MOLAorg/feat/ros2-diagnostics Feature: ROS2 diagnostics</li>
-  <li>feat(bridge_ros2): publish REP-107 /diagnostics DiagnosticArray
-Collect structured diagnostics from modules implementing the new
-mola::DiagnosticsProvider interface and publish them on the standard
-ROS 2 /diagnostics topic alongside the existing ad-hoc
-mola_diagnostics/ topics. Adds the diagnostic_msgs dependency.
-Co-Authored-By: Claude Opus 4.7 &lt;&lt;noreply@anthropic.com&gt;&gt;</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/122">#122</a> from
-MOLAorg/feat/ros2-bridge-multiple-odometries Add param
-'odometry_as_robot_pose_observation' to switch OdometryMsg …</li>
-  <li>Skip entries with empty topic name</li>
-  <li>Add param 'odometry_as_robot_pose_observation' to switch
-OdometryMsg mapping to MRPT types</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/121">#121</a> from
-MOLAorg/fix/clean-up-old-mrpt-version-checks Clean up: remove old
-mrpt version fallback code sections</li>
-  <li>Contributors: Jose Luis Blanco-Claraco, Robin Van Cauwenbergh</li>
+default-constructed [TransformStamped]{.title-ref} (empty</li>
 </ul>
-
-<h2 id="261-2026-04-02">2.6.1 (2026-04-02)</h2>
-
-<h2 id="260-2026-03-12">2.6.0 (2026-03-12)</h2>
-
-<ul>
-  <li>Remove now obsolete version check macro</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/108">#108</a> from
-MOLAorg/feat/use-gps-msgs Support gps_msgs data types too for ROS2</li>
-  <li>Support gps_msgs as alternative to NavSatFix</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/107">#107</a> from
-MOLAorg/fix/viz-decay-clouds Fix/viz-decay-clouds</li>
-  <li>Update coyright notes</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="250-2026-02-14">2.5.0 (2026-02-14)</h2>
-
-<ul>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/105">#105</a> from
-MOLAorg/feat/refactor-ros2-bridges Refactor to use external rosbag2
-conversion in mrpt_ros_bridge</li>
-  <li>Use refactored ros2mrpt bridge in live node too</li>
-  <li>Fix: potential access to the ROS2 node before it's ready</li>
-  <li>Merge pull request
-<a href="https://github.com/MOLAorg/mola/issues/101">#101</a> from
-MOLAorg/fix/mola-bridge-no-pub-queue Fix: mola bridge no pub queue</li>
-  <li>BridgeRos2: publish localization updates immediately, do not buffer
-them</li>
-  <li>Add debug traces</li>
-  <li>Merge pull request <a href="https://github.com/MOLAorg/mola/issues/99">#99</a>
-from MOLAorg/feat/ros2-bridge-pub-geographic ROS2 bridge: publish
-geographic poses too</li>
-  <li>ros2 bridge: use geographic_msgs, store the last georeference info
-internally, and publish georef poses merge of these commits:
-    <ul>
-      <li>Enable many more clang-tidy checks</li>
-      <li>lint clean</li>
-      <li>implement publishing georeferenced poses</li>
-      <li>mola-viz: fix potential crash on edge case with all points
-having NaN value</li>
-      <li>FIX: potential crash if no MapServer is present and map services
-are called</li>
-    </ul>
-  </li>
-  <li>fix clang-format</li>
-  <li>FIX: potential deadlock in BridgeROS2 dtor due to early errors
-before ros2 is initialized</li>
-  <li>Contributors: Jose Luis Blanco-Claraco</li>
-</ul>
-
-<h2 id="240-2025-12-28">2.4.0 (2025-12-28)</h2>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mola/tree/develop/mola_bridge_ros2/CHANGELOG.rst">see the full file</a></p>
 </div>
@@ -19821,7 +19916,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-04-28</em>
+        <em class="hidden-xs">| generated on 2026-04-29</em>
       
       </div>
       <div style="float:right;">
