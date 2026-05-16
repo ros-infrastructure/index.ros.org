@@ -488,7 +488,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -579,25 +579,108 @@
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -1348,7 +1431,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -1439,25 +1522,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -2208,7 +2374,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -2299,25 +2465,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -3068,7 +3317,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -3159,25 +3408,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -3932,7 +4264,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -4023,25 +4355,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -4796,7 +5211,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -4887,25 +5302,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -5660,7 +6158,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -5751,25 +6249,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -6524,7 +7105,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -6615,25 +7196,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -7388,7 +8052,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -7479,25 +8143,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -8252,7 +8999,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -8343,25 +9090,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -9116,7 +9946,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -9207,25 +10037,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -9976,7 +10889,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -10067,25 +10980,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -10836,7 +11832,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -10927,25 +11923,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -11718,7 +12797,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -11809,25 +12888,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -12600,7 +13762,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -12691,25 +13853,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -13482,7 +14727,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -13573,25 +14818,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -14364,7 +15692,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -14455,25 +15783,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -15246,7 +16657,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -15337,25 +16748,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -16128,7 +17622,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-12
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-15
         </span>
       </td>
     </tr>
@@ -16219,25 +17713,108 @@ jQuery(function() {
               <div class="panel-body">
                     <div class="rendered-markdown">
 <h1 id="mola_metric_maps"><code class="language-plaintext highlighter-rouge">mola_metric_maps</code></h1>
-<p>Advanced metric map classes, using the generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface,
-for use in other MOLA odometry and SLAM modules.</p>
 
-<h2 id="contents">Contents</h2>
-<p>This repository provides a pure C++ library <code class="language-plaintext highlighter-rouge">mola_metric_maps</code> that extends
-<code class="language-plaintext highlighter-rouge">mrpt-maps</code> with additional metric map classes:</p>
+<p>Advanced metric map classes for LiDAR odometry and SLAM, built on the
+generic <code class="language-plaintext highlighter-rouge">mrpt::maps::CMetricMap</code> interface.  All maps are serializable,
+visualizable, and integrate with the <a href="https://github.com/MOLAorg/mp2p_icp">mp2p_icp</a>
+registration library.</p>
 
-<ul>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::OccGrid</code>: Extends MRPT’s occupancy grid with super-resolution likelihood field.</li>
-  <li>
-<code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code>: a pointcloud stored in two dual hash’ed voxel maps,
-one for decimation purposes only, and another for nearest-neighbor search.</li>
-</ul>
+<hr>
+
+<h2 id="map-classes">Map classes</h2>
+
+<h3 id="production-quality-maps">Production-quality maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::HashedVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">HashedVoxelPointCloud.h</code></td>
+      <td>Flat sparse hash map of cubic voxels. Up to 32 points per voxel stored without heap allocation (fixed array SSO). Backend: <code class="language-plaintext highlighter-rouge">tsl::robin_map</code>. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseVoxelPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud.h</code></td>
+      <td>Two-level voxel map: sparse outer blocks + 32³ inner <code class="language-plaintext highlighter-rouge">FixedDenseGrid3D</code>. Tracks per-voxel point means; supports voxel-mean ICP matching. Implements <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. The primary workhorse map in MOLA LO/SLAM.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::NDT</code></td>
+      <td><code class="language-plaintext highlighter-rouge">NDT.h</code></td>
+      <td>Normal Distributions Transform map (Magnusson 2007). Fits a Gaussian per voxel; planar voxels expose <code class="language-plaintext highlighter-rouge">NearestPlaneCapable</code>, non-planar ones expose <code class="language-plaintext highlighter-rouge">NearestNeighborsCapable</code>. Enables automatic point-to-point vs. point-to-plane pairing selection.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::KeyframePointCloudMap</code></td>
+      <td><code class="language-plaintext highlighter-rouge">KeyframePointCloudMap.h</code></td>
+      <td>Keyframe-based map: each keyframe holds a local point cloud plus a SE(3) pose. Supports map corrections without re-inserting points (just update poses). Implements <code class="language-plaintext highlighter-rouge">IcpPrepareCapable</code>, <code class="language-plaintext highlighter-rouge">NearestPointWithCovCapable</code>, <code class="language-plaintext highlighter-rouge">MetricMapMergeCapable</code>, and <code class="language-plaintext highlighter-rouge">KeyframeMapCapable</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3 id="experimental--work-in-progress-maps">Experimental / work-in-progress maps</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::SparseTreesPointCloud</code></td>
+      <td><code class="language-plaintext highlighter-rouge">SparseTreesPointCloud.h</code></td>
+      <td>Coarse 3D grid of independent <code class="language-plaintext highlighter-rouge">CSimplePointsMap</code> sub-maps, each with its own KD-tree. Functionally complete but not benchmarked against the hash-based alternatives for typical SLAM workloads.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::OccGrid</code></td>
+      <td><code class="language-plaintext highlighter-rouge">OccGrid.h</code></td>
+      <td>Wraps <code class="language-plaintext highlighter-rouge">mrpt::maps::COccupancyGridMap2D</code> with a super-resolution likelihood cache. The cache infrastructure is in place but likelihood population is not yet implemented (<code class="language-plaintext highlighter-rouge">// TODO</code>). Not used in any production pipeline.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
+
+<h2 id="utility--internal-classes">Utility / internal classes</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Class</th>
+      <th>Header</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::index3d_t&lt;T&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">index3d_t.h</code></td>
+      <td>Discrete 3D integer index. Works as key in <code class="language-plaintext highlighter-rouge">std::map</code> and <code class="language-plaintext highlighter-rouge">std::unordered_map</code> / <code class="language-plaintext highlighter-rouge">tsl::robin_map</code> via the <code class="language-plaintext highlighter-rouge">index3d_hash</code> functor, which implements the Teschner et al. (2003) spatial hash.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mola::FixedDenseGrid3D&lt;T,N,C&gt;</code></td>
+      <td><code class="language-plaintext highlighter-rouge">FixedDenseGrid3D.h</code></td>
+      <td>Dense NxNxN grid (N=2^SIDE_NUM_BITS) allocated with <code class="language-plaintext highlighter-rouge">calloc</code> for fast zero-init. Used as the inner block in <code class="language-plaintext highlighter-rouge">SparseVoxelPointCloud</code>. Requires trivially-copyable cell types.</td>
+    </tr>
+  </tbody>
+</table>
+
+<hr>
 
 <h2 id="build-and-install">Build and install</h2>
+
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
 <h2 id="license">License</h2>
+
 <p>Copyright (C) 2018-2026 Jose Luis Blanco <a href="mailto:jlblanco@ual.es">jlblanco@ual.es</a>, University of Almeria</p>
 
 <p>This package is released under the GNU GPL v3 license as open source for research
@@ -17053,7 +18630,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-05-12</em>
+        <em class="hidden-xs">| generated on 2026-05-16</em>
       
       </div>
       <div style="float:right;">
