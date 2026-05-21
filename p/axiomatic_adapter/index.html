@@ -161,6 +161,10 @@
       <input type="radio" name="options" id="kilted-radio" autocomplete="off"> kilted
     </label>
   
+    <label id="lyrical-option" class="distro-button btn btn-xs btn-primary" href="#lyrical" data="lyrical">
+      <input type="radio" name="options" id="lyrical-radio" autocomplete="off"> lyrical
+    </label>
+  
     <label id="rolling-option" class="distro-button btn btn-xs btn-primary" href="#rolling" data="rolling">
       <input type="radio" name="options" id="rolling-radio" autocomplete="off"> rolling
     </label>
@@ -418,7 +422,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -515,7 +519,7 @@
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -526,6 +530,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -542,7 +551,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -555,13 +565,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -965,7 +999,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -1062,7 +1096,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -1073,6 +1107,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -1089,7 +1128,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -1102,13 +1142,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -1512,7 +1576,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -1609,7 +1673,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -1620,6 +1684,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -1636,7 +1705,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -1649,13 +1719,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -1889,6 +1983,583 @@ jQuery(function() {
     </div>
   </div>
 
+  <div class="distro distro-lyrical">
+    <div class="container-fluid">
+      
+        
+      
+      
+      
+
+      <div class="row">
+        <div class="col-md-10">
+          
+
+<div class="well well-sm">
+  <table class="table">
+    <tr>
+      <td width="100px" class="text-center">
+        <img style="width: 80px; height: 80px" src="/assets/package.png"  alt="Package symbol">
+      </td>
+      <td>
+        <h3 style="margin-top: 5px">
+          <a style="text-decoration:none" href="/p/axiomatic_adapter/">axiomatic_adapter</a> <small>package from <a style="text-decoration:none" href="/r/socketcan_adapter/">socketcan_adapter</a> repo</small>
+        </h3>
+          
+            
+            
+              <span class="label label-default pkg-label">axiomatic_adapter</span>
+            
+          
+            
+            
+              <a class="label label-primary pkg-label" href="/p/socketcan_adapter/">socketcan_adapter</a>
+            
+          
+            
+            
+              <a class="label label-primary pkg-label" href="/p/socketcan_adapter_ros/">socketcan_adapter_ros</a>
+            
+          
+      </td>
+      <td width="100px" class="text-center">
+        <h3 style="margin-top: 5px"><small> ROS Distro</small><br>lyrical</h3>
+      </td>
+    </tr>
+  </table>
+</div>
+
+          <div class="visible-xs visible-sm">
+            
+            
+            
+
+
+
+<div class="list-group list-group-sm list-group-horizontal list-group-justified">
+  <a class="list-group-item text-center"
+     target="_blank"
+     href="http://docs.ros.org/en/lyrical/p/axiomatic_adapter"
+     title="View API documentation on docs.ros.org"
+     >
+       <span style="margin-right: 5px;" class="glyphicon glyphicon-file"></span>
+       <br>
+       API Docs
+  </a>
+  <a class="list-group-item text-center"
+     target="_blank"
+     href="https://github.com/polymathrobotics/socketcan_adapter/tree/main/axiomatic_adapter"
+     title="View source code on repository">
+       <span class="glyphicon glyphicon-folder-open" style="margin-right:5px;"></span>
+       <br>
+       Browse Code
+  </a>
+
+
+
+
+  
+  
+
+  
+
+  
+</div>
+
+          </div>
+          
+
+
+
+<ul class="nav nav-tabs nav-justified" id="lyrical-tabs" style="margin-bottom:20px">
+  <li class="better-tabs active">
+    <a href="#lyrical-overview" data-toggle="tab">Overview</a>
+  </li>
+  <li class="better-tabs">
+    
+    
+    
+    
+    
+    <a href="#lyrical-assets" data-toggle="tab"><span class="label label-default">0</span> Assets</a>
+  </li>
+  <li class="better-tabs">
+    
+    
+    
+    
+    <a href="#lyrical-deps" data-toggle="tab"><span class="label label-primary">5</span> Dependencies</a>
+  </li>
+  <li class="better-tabs">
+    <a href="#lyrical-questions" data-toggle="tab"><span id="lyrical-questions-count" class="label label-primary">0</span> Q & A</a>
+  </li>
+</ul>
+
+<div class="tab-content">
+  <div class="tab-pane active" id="lyrical-overview">
+    
+    <div class="row">
+      <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
+        <div class="panel panel-default">
+          <div class="panel-heading"><h4 class="panel-title">Package Summary</h4></div>
+          <div class="panel-body">
+            <table class="table table-condensed">
+              <tr>
+                <td style="width:100px;" class="text-right"><strong>Version</strong></td>
+                <td>0.0.1</td>
+              </tr>
+              <tr>
+                <td class="text-right"><strong>License</strong></td>
+                <td>Apache-2.0</td>
+              </tr>
+              <tr>
+                <td class="text-right"><strong>Build type</strong></td>
+                <td>
+                  
+                    <span class="label label-default">
+                  
+                    AMENT_CMAKE</span>
+                </td>
+              </tr>
+              <tr>
+                <td class="text-right"><strong>Use</strong></td>
+                <td>
+                
+                  <span class="label label-success">RECOMMENDED</span>
+                
+                </td>
+              </tr>
+            </table>
+          </div>
+          <div class="panel-heading"><h3 class="panel-title">Repository Summary</h3></div>
+          <div class="panel-body">
+            
+            
+            
+  <table class="table table-condensed">
+    <tr>
+      <td style="width:100px;" class="text-right"><b>Checkout URI</b></td>
+      <td><a class="label label-default" href="https://github.com/polymathrobotics/socketcan_adapter.git">https://github.com/polymathrobotics/socketcan_adapter.git</a></td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>VCS Type</b></td>
+      <td><span class="label label-default">git</span></td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>VCS Version</b></td>
+      <td><span class="label label-default">main</span></td>
+    </tr>
+    <tr>
+      <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
+      <td>
+        
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
+        </span>
+      </td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>Dev Status</b></td>
+      <td>
+        
+          
+            <span class="label label-primary">
+          
+          MAINTAINED
+        </span>
+      </td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>Released</b></td>
+      <td>
+        
+          <span class="label label-default">UNRELEASED
+        </span>
+      </td>
+    </tr>
+    <tr>
+      <td class="text-right"><b>Contributing</b></td>
+      <td>
+        <a class="label label-primary" href="/r/socketcan_adapter/#lyrical-contribute-lists-help-wanted">
+          Help Wanted (<span class="contribute-lists-help-wanted-count">-</span>)
+        </a>
+        <br>
+        <a class="label label-primary" href="/r/socketcan_adapter/#lyrical-contribute-lists-good-first-issue">
+          Good First Issues (<span class="contribute-lists-good-first-issue-count">-</span>)
+        </a>
+        <br>
+        <a class="label label-primary" href="/r/socketcan_adapter/#lyrical-contribute-lists-pull-requests">
+          Pull Requests to Review (<span class="contribute-lists-pull-requests-count">-</span>)
+        </a>
+      </td>
+    </tr>
+  </table>
+
+          </div>
+        </div>
+      </div>
+      <div class="col-xs-12 col-sm-6 col-md-6 col-lg-6">
+        <div class="panel panel-default">
+          <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
+          <div class="panel-body">
+            An Adapter Library and socketcan bridge for Axiomatic eth-can interface
+          </div>
+          
+          
+          <div class="panel-heading"><h4 class="panel-title">Maintainers</h4></div>
+          <div class="panel-body">
+            
+            
+              <ul class="list-unstyled">
+                
+                  <li>Polymath Robotics</li>
+                
+              </ul>
+            
+          </div>
+          <div class="panel-heading"><h4 class="panel-title">Authors</h4></div>
+          <div class="panel-body">
+            
+            
+              <ul class="list-unstyled">
+                
+                  <li>David Tarazi</li>
+                
+              </ul>
+            
+          </div>
+        </div>
+      </div>
+    </div>
+    
+      
+        <div class="row">
+          <div class="col-xs-12">
+            <div class="panel panel-default">
+              <div class="panel-heading"><span class="glyphicon glyphicon-file"></span><a href="https://github.com/polymathrobotics/socketcan_adapter/tree/main/axiomatic_adapter/README.md" title="Open in git repository">axiomatic_adapter/README.md</a></div>
+              <div class="panel-body">
+                    <div class="rendered-markdown">
+<h1 id="axiomatic-adapter">Axiomatic Adapter</h1>
+<p>Library and Adapter for the Axiomatic CAN-ETH converter.</p>
+
+<p>For more information on the decoding/endcoding and product, see the links below:</p>
+
+<p>https://www.notion.so/polymathrobotics/Axiomatic-CAN-to-Ethernet-Converter-08e078d8914f40d6b7cd99ebf39fe1b0</p>
+
+<p>https://products.axiomatic.com/viewitems/connectivity/ethernet-can-converters</p>
+
+<h2 id="usage">Usage</h2>
+<h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
+
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
+
+<span class="c"># Examples</span>
+<span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000
+
+<span class="c"># this will continue retrying to connect forever and not exit on first failure. It will also print more detailed logs</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">-v</span>
+
+<span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
+
+</code></pre></div></div>
+
+<h3 id="library">Library</h3>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="c1">// construct the adapter</span>
+<span class="n">std</span><span class="o">::</span><span class="n">string</span> <span class="n">ip_address</span> <span class="o">=</span> <span class="s">"192.168.0.34"</span><span class="p">;</span>
+<span class="n">std</span><span class="o">::</span><span class="n">string</span> <span class="n">port</span> <span class="o">=</span> <span class="s">"4000"</span><span class="p">;</span>
+<span class="n">std</span><span class="o">::</span><span class="n">chrono</span><span class="o">::</span><span class="n">milliseconds</span> <span class="nf">receive_timeout_ms</span><span class="p">(</span><span class="mi">100</span><span class="p">);</span>
+
+<span class="c1">// the two functions passed in are the receive and error callback functions, receive timeout has a default</span>
+<span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span> <span class="nf">adapter</span><span class="p">(</span>
+  <span class="n">ip_address</span><span class="p">,</span>
+  <span class="n">port</span><span class="p">,</span>
+  <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
+  <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
+<span class="p">);</span>
+
+<span class="c1">// open the socket</span>
+<span class="n">adapter</span><span class="p">.</span><span class="n">openSocket</span><span class="p">();</span>
+
+<span class="c1">// start the reception thread. At this point, it's running</span>
+<span class="n">adapter</span><span class="p">.</span><span class="n">startReceptionThread</span><span class="p">();</span>
+
+<span class="c1">// on shutdown/destruction, thread will join and socket will close</span>
+
+</code></pre></div></div>
+
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
+<h2 id="known-issues">KNOWN ISSUES</h2>
+<ol>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
+</ol>
+</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      
+    
+    <div class="row">
+      <div class="col-xs-12">
+        <div class="panel panel-default">
+          <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
+          <div class="panel-body">
+            
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-axiomatic_adapter">Changelog for package axiomatic_adapter</h1>
+</div>
+            
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="lyrical-deps">
+    <div class="row">
+      <div class="col-sm-6">
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <h3 class="panel-title">Package Dependencies</h3>
+          </div>
+          <div class="panel-body">
+            
+              <table class="table table-condensed table-striped">
+                <thead>
+                  <th class="text-center">Deps</th>
+                  <th style="width: 100%">Name</th>
+                </thead>
+                <tbody>
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/ament_cmake_ros/#lyrical-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/ament_cmake_ros/#lyrical">ament_cmake_ros  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/socketcan_adapter/#lyrical-deps" >
+                            <span class="glyphicon glyphicon-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/socketcan_adapter/#lyrical">socketcan_adapter  </a></td>
+                      </tr>
+                    
+                  
+                </tbody>
+              </table>
+            
+          </div>
+          <div class="panel-heading">
+            <h3 class="panel-title">System Dependencies</h3>
+          </div>
+          <div class="panel-body">
+            
+              <table class="table table-condensed table-striped">
+                <thead>
+                  <th>Name</th>
+                </thead>
+                <tbody>
+                  
+                    
+                      <tr>
+                        <td><a href="/d/catch2">catch2</a></td>
+                      </tr>
+                    
+                  
+                    
+                      <tr>
+                        <td><a href="/d/boost">boost</a></td>
+                      </tr>
+                    
+                  
+                    
+                      <tr>
+                        <td><a href="/d/cli11">cli11</a></td>
+                      </tr>
+                    
+                  
+                </tbody>
+              </table>
+            
+          </div>
+        </div>
+      </div>
+
+      <div class="col-sm-6">
+        <div class="panel panel-default">
+          <div class="panel-heading">
+            <h3 class="panel-title">Dependant Packages</h3>
+          </div>
+          <div class="panel-body">
+            
+              <em>No known dependants.</em>
+            
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="lyrical-assets">
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Launch files</h3>
+      </div>
+      <div class="panel-body">
+        
+          <em>No launch files found</em>
+        
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Messages</h3>
+      </div>
+      <div class="panel-body">
+        
+          <em>No message files found.</em>
+        
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Services</h3>
+      </div>
+      <div class="panel-body">
+        
+          <em>No service files found</em>
+        
+      </div>
+    </div>
+
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Plugins</h3>
+      </div>
+      <div class="panel-body">
+        
+          <em>No plugins found.</em>
+        
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane" id="lyrical-questions">
+    <div class="panel panel-default">
+      <div class="panel-heading">
+        <h3 class="panel-title">Recent questions tagged <kbd>axiomatic_adapter</kbd> at <strong><a href="https://robotics.stackexchange.com/" target="_blank">Robotics Stack Exchange</a></strong></h3>      </div>
+      <div id="lyrical-question-list" class="panel-body" style="display: none;"></div>
+      <div id="lyrical-no-question-list" class="panel-body" style="display: none;">
+        <p>No questions yet, <a href="https://robotics.stackexchange.com/questions/tagged/axiomatic_adapter+lyrical">you can ask one on Robotics Stack Exchange</a>.</p>
+      </div>
+      <div id="lyrical-get-question-fail" class="panel-body alert alert-warning" style="display: none;">
+        <p>Failed to get question list, <a href="https://github.com/ros-infrastructure/rosindex/issues/new" target="_blank" class="alert-link">you can ticket an issue on the github issue tracker</a>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<script type="text/javascript">
+jQuery(function() {
+    // Update the count on the links to the contribution suggestions
+    updateContributionSuggestionsCountOnPackage('https://github.com/polymathrobotics/socketcan_adapter.git');
+});
+</script>
+
+        </div>
+        <div class="col-md-2 hidden-xs hidden-sm">
+          
+          
+          
+
+
+
+<div class="list-group list-group-sm ">
+  <a class="list-group-item"
+     target="_blank"
+     href="http://docs.ros.org/en/lyrical/p/axiomatic_adapter"
+     title="View API documentation on docs.ros.org"
+     >
+       <span style="margin-right: 5px;" class="glyphicon glyphicon-file"></span>
+       
+       API Docs
+  </a>
+  <a class="list-group-item"
+     target="_blank"
+     href="https://github.com/polymathrobotics/socketcan_adapter/tree/main/axiomatic_adapter"
+     title="View source code on repository">
+       <span class="glyphicon glyphicon-folder-open" style="margin-right:5px;"></span>
+       
+       Browse Code
+  </a>
+
+
+
+
+  
+  
+
+  
+
+  
+</div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="distro distro-rolling">
     <div class="container-fluid">
       
@@ -2059,7 +2730,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -2156,7 +2827,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -2167,6 +2838,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -2183,7 +2859,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -2196,13 +2873,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -2610,7 +3311,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -2707,7 +3408,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -2718,6 +3419,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -2734,7 +3440,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -2747,13 +3454,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -3161,7 +3892,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -3258,7 +3989,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -3269,6 +4000,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -3285,7 +4021,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -3298,13 +4035,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -3712,7 +4473,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -3809,7 +4570,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -3820,6 +4581,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -3836,7 +4602,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -3849,13 +4616,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -4263,7 +5054,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -4360,7 +5151,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -4371,6 +5162,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -4387,7 +5183,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -4400,13 +5197,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -4814,7 +5635,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -4911,7 +5732,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -4922,6 +5743,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -4938,7 +5764,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -4951,13 +5778,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -5365,7 +6216,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -5462,7 +6313,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -5473,6 +6324,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -5489,7 +6345,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -5502,13 +6359,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -5916,7 +6797,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -6013,7 +6894,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -6024,6 +6905,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -6040,7 +6926,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -6053,13 +6940,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -6467,7 +7378,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -6564,7 +7475,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -6575,6 +7486,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -6591,7 +7507,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -6604,13 +7521,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -7027,7 +7968,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -7124,7 +8065,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -7135,6 +8076,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -7151,7 +8097,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -7164,13 +8111,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -7596,7 +8567,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -7693,7 +8664,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -7704,6 +8675,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -7720,7 +8696,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -7733,13 +8710,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -8165,7 +9166,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -8262,7 +9263,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -8273,6 +9274,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -8289,7 +9295,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -8302,13 +9309,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -8734,7 +9765,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -8831,7 +9862,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -8842,6 +9873,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -8858,7 +9894,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -8871,13 +9908,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -9303,7 +10364,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -9400,7 +10461,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -9411,6 +10472,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -9427,7 +10493,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -9440,13 +10507,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -9872,7 +10963,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -9969,7 +11060,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -9980,6 +11071,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -9996,7 +11092,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -10009,13 +11106,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -10441,7 +11562,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-19
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-05-21
         </span>
       </td>
     </tr>
@@ -10538,7 +11659,7 @@ jQuery(function() {
 <h2 id="usage">Usage</h2>
 <h3 id="socketcan-axiomatic-bridge">Socketcan-Axiomatic Bridge</h3>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v]
+<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 run axiomatic_adapter axiomatic_socketcan_bridge <span class="o">[</span>CAN_INTERFACE_NAME] <span class="o">[</span>IP_ADDRESS] <span class="o">[</span>PORT] <span class="o">[</span>OPTIONAL]--retry-connection[-r] <span class="o">[</span>OPTIONAL]--max-retry-attempts <span class="o">[</span>OPTIONAL]--verbose[-v] <span class="o">[</span>OPTIONAL]--no-tcp-nodelay
 
 <span class="c"># Examples</span>
 <span class="c"># generic example to bridge vcan0 with axiomatic using 192.168.50.34:4000</span>
@@ -10549,6 +11670,11 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 <span class="c"># this will attempt to reconnect a max number of 100 times before failing</span>
 ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">-r</span> <span class="nt">--max-retry-attempts</span> 100
+
+<span class="c"># disable TCP_NODELAY (re-enable Nagle's algorithm). Default is on; only use if</span>
+<span class="c"># you are pushing bulk traffic where throughput matters more than per-frame latency.</span>
+<span class="c"># See the Library section below for the full tradeoff discussion.</span>
+ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <span class="nt">--no-tcp-nodelay</span>
 
 </code></pre></div></div>
 
@@ -10565,7 +11691,8 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
   <span class="n">port</span><span class="p">,</span>
   <span class="p">[](</span><span class="n">std</span><span class="o">::</span><span class="n">unique_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">CanFrame</span><span class="o">&gt;</span> <span class="cm">/*frame*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/* No-op */</span> <span class="p">},</span>
   <span class="p">[](</span><span class="n">polymath</span><span class="o">::</span><span class="n">can</span><span class="o">::</span><span class="n">AxiomaticAdapter</span><span class="o">::</span><span class="n">socket_error_string_t</span> <span class="cm">/*error*/</span><span class="p">)</span> <span class="p">{</span> <span class="cm">/*do nothing*/</span> <span class="p">},</span>
-  <span class="n">receive_timeout_ms</span>
+  <span class="n">receive_timeout_ms</span><span class="p">,</span>
+  <span class="cm">/*tcp_nodelay=*/</span><span class="nb">true</span>  <span class="c1">// optional, defaults to true; see below</span>
 <span class="p">);</span>
 
 <span class="c1">// open the socket</span>
@@ -10578,13 +11705,37 @@ ros2 run axiomatic_adapter axiomatic_socketcan_bridge vcan0 192.168.50.34 4000 <
 
 </code></pre></div></div>
 
+<h4 id="tcp_nodelay-parameter">
+<code class="language-plaintext highlighter-rouge">tcp_nodelay</code> parameter</h4>
+
+<p>Controls whether <code class="language-plaintext highlighter-rouge">TCP_NODELAY</code> is set on the socket after a successful connect.
+Defaults to <code class="language-plaintext highlighter-rouge">true</code>.</p>
+
+<ul>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">true</code> (default)</strong>: Nagle’s algorithm is disabled. Each CAN frame leaves the
+host as its own TCP segment. The converter’s delayed-ACK behaviour otherwise
+interacts with Nagle to produce 30–450 ms inter-segment stalls under sustained
+CAN traffic, which breaks UDS-style request/response timing (flash sessions,
+control loops). This is the right choice for any latency-sensitive workload.</li>
+  <li>
+<strong><code class="language-plaintext highlighter-rouge">false</code></strong>: Nagle’s algorithm stays enabled. The kernel may coalesce many
+small CAN frames into fewer, larger TCP segments. This lowers
+packets-per-second on the network and reduces per-segment header overhead
+(~40 bytes IP+TCP per ~24 byte CAN frame payload), at the cost of much higher
+worst-case latency per individual frame. Useful only if you are pushing bulk
+data where overall throughput matters more than per-frame latency, or if the
+network path / receiving device cannot keep up at high PPS.</li>
+</ul>
+
+<p>If you have any doubt, leave it at the default.</p>
+
 <h2 id="known-issues">KNOWN ISSUES</h2>
 <ol>
-  <li>There seems to be an issue with massive amounts of CAN data causing timing inconsistencies through the adapter library
-    <ol>
-      <li>This has not been fully diagnosed</li>
-    </ol>
-  </li>
+  <li>Axiomatic-specific heartbeat messages are not handled and are deliberately skipped. Using TCP, this does not cause issues. In future updates heartbeat messages should be consumed and sent as needed</li>
+  <li>Axiomatic-specific status messages are ignored and deliberately skipped. In future revisions this should be handled and reported as necessary.</li>
+  <li>CAN FD is not supported</li>
+  <li>Only TCP mode is supported; no UDP support (heartbeats are required for UDP support)</li>
 </ol>
 </div>
               </div>
@@ -10923,6 +12074,14 @@ jQuery(function() {
       jQuery("#kilted-questions-count").text(question_count_str);
       
       if (feed.items.length > 0) {
+        jQuery("#lyrical-question-list").html(rendered);
+        jQuery("#lyrical-question-list").show();
+      } else {
+        jQuery("#lyrical-no-question-list").show();
+      }
+      jQuery("#lyrical-questions-count").text(question_count_str);
+      
+      if (feed.items.length > 0) {
         jQuery("#rolling-question-list").html(rendered);
         jQuery("#rolling-question-list").show();
       } else {
@@ -11060,6 +12219,8 @@ jQuery(function() {
       
       jQuery("#kilted-get-question-fail").show();
       
+      jQuery("#lyrical-get-question-fail").show();
+      
       jQuery("#rolling-get-question-fail").show();
       
       jQuery("#ardent-get-question-fail").show();
@@ -11123,7 +12284,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-05-20</em>
+        <em class="hidden-xs">| generated on 2026-05-21</em>
       
       </div>
       <div style="float:right;">
