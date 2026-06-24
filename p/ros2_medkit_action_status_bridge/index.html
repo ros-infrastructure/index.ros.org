@@ -600,8 +600,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -635,6 +636,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -644,93 +657,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -1499,8 +1457,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -1534,6 +1493,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -1543,93 +1514,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -2402,8 +2318,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -2437,6 +2354,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -2446,93 +2375,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -3301,8 +3175,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -3336,6 +3211,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -3345,93 +3232,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -4204,8 +4036,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -4239,6 +4072,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -4248,93 +4093,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -5107,8 +4897,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -5142,6 +4933,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -5151,93 +4954,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -6010,8 +5758,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -6045,6 +5794,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -6054,93 +5815,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -6913,8 +6619,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -6948,6 +6655,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -6957,93 +6676,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -7816,8 +7480,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -7851,6 +7516,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -7860,93 +7537,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -8719,8 +8341,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -8754,6 +8377,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -8763,93 +8398,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -9622,8 +9202,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -9657,6 +9238,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -9666,93 +9259,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -10525,8 +10063,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -10560,6 +10099,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -10569,93 +10120,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -11428,8 +10924,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -11463,6 +10960,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -11472,93 +10981,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -12340,8 +11794,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -12375,6 +11830,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -12384,93 +11851,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -13261,8 +12673,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -13296,6 +12709,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -13305,93 +12730,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -14182,8 +13552,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -14217,6 +13588,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -14226,93 +13609,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -15103,8 +14431,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -15138,6 +14467,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -15147,93 +14488,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -16024,8 +15310,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -16059,6 +15346,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -16068,93 +15367,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -16945,8 +16189,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -16980,6 +16225,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -16989,93 +16246,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -17866,8 +17068,9 @@ generically, by observing the goal-status topic.</p>
 
 <ul>
   <li>Discovers every action on the graph by scanning for <code class="language-plaintext highlighter-rouge">*/_action/status</code>
-topics (re-scanned on a timer to catch actions that appear later, and to drop
-actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node).</li>
+topics (re-scanned on a timer to catch actions that appear later, to drop
+actions that vanish, e.g. a Nav2 lifecycle deactivate or a one-shot node, and
+to retry any fault whose delivery to the FaultManager was deferred).</li>
   <li>
 <code class="language-plaintext highlighter-rouge">ABORTED (6)</code> -&gt; fault (<code class="language-plaintext highlighter-rouge">SEVERITY_ERROR</code> by default).</li>
   <li>
@@ -17901,6 +17104,18 @@ another goal is still failed, and a dropped terminal message cannot leave a
 fault stuck. Per-goal dedup (keyed on <code class="language-plaintext highlighter-rouge">goal_id:status</code>) only suppresses
 duplicate log lines; it never gates the transition.</p>
 
+<p>The bridge tracks the latest observed state (the <em>desired</em> state) separately
+from what the FaultManager was actually told. The transition is committed only
+once the report is delivered: if the FaultManager service is not discovered yet</p>
+<ul>
+  <li>e.g. an action’s status topic is <code class="language-plaintext highlighter-rouge">transient_local</code> (latched) and its terminal
+status reaches the bridge during the startup discovery window, before the report
+client connects - the transition stays pending and is retried, rather than the
+high-severity fault being silently dropped. (The latched status is delivered to
+a subscription only once, so without this retry the dropped report would never
+recover.) See <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/#delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</a>.</li>
+</ul>
+
 <h2 id="scope-the-terminal-verdict-not-the-reason">Scope: the terminal verdict, not the reason</h2>
 
 <p>This bridge delivers the generic “it aborted” event. The action-specific
@@ -17910,93 +17125,38 @@ enrichment concern (a future action-result reader using runtime message
 introspection / dynmsg). Per-project plugins are only needed for human-readable
 labels, not to surface the fault.</p>
 
-<h2 id="run-it">Run it</h2>
+<h2 id="delivery-latency-and-freeze-frame">Delivery latency and freeze-frame</h2>
 
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>ros2 launch ros2_medkit_action_status_bridge action_status_bridge.launch.py
-
-</code></pre></div></div>
-
-<h2 id="configuration-configaction_status_bridgeyaml">Configuration (<code class="language-plaintext highlighter-rouge">config/action_status_bridge.yaml</code>)</h2>
-
-<table>
-  <thead>
-    <tr>
-      <th>Param</th>
-      <th>Default</th>
-      <th>Meaning</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">aborted_severity</code></td>
-      <td>
-<code class="language-plaintext highlighter-rouge">2</code> (ERROR)</td>
-      <td>severity of an aborted goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">canceled_is_fault</code></td>
-      <td><code class="language-plaintext highlighter-rouge">false</code></td>
-      <td>treat CANCELED as a fault</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">heal_on_succeeded</code></td>
-      <td><code class="language-plaintext highlighter-rouge">true</code></td>
-      <td>send PASSED on a successful goal</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">rescan_period_sec</code></td>
-      <td><code class="language-plaintext highlighter-rouge">2.0</code></td>
-      <td>how often to look for new actions</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">code_prefix</code></td>
-      <td><code class="language-plaintext highlighter-rouge">ACTION</code></td>
-      <td>prefix for generated codes</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">exclude_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>action-name substrings to skip</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">include_only_actions</code></td>
-      <td><code class="language-plaintext highlighter-rouge">[]</code></td>
-      <td>if set, only watch these</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">dedup_capacity</code></td>
-      <td><code class="language-plaintext highlighter-rouge">4096</code></td>
-      <td>remembered goal/status log keys</td>
-    </tr>
-  </tbody>
-</table>
-
-<p><code class="language-plaintext highlighter-rouge">exclude_actions</code> / <code class="language-plaintext highlighter-rouge">include_only_actions</code> match as <strong>unanchored substrings</strong> of
-the fully-qualified action name (e.g. <code class="language-plaintext highlighter-rouge">nav</code> matches <code class="language-plaintext highlighter-rouge">/navigate_to_pose</code>). Use a
-longer fragment (or the full name) for exact targeting.</p>
-
-<p><code class="language-plaintext highlighter-rouge">aborted_severity</code>, <code class="language-plaintext highlighter-rouge">code_prefix</code> and <code class="language-plaintext highlighter-rouge">dedup_capacity</code> are range-checked and
-normalized at load (out-of-range severity clamps to ERROR, a non-snake-case
-<code class="language-plaintext highlighter-rouge">code_prefix</code> is upper-snake-cased, a non-positive <code class="language-plaintext highlighter-rouge">dedup_capacity</code> falls back to
-the default), with a warning.</p>
-
-<h2 id="limitations">Limitations</h2>
+<p>The FaultManager captures the freeze-frame (topic snapshot, rosbag) <strong>when it
+receives the report</strong>, so the value of that context decays with delivery
+latency: a late fault is reported against state that has already moved on. The
+bridge therefore optimises for delivering a fault to the FaultManager as soon as
+physically possible.</p>
 
 <ul>
   <li>
-<strong>Flapping</strong>: a retry loop that issues a fresh <code class="language-plaintext highlighter-rouge">goal_id</code> each attempt does not
-re-raise while the action stays failed (only net-state changes transition),
-but a true flap (fail -&gt; succeed -&gt; fail) does produce one raise + heal per
-cycle. There is no per-code rate throttle in this bridge; lower noise via the
-FaultReporter local filter if needed.</li>
+<strong>Happy path (service discovered):</strong> the fault is reported synchronously in
+the status callback, the instant the terminal status arrives. This is the
+normal runtime case and is already ASAP - nothing is deferred.</li>
   <li>
-<strong>No per-code throttle</strong>: every action-level transition is forwarded.</li>
-  <li>
-<strong>CANCELED heal semantics</strong>: with <code class="language-plaintext highlighter-rouge">canceled_is_fault</code>, a canceled action heals
-on the next non-failing terminal (a later SUCCEEDED), or when the canceled goal
-ages out of the action server’s retained status array and a non-failed terminal
-remains. It is not healed by an explicit “uncancel” because none exists.</li>
+<strong>Degraded path (service not yet discovered):</strong> a fault cannot physically be
+delivered before the FaultManager <code class="language-plaintext highlighter-rouge">report_fault</code> service is discovered (startup
+before the FaultManager is up, or a FaultManager restart). The transition is
+kept pending and retried on a dedicated <strong>fast retry timer</strong> (<code class="language-plaintext highlighter-rouge">retry_period_sec</code>,
+default 50 ms), decoupled from the slow discovery <code class="language-plaintext highlighter-rouge">rescan</code>. So the fault lands
+within one short tick of the service appearing - keeping the freeze-frame as
+contemporaneous as the discovery floor allows.</li>
 </ul>
+
+<p>We deliberately do <strong>not</strong> block the (single-threaded) executor waiting for the
+service: blocking would stall detection of <em>other</em> actions’ faults during an
+outage to shave the last few milliseconds off one fault - a bad trade when the
+freeze-frame is already only ~tens of ms fresher. The retry timer is armed only
+while a delivery is pending, so an idle bridge does no periodic work.</p>
+
+<p><strong>Known boundaries</strong> (narrow, and shrunk further by the fast retry; both are
+consequences of the level-triggered, net-state model, not silent loss in the
+common case):</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_action_status_bridge/README.md">see the full file</a></p>
 </div>
@@ -18732,7 +17892,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-06-23</em>
+        <em class="hidden-xs">| generated on 2026-06-24</em>
       
       </div>
       <div style="float:right;">
