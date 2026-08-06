@@ -502,7 +502,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -613,7 +613,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -646,6 +646,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -665,37 +751,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -1428,7 +1484,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -1539,7 +1595,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -1572,6 +1628,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -1591,37 +1733,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -2358,7 +2470,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -2469,7 +2581,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -2502,6 +2614,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -2521,37 +2719,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -3284,7 +3452,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -3395,7 +3563,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -3428,6 +3596,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -3447,37 +3701,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -4214,7 +4438,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -4325,7 +4549,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -4358,6 +4582,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -4377,37 +4687,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -5144,7 +5424,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -5255,7 +5535,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -5288,6 +5568,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -5307,37 +5673,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -6074,7 +6410,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -6185,7 +6521,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -6218,6 +6554,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -6237,37 +6659,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -7004,7 +7396,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -7115,7 +7507,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -7148,6 +7540,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -7167,37 +7645,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -7934,7 +8382,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -8045,7 +8493,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -8078,6 +8526,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -8097,37 +8631,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -8864,7 +9368,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -8975,7 +9479,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -9008,6 +9512,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -9027,37 +9617,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -9794,7 +10354,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -9905,7 +10465,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -9938,6 +10498,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -9957,37 +10603,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -10724,7 +11340,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -10835,7 +11451,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -10868,6 +11484,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -10887,37 +11589,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -11654,7 +12326,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -11765,7 +12437,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -11798,6 +12470,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -11817,37 +12575,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -12593,7 +13321,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -12704,7 +13432,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -12737,6 +13465,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -12756,37 +13570,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -13541,7 +14325,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -13652,7 +14436,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -13685,6 +14469,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -13704,37 +14574,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -14489,7 +15329,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -14600,7 +15440,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -14633,6 +15473,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -14652,37 +15578,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -15437,7 +16333,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -15548,7 +16444,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -15581,6 +16477,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -15600,37 +16582,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -16385,7 +17337,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -16496,7 +17448,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -16529,6 +17481,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -16548,37 +17586,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -17333,7 +18341,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -17444,7 +18452,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -17477,6 +18485,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -17496,37 +18590,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -18281,7 +19345,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-07-31
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-06
         </span>
       </td>
     </tr>
@@ -18392,7 +19456,7 @@ build acceleration, and centralized linting configuration across all packages.</
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitLinting.cmake</code></td>
-      <td>Centralized clang-tidy configuration (opt-in locally, mandatory in CI)</td>
+      <td>Centralized clang-tidy configuration (opt-in local gate; CI runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> instead)</td>
     </tr>
     <tr>
       <td><code class="language-plaintext highlighter-rouge">ROS2MedkitSanitizers.cmake</code></td>
@@ -18425,6 +19489,92 @@ build acceleration, and centralized linting configuration across all packages.</
 <code class="language-plaintext highlighter-rouge">medkit_detect_compat_defs()</code> / <code class="language-plaintext highlighter-rouge">medkit_apply_compat_defs()</code> - Compile definitions for version-specific APIs</li>
 </ul>
 
+<h3 id="ros2medkitlinting">ROS2MedkitLinting</h3>
+
+<p>Registers the package’s <code class="language-plaintext highlighter-rouge">clang_tidy</code> CTest test behind <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=ON</code>,
+off by default. This is a local gate: CI does not use it. The <code class="language-plaintext highlighter-rouge">clang-tidy</code> job
+in <code class="language-plaintext highlighter-rouge">.github/workflows/quality.yml</code> configures with <code class="language-plaintext highlighter-rouge">-DENABLE_CLANG_TIDY=OFF</code> and
+runs <code class="language-plaintext highlighter-rouge">run-clang-tidy</code> over the compilation database instead.</p>
+
+<p>A participating package registers exactly one such test - packages that exclude
+<code class="language-plaintext highlighter-rouge">ament_cmake_clang_tidy</code> and never call <code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy()</code> register none.
+colcon runs a separate <code class="language-plaintext highlighter-rouge">ctest</code> per package, so <code class="language-plaintext highlighter-rouge">--ctest-args -j</code> has nothing to
+parallelise: CTest only ever sees one matching test. The analysis is therefore
+parallelised <strong>inside</strong> the test:</p>
+
+<ul>
+  <li>
+<code class="language-plaintext highlighter-rouge">-DROS2_MEDKIT_CLANG_TIDY_JOBS=&lt;n&gt;</code> at configure time sets how many
+<code class="language-plaintext highlighter-rouge">clang-tidy</code> processes one package runs. It defaults to <code class="language-plaintext highlighter-rouge">min(host cores, 2)</code>,
+falling back to 1 where CMake cannot determine the core count.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">ros2_medkit_clang_tidy(JOBS &lt;n&gt;)</code> overrides it for a single package.</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs &lt;n&gt;</code> is the everyday switch. The count is baked
+into the CTest command at configure time, so the script reconfigures the
+clang-tidy packages first - a couple of seconds, no recompilation. The value
+then sticks in the CMake cache, so every <code class="language-plaintext highlighter-rouge">tidy</code> run prints the count in
+effect.</li>
+</ul>
+
+<p>How many packages analyse at once is colcon’s <code class="language-plaintext highlighter-rouge">--parallel-workers</code>, not
+CTest’s <code class="language-plaintext highlighter-rouge">-j</code>. Because the parallelism now lives inside each test, the package
+tests must run one at a time: <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> pins
+<code class="language-plaintext highlighter-rouge">--parallel-workers 1</code> and ignores a caller’s override, because running both
+levels at once multiplies peak memory by the number of packages.</p>
+
+<p>The footprint is large enough that the default is capped rather than set to the
+core count. Measured on <code class="language-plaintext highlighter-rouge">ros2_medkit_gateway</code>, a 16-core host:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">JOBS</code></th>
+      <th style="text-align: right">wall clock</th>
+      <th style="text-align: right">peak resident</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>2 <em>(default)</em>
+</td>
+      <td style="text-align: right">17min58s</td>
+      <td style="text-align: right">2.6 GiB</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td style="text-align: right">9min55s</td>
+      <td style="text-align: right">4.7 GiB</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td style="text-align: right">6min00s</td>
+      <td style="text-align: right">9.4 GiB</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td style="text-align: right">4min32s</td>
+      <td style="text-align: right">17.4 GiB</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Memory scales linearly at roughly 1.2 GiB per job - a single <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process holds 1.4 GiB at its peak - while wall clock does not. The default is
+sized so that one package fits an 8 GB machine, which puts it at 2. That is
+deliberately the slow end of the curve: the alternative is a default that only
+works on the largest machine anyone here has.</p>
+
+<p>If you have the memory, take it - <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy --jobs 8</code> roughly
+triples the speed for 9.4 GiB.</p>
+
+<p>Over-subscribing is guarded, but only through the script. <code class="language-plaintext highlighter-rouge">ament_clang_tidy</code>
+derives its exit status from the warnings it managed to parse, so a <code class="language-plaintext highlighter-rouge">clang-tidy</code>
+process killed by the OOM reaper contributes nothing and the test passes as if
+the package were clean. <code class="language-plaintext highlighter-rouge">./scripts/test.sh tidy</code> scans the per-test logs for the
+<code class="language-plaintext highlighter-rouge">failed with error code</code> marker and fails the run instead, naming the packages
+that lost coverage. A bare <code class="language-plaintext highlighter-rouge">colcon test -R clang_tidy</code> has no such guard.</p>
+
 <h3 id="ros2medkitcoverage">ROS2MedkitCoverage</h3>
 
 <p>Adds <code class="language-plaintext highlighter-rouge">--coverage -O0 -g</code> when built with <code class="language-plaintext highlighter-rouge">-DENABLE_COVERAGE=ON</code>, and is a no-op
@@ -18444,37 +19594,7 @@ against that, deriving the packages that must appear from the source tree rather
 than from this include. It runs <code class="language-plaintext highlighter-rouge">--static-only</code> in the Quality workflow and
 against the generated report in the CI coverage job.</p>
 
-<p>The gate checks that the include is present, not where it sits, because no
-reliable line-based check survives legal CMake (targets inside <code class="language-plaintext highlighter-rouge">function()</code>
-bodies, <code class="language-plaintext highlighter-rouge">if(FALSE)</code> blocks, <code class="language-plaintext highlighter-rouge">INTERFACE</code> libraries that compile nothing). An
-include placed after a target still shows up whenever it costs the package all
-of its records; a partial slip does not. Put it above the first target.</p>
-
-<h2 id="usage">Usage</h2>
-
-<p>In your package’s <code class="language-plaintext highlighter-rouge">CMakeLists.txt</code>, before the first target:</p>
-
-<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">find_package</span><span class="p">(</span>ros2_medkit_cmake REQUIRED<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCompat<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCcache<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitSanitizers<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitCoverage<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitLinting<span class="p">)</span>
-<span class="nb">include</span><span class="p">(</span>ROS2MedkitWarnings<span class="p">)</span>
-
-</code></pre></div></div>
-
-<p>Add to <code class="language-plaintext highlighter-rouge">package.xml</code>:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;buildtool_depend&gt;</span>ros2_medkit_cmake<span class="nt">&lt;/buildtool_depend&gt;</span>
-
-</code></pre></div></div>
-
-<p>The cmake modules are automatically available via ament’s extras hook after <code class="language-plaintext highlighter-rouge">find_package</code>.</p>
-
-<h2 id="license">License</h2>
-
-<p>Apache License 2.0</p>
+<p>File truncated at 100 lines <a href="https://github.com/selfpatch/ros2_medkit/tree/main/src/ros2_medkit_cmake/README.md">see the full file</a></p>
 </div>
               </div>
             </div>
@@ -19272,7 +20392,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-07-31</em>
+        <em class="hidden-xs">| generated on 2026-08-06</em>
       
       </div>
       <div style="float:right;">
