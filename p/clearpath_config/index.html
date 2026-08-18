@@ -1100,7 +1100,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-07
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-18
         </span>
       </td>
     </tr>
@@ -1187,55 +1187,108 @@ jQuery(function() {
 
 <p>Find documentation on the Clearpath Configuration YAML and more about the Clearpath ROS 2 System on the <a href="https://docs.clearpathrobotics.com/docs/ros/config/yaml/overview">Clearpath Documentation</a> webpage.</p>
 
+<h2 id="where-this-fits-in-the-clearpath-ros-2-stack">Where this fits in the Clearpath ROS 2 stack</h2>
+
+<p><code class="language-plaintext highlighter-rouge">clearpath_config</code> is the <strong>entry point</strong> of the Clearpath ROS 2 system. A single
+<code class="language-plaintext highlighter-rouge">robot.yaml</code> file describes an entire robot (platform, sensors, mounts, manipulators, and
+system settings). This package parses and validates that file into a Python object tree, which
+the Clearpath <em>generators</em> then turn into launch files, parameter files, and robot descriptions.</p>
+
+<pre><code class="language-mermaid">flowchart LR
+    yaml["robot.yaml"] --&gt; config["clearpath_config&lt;br/&gt;(this repo)&lt;br/&gt;YAML parser + validation"]
+    config --&gt; genc["clearpath_generator_common"]
+    config --&gt; genr["clearpath_generator_robot"]
+    config --&gt; geng["clearpath_generator_gz"]
+    genc --&gt; out["/etc/clearpath&lt;br/&gt;generated launch / params / description"]
+    genr --&gt; out
+    geng --&gt; out
+    out --&gt; common["clearpath_common&lt;br/&gt;control / description / diagnostics"]
+    out --&gt; robot["clearpath_robot&lt;br/&gt;real hardware"]
+    out --&gt; sim["clearpath_simulator&lt;br/&gt;Gazebo"]
+    config -. "sample configs" .-&gt; tests["clearpath_generator_tests&lt;br/&gt;validates generator output"]
+
+</code></pre>
+
+<h2 id="architecture">Architecture</h2>
+
+<p>The top-level <a href="https://github.com/clearpathrobotics/clearpath_config/tree/jazzy/./clearpath_config/clearpath_config.py"><code class="language-plaintext highlighter-rouge">ClearpathConfig</code></a> class loads the YAML and
+delegates each top-level key to a dedicated sub-config module. Every sub-config validates its own
+section and exposes typed accessors:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>Top-level key</th>
+      <th>Module</th>
+      <th>Responsibility</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">serial_number</code></td>
+      <td><code class="language-plaintext highlighter-rouge">clearpath_config.py</code></td>
+      <td>Robot identity; seeds platform defaults.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">version</code></td>
+      <td><code class="language-plaintext highlighter-rouge">clearpath_config.py</code></td>
+      <td>Config schema version.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">system</code></td>
+      <td><code class="language-plaintext highlighter-rouge">system/system.py</code></td>
+      <td>Hosts, networking, ROS domain, middleware.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">platform</code></td>
+      <td><code class="language-plaintext highlighter-rouge">platform/platform.py</code></td>
+      <td>Base platform model, controllers, extras.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">links</code></td>
+      <td><code class="language-plaintext highlighter-rouge">links/links.py</code></td>
+      <td>Static coordinate frames added by the user.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">manipulators</code></td>
+      <td><code class="language-plaintext highlighter-rouge">manipulators/manipulators.py</code></td>
+      <td>Arms, grippers, and lifts.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">mounts</code></td>
+      <td><code class="language-plaintext highlighter-rouge">mounts/mounts.py</code></td>
+      <td>Physical mounting hardware for sensors/accessories.</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">sensors</code></td>
+      <td><code class="language-plaintext highlighter-rouge">sensors/sensors.py</code></td>
+      <td>Cameras, lidars, IMUs, GPS, etc.</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Shared plumbing (base classes, YAML read/write, type helpers) lives under
+<a href="https://github.com/clearpathrobotics/clearpath_config/tree/jazzy/./clearpath_config/common"><code class="language-plaintext highlighter-rouge">clearpath_config/common/</code></a>. Use <code class="language-plaintext highlighter-rouge">read_yaml</code>/<code class="language-plaintext highlighter-rouge">write_yaml</code> from
+<code class="language-plaintext highlighter-rouge">common/utils/yaml.py</code> rather than calling PyYAML directly, so ordering and formatting stay
+consistent with the generators.</p>
+
+<h2 id="documentation">Documentation</h2>
+
+<ul>
+  <li>
+<a href="https://docs.clearpathrobotics.com/docs/ros/config/yaml/overview">Robot YAML overview</a> — the user-facing reference for <code class="language-plaintext highlighter-rouge">robot.yaml</code>.</li>
+  <li>Per-section references: <a href="https://docs.clearpathrobotics.com/docs/ros/config/yaml/serial">serial number</a>, <a href="https://docs.clearpathrobotics.com/docs/ros/config/yaml/system">system</a>, <a href="https://docs.clearpathrobotics.com/docs/ros/config/yaml/platform/overview">platform</a>, <a href="https://docs.clearpathrobotics.com/docs/ros/config/yaml/links">links</a>, <a href="https://docs.clearpathrobotics.com/docs/ros/config/yaml/mounts">mounts</a>, <a href="https://docs.clearpathrobotics.com/docs/ros/config/yaml/sensors/overview">sensors</a>.</li>
+  <li>
+<a href="https://docs.clearpathrobotics.com/docs/ros/config/generators">Generators</a> — how the parsed config is turned into runtime files.</li>
+</ul>
+
 <h2 id="configuration-examples">Configuration Examples</h2>
 
-<p>Under the <strong><em>sample</em></strong> folder there are example configurations that can be used as the starting point of your <code class="language-plaintext highlighter-rouge">robot.yaml</code>.</p>
+<p>Under the <strong><em>sample</em></strong> folder there are example configurations that can be used as the starting point of your <code class="language-plaintext highlighter-rouge">robot.yaml</code>. Sample files whose names contain <code class="language-plaintext highlighter-rouge">test</code> (e.g. <code class="language-plaintext highlighter-rouge">test_a300.yaml</code>) are also the fixtures consumed by <a href="https://github.com/clearpathrobotics/clearpath_generator_tests">clearpath_generator_tests</a>; adding or renaming one changes what CI validates.</p>
 
-<h2 id="pre-commit">Pre-commit</h2>
+<h2 id="contributing">Contributing</h2>
 
-<p>This repository uses <a href="https://pre-commit.com/">pre-commit</a> to run linting and formatting checks before each commit.</p>
-
-<p>Install the hooks (one-time setup):</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>pip <span class="nb">install </span>pre-commit
-pre-commit <span class="nb">install</span>
-
-</code></pre></div></div>
-
-<p>Run against all files manually:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>pre-commit run <span class="nt">--all-files</span>
-
-</code></pre></div></div>
-
-<h2 id="unit-tests">Unit Tests</h2>
-
-<p>All unit tests are written using <strong>PyTest</strong> following the <a href="https://docs.pytest.org/en/6.2.x/goodpractices.html#goodpractices">Good Integration Practices</a>.</p>
-
-<p>Therefore, <code class="language-plaintext highlighter-rouge">clearpath_config_test</code> is a package that mirrors the <code class="language-plaintext highlighter-rouge">clearpath_config</code> package structure. Each file from <code class="language-plaintext highlighter-rouge">clearpath_config</code> that is to be tested should have a corresponding file with the same name and the suffix <code class="language-plaintext highlighter-rouge">_test.py</code>.</p>
-
-<p>To run the tests:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">cd</span> .../clearpath_config
-python3 <span class="nt">-m</span> pytest
-
-</code></pre></div></div>
-
-<blockquote>
-  <p><strong>PyTest</strong> will automatically search for the suffix <code class="language-plaintext highlighter-rouge">_test</code> throughout the current directory and run the tests.</p>
-</blockquote>
-
-<h2 id="generator-tests">Generator Tests</h2>
-
-<p>Changes to <code class="language-plaintext highlighter-rouge">clearpath_config</code> (e.g. adding or modifying test samples, config structure, or
-defaults) may affect the output of the Clearpath generators. The
-<a href="https://github.com/clearpathrobotics/clearpath_generator_tests">clearpath_generator_tests</a>
-repository versions the expected generator output and validates it through CI.</p>
-
-<p>Before merging, ensure a corresponding branch with the <strong>same name</strong> exists in
-<code class="language-plaintext highlighter-rouge">clearpath_generator_tests</code> with regenerated samples. See the
-<a href="https://github.com/clearpathrobotics/clearpath_generator_tests#development-workflow">Development Workflow</a>
-section of <code class="language-plaintext highlighter-rouge">clearpath_generator_tests</code> for the full process.</p>
+<p>See <a href="https://github.com/clearpathrobotics/clearpath_config/tree/jazzy/./CONTRIBUTING.md">CONTRIBUTING.md</a> for how to set up your environment, run the linters and tests, and submit a pull request.</p>
 </div>
               </div>
             </div>
@@ -14549,7 +14602,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-08-09</em>
+        <em class="hidden-xs">| generated on 2026-08-18</em>
       
       </div>
       <div style="float:right;">
