@@ -547,6 +547,11 @@
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -613,11 +618,6 @@
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -777,7 +777,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -1055,6 +1055,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -1073,44 +1084,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -2203,6 +2184,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -2269,11 +2255,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -2433,7 +2414,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -2711,6 +2692,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -2729,44 +2721,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -3863,6 +3825,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -3929,11 +3896,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -4093,7 +4055,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -4371,6 +4333,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -4389,44 +4362,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -5523,6 +5466,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -5589,11 +5537,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -5753,7 +5696,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -6031,6 +5974,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -6049,44 +6003,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -7183,6 +7107,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -7249,11 +7178,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -7413,7 +7337,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -7691,6 +7615,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -7709,44 +7644,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -8843,6 +8748,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -8909,11 +8819,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -9073,7 +8978,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -9351,6 +9256,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -9369,44 +9285,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -10503,6 +10389,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -10569,11 +10460,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -10733,7 +10619,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -11011,6 +10897,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -11029,44 +10926,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -12163,6 +12030,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -12229,11 +12101,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -12393,7 +12260,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -12671,6 +12538,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -12689,44 +12567,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -13823,6 +13671,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -13889,11 +13742,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -14053,7 +13901,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -14331,6 +14179,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -14349,44 +14208,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -15483,6 +15312,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -15549,11 +15383,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -15713,7 +15542,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -15991,6 +15820,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -16009,44 +15849,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -17143,6 +16953,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -17209,11 +17024,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -17373,7 +17183,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -17651,6 +17461,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -17669,44 +17490,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -18803,6 +18594,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -18869,11 +18665,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -19033,7 +18824,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -19311,6 +19102,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -19329,44 +19131,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -20463,6 +20235,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -20529,11 +20306,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -20693,7 +20465,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -20971,6 +20743,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -20989,44 +20772,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -22123,6 +21876,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -22189,11 +21947,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -22362,7 +22115,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -22640,6 +22393,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -22658,44 +22422,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -23801,6 +23535,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -23867,11 +23606,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -24040,7 +23774,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -24318,6 +24052,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -24336,44 +24081,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -25479,6 +25194,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -25545,11 +25265,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -25718,7 +25433,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -25996,6 +25711,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -26014,44 +25740,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -27157,6 +26853,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -27223,11 +26924,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -27396,7 +27092,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -27674,6 +27370,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -27692,44 +27399,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -28835,6 +28512,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -28901,11 +28583,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -29074,7 +28751,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -29352,6 +29029,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -29370,44 +29058,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -30513,6 +30171,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -30579,11 +30242,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -30752,7 +30410,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -31030,6 +30688,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -31048,44 +30717,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -32191,6 +31830,11 @@ jQuery(function() {
           
             
             
+              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
+            
+          
+            
+            
               <a class="label label-primary pkg-label" href="/p/autoware_planning_topic_converter/">autoware_planning_topic_converter</a>
             
           
@@ -32257,11 +31901,6 @@ jQuery(function() {
             
             
               <a class="label label-primary pkg-label" href="/p/autoware_vehicle_velocity_converter/">autoware_vehicle_velocity_converter</a>
-            
-          
-            
-            
-              <a class="label label-primary pkg-label" href="/p/autoware_planning_test_manager/">autoware_planning_test_manager</a>
             
           
             
@@ -32430,7 +32069,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-02
         </span>
       </td>
     </tr>
@@ -32708,6 +32347,17 @@ same source compiles in both builds:</p>
   </tbody>
 </table>
 
+<p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
+
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, and the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+
+<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
+<span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
+
+</code></pre></div></div>
+
+<p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
+
 <p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
 the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no
 per-build spelling. See <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/docs/review_guide.md#3-key-macros">Key Macros</a> for the full macro list.</p>
@@ -32726,44 +32376,14 @@ compiled or which methods are declared — e.g. <code class="language-plaintext 
 agnocast-enabled build and instead throws at runtime when the node is not in Agnocast mode.</p>
 
 <table>
-  <thead>
-    <tr>
-      <th> </th>
-      <th>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</th>
-      <th>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td>Backend</td>
-      <td>Always an owned <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>.</td>
-      <td>
-<code class="language-plaintext highlighter-rouge">rclcpp::Node</code> or <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, chosen at construction from the runtime <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST</code> value and fixed for the node’s lifetime.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code></td>
-      <td>Always returns the owned node.</td>
-      <td>Declared; returns the <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, but <strong>throws</strong> <code class="language-plaintext highlighter-rouge">std::runtime_error</code> if the node is in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">get_agnocast_node()</code></td>
-      <td>
-<strong>Not declared</strong> — calling it is a compile error.</td>
-      <td>Declared regardless of the runtime backend; returns the <code class="language-plaintext highlighter-rouge">agnocast::Node</code>, but <strong>throws</strong> if the node is not in Agnocast mode.</td>
-    </tr>
-    <tr>
-      <td><code class="language-plaintext highlighter-rouge">to_rclcpp_node(node)</code></td>
-      <td>Always succeeds.</td>
-      <td>Forwards to <code class="language-plaintext highlighter-rouge">get_rclcpp_node()</code> (same throw condition).</td>
+      <td> </td>
+      <td>Agnocast-disabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> undefined)</td>
+      <td>Agnocast-enabled build<br>(<code class="language-plaintext highlighter-rouge">USE_AGNOCAST_ENABLED</code> defined)</td>
     </tr>
   </tbody>
 </table>
-
-<p>In both builds <code class="language-plaintext highlighter-rouge">agnocast_wrapper::Node</code> does not derive from <code class="language-plaintext highlighter-rouge">rclcpp::Node</code>, so hand it to an executor or
-utility via <code class="language-plaintext highlighter-rouge">get_node_base_interface()</code> (e.g. <code class="language-plaintext highlighter-rouge">executor.add_node(node-&gt;get_node_base_interface())</code>).</p>
-
-<p>```cpp
-#include &lt;autoware/agnocast_wrapper/node.hpp&gt;</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -33876,7 +33496,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-08-28</em>
+        <em class="hidden-xs">| generated on 2026-09-02</em>
       
       </div>
       <div style="float:right;">

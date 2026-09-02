@@ -455,7 +455,7 @@
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -502,7 +502,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -550,7 +550,7 @@
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -834,7 +834,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -1566,7 +1634,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -1613,7 +1681,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -1661,7 +1729,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -1945,7 +2013,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -2681,7 +2817,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -2728,7 +2864,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -2776,7 +2912,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -3060,7 +3196,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -3792,7 +3996,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -3839,7 +4043,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -3887,7 +4091,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -4171,7 +4375,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -4907,7 +5179,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -4954,7 +5226,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -5002,7 +5274,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -5286,7 +5558,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -6022,7 +6362,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -6069,7 +6409,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -6117,7 +6457,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -6401,7 +6741,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -7137,7 +7545,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -7184,7 +7592,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -7232,7 +7640,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -7516,7 +7924,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -8252,7 +8728,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -8299,7 +8775,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -8347,7 +8823,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -8631,7 +9107,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -9367,7 +9911,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -9414,7 +9958,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -9462,7 +10006,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -9746,7 +10290,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -10482,7 +11094,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -10529,7 +11141,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -10577,7 +11189,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -10861,7 +11473,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -11597,7 +12277,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -11644,7 +12324,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -11692,7 +12372,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -11976,7 +12656,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -12712,7 +13460,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -12759,7 +13507,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -12807,7 +13555,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -13091,7 +13839,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -13827,7 +14643,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -13874,7 +14690,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -13922,7 +14738,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -14206,7 +15022,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -14951,7 +15835,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -14998,7 +15882,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -15046,7 +15930,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -15330,7 +16214,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -16084,7 +17036,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -16131,7 +17083,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -16179,7 +17131,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -16463,7 +17415,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -17217,7 +18237,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -17264,7 +18284,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -17312,7 +18332,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -17596,7 +18616,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -18350,7 +19438,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -18397,7 +19485,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -18445,7 +19533,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -18729,7 +19817,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -19483,7 +20639,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -19530,7 +20686,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -19578,7 +20734,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -19862,7 +21018,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -20616,7 +21840,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -20663,7 +21887,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -20711,7 +21935,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -20995,7 +22219,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -21749,7 +23041,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>0.6.0</td>
+                <td>0.7.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -21796,7 +23088,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-08-28
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
         </span>
       </td>
     </tr>
@@ -21844,7 +23136,7 @@ jQuery(function() {
         <div class="panel panel-default">
           <div class="panel-heading"><h3 class="panel-title">Package Description</h3></div>
           <div class="panel-body">
-            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, topic-name typos, dead nodes, stale transforms, parameter drift, lifecycle expectations and pipeline timing budgets.
+            Gateway plugin that detects silent faults in the ROS 2 graph: QoS mismatches, orphaned topics left by a name typo, dead nodes, parameter drift and unmet lifecycle expectations.
           </div>
           
           
@@ -22128,7 +23420,75 @@ built from it.</p>
           <div class="panel-heading"><span class="glyphicon glyphicon-list"></span> CHANGELOG</div>
           <div class="panel-body">
             
-              <em>No CHANGELOG found.</em>
+              <div class="rendered-markdown">
+<h1 id="changelog-for-package-ros2_medkit_graph_watchdog">Changelog for package ros2_medkit_graph_watchdog</h1>
+
+<h2 id="070-2026-08-27">0.7.0 (2026-08-27)</h2>
+
+<ul>
+  <li>Initial release of the package: a gateway plugin that raises faults
+for silent failures in the ROS 2 graph - problems that leave every
+node alive and every topic present, so nothing in the stack reports
+them today. The package carries the plugin skeleton, a central
+reliability gate that holds raises until the graph has quiesced, and
+a detector registry. Detectors are configured under
+<code class="language-plaintext highlighter-rouge">plugins.graph_watchdog.&lt;key&gt;</code>, each with a <code class="language-plaintext highlighter-rouge">raise</code> / <code class="language-plaintext highlighter-rouge">advisory</code> /
+<code class="language-plaintext highlighter-rouge">off</code> mode, and an unknown key under <code class="language-plaintext highlighter-rouge">detectors.&lt;id&gt;</code> is reported
+rather than silently ignored, so a typo cannot quietly disable a
+check (<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">qos_mismatch</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_QOS_MISMATCH</code> for a publisher
+and subscriber whose QoS profiles cannot match, which leaves the
+connection silently unestablished
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/571">#571</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">orphan</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_ORPHAN</code> for a one-sided topic - a
+publisher with no subscriber, or the reverse - but only when a
+complementary near-miss counterpart exists: same message type, a
+namespace and leaf within the configured edit distance, and the
+opposite side. A lone unsubscribed topic raises nothing. The pair is
+the signature of a remap or a topic-name typo, which is what the
+detector is for
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/578">#578</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">param_drift</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_PARAM_DRIFT</code> when a node's
+live parameter value diverges from the declared expectation
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/580">#580</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">lifecycle_expectation</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> for a
+node named in <code class="language-plaintext highlighter-rouge">require_active</code> that is not in the <code class="language-plaintext highlighter-rouge">active</code> lifecycle
+state once its <code class="language-plaintext highlighter-rouge">grace</code> window has passed. It raises two further
+codes for the cases where the state could not be established at all:
+<code class="language-plaintext highlighter-rouge">GRAPH_NODE_UNREADABLE</code> when the lifecycle service does not answer,
+and <code class="language-plaintext highlighter-rouge">GRAPH_NODE_NOT_MANAGED</code> when the named node has no lifecycle to
+read. These are distinct codes on the wire, so a consumer filtering
+on <code class="language-plaintext highlighter-rouge">GRAPH_NODE_INACTIVE</code> alone sees neither unmeasured case. A node
+is matched by its <code class="language-plaintext highlighter-rouge">App::id</code>, its full FQN, or the bare leaf of that
+FQN, and the grace streak is counted per node, so naming one node in
+two documented forms cannot halve the grace that was configured
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/587">#587</a>)</li>
+  <li>
+<code class="language-plaintext highlighter-rouge">node_death</code> detector: raises <code class="language-plaintext highlighter-rouge">GRAPH_NODE_DISAPPEARED</code> for a node
+that leaves the graph when nothing else is left to report it, with a
+suppression framework that decides ownership of a departure from
+knowledge rather than from silence. A node whose lifecycle state was
+never readable is admitted only provisionally, and is handed back
+the moment a label arrives saying the departure belonged to the
+lifecycle detector instead. Zero-config: there is no list of nodes
+to maintain
+(<a href="https://github.com/selfpatch/ros2_medkit/pull/625">#625</a>,
+<a href="https://github.com/selfpatch/ros2_medkit/issues/624">#624</a>)</li>
+  <li>Two silent-fault classes are not delivered in this release.
+<code class="language-plaintext highlighter-rouge">GRAPH_TF_STALE</code> and <code class="language-plaintext highlighter-rouge">GRAPH_LATENCY_BUDGET</code> have their fault codes
+reserved in the frozen <code class="language-plaintext highlighter-rouge">GRAPH_*</code> namespace and land in later
+changes, each against its own issue</li>
+  <li>The plugin keeps its ROS entities off the gateway executor, so an
+entity created and destroyed while the gateway runs cannot have its
+destructor run on an executor thread concurrently with a create on
+the same node</li>
+  <li>Contributors: \@bburda</li>
+</ul>
+</div>
             
           </div>
         </div>
@@ -22972,7 +24332,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-08-29</em>
+        <em class="hidden-xs">| generated on 2026-09-02</em>
       
       </div>
       <div style="float:right;">
