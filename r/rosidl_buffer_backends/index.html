@@ -336,7 +336,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -456,21 +456,19 @@
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -596,58 +594,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -811,7 +770,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -931,21 +890,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -1071,58 +1028,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -1286,7 +1204,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -1406,21 +1324,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -1546,58 +1462,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -1751,7 +1628,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -1871,21 +1748,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -2011,58 +1886,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -2216,7 +2052,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -2336,21 +2172,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -2476,58 +2310,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -2691,7 +2486,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -2811,21 +2606,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -2951,58 +2744,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -3166,7 +2920,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -3286,21 +3040,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -3426,58 +3178,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -3641,7 +3354,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -3761,21 +3474,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -3901,58 +3612,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -4116,7 +3788,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -4236,21 +3908,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -4376,58 +4046,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -4591,7 +4222,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -4711,21 +4342,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -4851,58 +4480,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -5066,7 +4656,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -5186,21 +4776,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -5326,58 +4914,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -5541,7 +5090,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -5661,21 +5210,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -5801,58 +5348,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -6016,7 +5524,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -6136,21 +5644,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -6276,58 +5782,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -6491,7 +5958,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -6611,21 +6078,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -6751,58 +6216,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -6966,7 +6392,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -7086,21 +6512,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -7226,58 +6650,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -7441,7 +6826,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -7561,21 +6946,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -7701,58 +7084,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -7916,7 +7260,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -8036,21 +7380,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -8176,58 +7518,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -8391,7 +7694,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -8511,21 +7814,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -8651,58 +7952,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -8866,7 +8128,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -8986,21 +8248,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -9126,58 +8386,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -9341,7 +8562,7 @@ the code they are contributing to the project according to the
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-01
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-10
         </span>
       </td>
     </tr>
@@ -9461,21 +8682,19 @@ the code they are contributing to the project according to the
               <div class="rendered-markdown">
 <h1 id="rosidl_buffer_backends">rosidl_buffer_backends</h1>
 
-<p>CUDA buffer backend implementation for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling zero-copy
-GPU memory sharing between ROS 2 publishers and subscribers, plus a
-PyTorch-side helper library that builds on the same buffer infrastructure.</p>
+<p>Vendor-specific storage backends for <code class="language-plaintext highlighter-rouge">rosidl::Buffer</code>, enabling ROS 2
+publishers and subscribers to share accelerator-accessible memory without
+copying when supported, with automatic fallback to the default CPU path.</p>
 
 <h2 id="packages">Packages</h2>
 
 <ul>
   <li>
-<strong>cuda_buffer</strong> – Core CUDA buffer library (VMM-backed IPC memory pool,
-host endpoint manager, ReadHandle/WriteHandle with CUDA event sync).</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code></a> – CUDA buffer backend
+packages for zero-copy GPU memory sharing using CUDA VMM IPC.</li>
   <li>
-<strong>cuda_buffer_backend</strong> – BufferBackend plugin for CUDA IPC transport.</li>
-  <li>
-<strong>cuda_buffer_backend_msgs</strong> – ROS 2 message definitions for CUDA buffer
-descriptors.</li>
+<a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend</code></a> – Qualcomm buffer backend
+packages for HTP-CPU zero-copy sharing using dma-buf memory.</li>
   <li>
 <strong>libtorch_vendor</strong> – Vendor package that downloads and installs the
 pre-built LibTorch C++ distribution.</li>
@@ -9601,58 +8820,19 @@ otherwise).</li>
 <a href="https://docs.ros.org/en/rolling/Installation/Alternatives/Ubuntu-Development-Setup.html">Building ROS 2 on Ubuntu</a>
 guide for the canonical source-build flow, or use the pixi workflow
 shipped by the <a href="https://github.com/ros2/ros2"><code class="language-plaintext highlighter-rouge">ros2/ros2</code></a> meta-repo.</li>
-  <li>CUDA Toolkit (&gt;= 11.8) on the host.</li>
-</ul>
-
-<p>Per-package build, test, and run details live in each package’s README:</p>
-
-<ul>
+  <li>
+    <p>Each backend depends on its vendor-specific platform support. Refer to the
+backend documentation for detailed prerequisites, setup, build, test, and
+usage instructions:</p>
+  </li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/cuda_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">cuda_buffer_backend/README.md</code></a></li>
+  <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/qc_buffer_backend/README.md"><code class="language-plaintext highlighter-rouge">qc_buffer_backend/README.md</code></a></li>
   <li><a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/torch_conversions/README.md"><code class="language-plaintext highlighter-rouge">torch_conversions/README.md</code></a></li>
 </ul>
 
-<h2 id="api-overview">API overview</h2>
+<h2 id="license">License</h2>
 
-<h3 id="cuda-buffer-backend-cuda_buffer_backend">CUDA buffer backend (<code class="language-plaintext highlighter-rouge">cuda_buffer_backend</code>)</h3>
-
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"cuda_buffer/cuda_buffer_api.hpp"</span><span class="cp">
-</span>
-<span class="c1">// Publisher: allocate + write directly to the output buffer.</span>
-<span class="n">sensor_msgs</span><span class="o">::</span><span class="n">msg</span><span class="o">::</span><span class="n">Image</span> <span class="n">msg</span><span class="p">;</span>
-<span class="n">msg</span><span class="p">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">allocate_buffer</span><span class="p">(</span><span class="n">byte_count</span><span class="p">);</span>
-<span class="p">{</span>
-  <span class="k">auto</span> <span class="n">wh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_output_buffer</span><span class="p">(</span><span class="n">msg</span><span class="p">.</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-  <span class="kt">uint8_t</span> <span class="o">*</span> <span class="n">out</span> <span class="o">=</span> <span class="n">wh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">();</span>
-  <span class="n">my_kernel</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">out</span><span class="p">,</span> <span class="p">...);</span>
-<span class="p">}</span>  <span class="c1">// wh destructor records the write event on `stream`</span>
-<span class="n">publisher</span><span class="o">-&gt;</span><span class="n">publish</span><span class="p">(</span><span class="n">msg</span><span class="p">);</span>
-
-<span class="c1">// Subscriber: input/read handle (waits on publisher's write event).</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">msg</span><span class="o">-&gt;</span><span class="n">data</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-<span class="n">use_data</span><span class="o">&lt;&lt;&lt;</span><span class="p">...</span><span class="o">&gt;&gt;&gt;</span><span class="p">(</span><span class="n">rh</span><span class="p">.</span><span class="n">get_ptr</span><span class="p">(),</span> <span class="p">...);</span>  <span class="c1">// rh.get_ptr() returns const uint8_t *</span>
-
-<span class="c1">// Auto-promotion: passing a non-CUDA buffer allocates a fresh CUDA buffer</span>
-<span class="c1">// and (for inputs) copies H2D;</span>
-<span class="k">auto</span> <span class="n">rh</span> <span class="o">=</span> <span class="n">cuda_buffer_backend</span><span class="o">::</span><span class="n">from_input_buffer</span><span class="p">(</span><span class="n">cpu_or_other_buf</span><span class="p">,</span> <span class="n">stream</span><span class="p">);</span>
-
-</code></pre></div></div>
-
-<h3 id="torch-tensor-api-torch_conversions">Torch tensor API (<code class="language-plaintext highlighter-rouge">torch_conversions</code>)</h3>
-
-<p>```cpp
-#include “torch_conversions/torch_conversions.hpp”
-#include “tensor_msgs/msg/experimental_tensor.hpp”</p>
-
-<p>// Publisher: allocate a Tensor message (accelerated backend when available).
-auto guard = torch_conversions::set_stream();
-auto msg = torch_conversions::allocate_tensor_msg(
-  /<em>shape=</em>/{1080, 1920, 3}, torch::kUInt8);</p>
-
-<p>// Wrap as at::Tensor without copying and write into it.
-at::Tensor t_out = torch_conversions::from_output_tensor_msg(*msg);
-my_pipeline(t_out);</p>
-
-<p>File truncated at 100 lines <a href="https://github.com/ros2/rosidl_buffer_backends/tree/main/README.md">see the full file</a></p>
+<p>Apache-2.0</p>
 </div>
             
           </div>
@@ -9761,7 +8941,7 @@ the code they are contributing to the project according to the
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-09-02</em>
+        <em class="hidden-xs">| generated on 2026-09-13</em>
       
       </div>
       <div style="float:right;">

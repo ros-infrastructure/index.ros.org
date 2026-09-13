@@ -777,7 +777,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -960,6 +960,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -1062,6 +1068,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -1079,7 +1099,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -1090,9 +1110,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -1598,6 +1615,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#humble">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#humble-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -2441,7 +2471,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -2624,6 +2654,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -2726,6 +2762,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -2743,7 +2793,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -2754,9 +2804,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -3262,6 +3309,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#jazzy">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#jazzy-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -4109,7 +4169,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -4292,6 +4352,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -4394,6 +4460,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -4411,7 +4491,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -4422,9 +4502,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -4930,6 +5007,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#kilted">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#kilted-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -5777,7 +5867,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -5960,6 +6050,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -6062,6 +6158,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -6079,7 +6189,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -6090,9 +6200,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -6598,6 +6705,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#lyrical">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#lyrical-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -7445,7 +7565,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -7628,6 +7748,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -7730,6 +7856,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -7747,7 +7887,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -7758,9 +7898,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -8266,6 +8403,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#rolling">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#rolling-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -9113,7 +9263,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -9296,6 +9446,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -9398,6 +9554,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -9415,7 +9585,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -9426,9 +9596,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -9934,6 +10101,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#ardent">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#ardent-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -10781,7 +10961,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -10964,6 +11144,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -11066,6 +11252,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -11083,7 +11283,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -11094,9 +11294,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -11602,6 +11799,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#bouncy">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#bouncy-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -12449,7 +12659,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -12632,6 +12842,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -12734,6 +12950,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -12751,7 +12981,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -12762,9 +12992,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -13270,6 +13497,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#crystal">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#crystal-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -14117,7 +14357,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -14300,6 +14540,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -14402,6 +14648,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -14419,7 +14679,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -14430,9 +14690,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -14938,6 +15195,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#eloquent">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#eloquent-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -15785,7 +16055,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -15968,6 +16238,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -16070,6 +16346,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -16087,7 +16377,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -16098,9 +16388,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -16606,6 +16893,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#dashing">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#dashing-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -17453,7 +17753,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -17636,6 +17936,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -17738,6 +18044,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -17755,7 +18075,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -17766,9 +18086,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -18274,6 +18591,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#galactic">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#galactic-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -19121,7 +19451,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -19304,6 +19634,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -19406,6 +19742,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -19423,7 +19773,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -19434,9 +19784,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -19942,6 +20289,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#foxy">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#foxy-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -20789,7 +21149,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -20972,6 +21332,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -21074,6 +21440,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -21091,7 +21471,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -21102,9 +21482,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -21610,6 +21987,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#iron">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#iron-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -22466,7 +22856,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -22649,6 +23039,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -22751,6 +23147,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -22768,7 +23178,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -22779,9 +23189,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -23287,6 +23694,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#lunar">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#lunar-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -24152,7 +24572,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -24335,6 +24755,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -24437,6 +24863,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -24454,7 +24894,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -24465,9 +24905,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -24973,6 +25410,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#jade">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#jade-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -25838,7 +26288,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -26021,6 +26471,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -26123,6 +26579,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -26140,7 +26610,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -26151,9 +26621,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -26659,6 +27126,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#indigo">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#indigo-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -27524,7 +28004,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -27707,6 +28187,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -27809,6 +28295,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -27826,7 +28326,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -27837,9 +28337,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -28345,6 +28842,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#hydro">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#hydro-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -29210,7 +29720,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -29393,6 +29903,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -29495,6 +30011,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -29512,7 +30042,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -29523,9 +30053,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -30031,6 +30558,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#kinetic">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#kinetic-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -30896,7 +31436,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -31079,6 +31619,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -31181,6 +31727,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -31198,7 +31758,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -31209,9 +31769,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -31717,6 +32274,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#melodic">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#melodic-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -32582,7 +33152,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-09
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
         </span>
       </td>
     </tr>
@@ -32765,6 +33335,12 @@ is in Agnocast mode — see the <a href="https://github.com/autowarefoundation/a
 </td>
     </tr>
     <tr>
+      <td>Generic (type-erased) publisher/subscription</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher()</code> / <code class="language-plaintext highlighter-rouge">create_generic_subscription()</code> (<code class="language-plaintext highlighter-rouge">QoS</code> and depth overloads) — runtime <code class="language-plaintext highlighter-rouge">topic_type</code> string instead of a compile-time <code class="language-plaintext highlighter-rouge">MessageT</code>, for a node that relays arbitrary topics; see <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/#generic-type-erased-publishersubscription">Generic publisher/subscription</a>
+</td>
+    </tr>
+    <tr>
       <td>Client</td>
       <td>
 <code class="language-plaintext highlighter-rouge">create_client&lt;ServiceT&gt;()</code> (<code class="language-plaintext highlighter-rouge">rclcpp::QoS</code>); <code class="language-plaintext highlighter-rouge">async_send_request()</code> takes <code class="language-plaintext highlighter-rouge">allocate_output_service_request()</code>’s result, or a plain <code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;S::Request&gt;</code> that the Agnocast backend copies</td>
@@ -32867,6 +33443,20 @@ same source compiles in both builds:</p>
       <td><code class="language-plaintext highlighter-rouge">agnocast::SubscriptionOptions</code></td>
     </tr>
     <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_publisher</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_PUBLISHER_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericPublisher::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericPublisher::SharedPtr</code></td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">create_generic_subscription</code> result</td>
+      <td><code class="language-plaintext highlighter-rouge">AUTOWARE_GENERIC_SUBSCRIPTION_PTR</code></td>
+      <td><code class="language-plaintext highlighter-rouge">rclcpp::GenericSubscription::SharedPtr</code></td>
+      <td><code class="language-plaintext highlighter-rouge">agnocast_wrapper::GenericSubscription::SharedPtr</code></td>
+    </tr>
+    <tr>
       <td>Owning subscription callback arg</td>
       <td><code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR(M)</code></td>
       <td><code class="language-plaintext highlighter-rouge">std::shared_ptr&lt;const M&gt;</code></td>
@@ -32884,7 +33474,7 @@ same source compiles in both builds:</p>
 
 <p>A subscription callback may also take the plain <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>; it needs no macro because it is spelled the same in both builds.</p>
 
-<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
+<p><strong>On the Agnocast path an owning handle must not outlive the subscription that delivered it.</strong> This covers <code class="language-plaintext highlighter-rouge">AUTOWARE_MESSAGE_CONST_SHARED_PTR</code>, a callback taking <code class="language-plaintext highlighter-rouge">MessageT::ConstSharedPtr</code>, the pointer returned by <code class="language-plaintext highlighter-rouge">polling::take_data()</code>, a message delivered to a <code class="language-plaintext highlighter-rouge">message_filters</code> synchronizer callback, and <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_RESPONSE_PTR</code>, which the client delivers through a response subscription of its own and which therefore must not outlive the client. Reading it afterwards can return recycled memory, and releasing it can abort the process. Members are destroyed in reverse declaration order, so declare the subscription <strong>before</strong> any member that caches a message:</p>
 
 <div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="n">AUTOWARE_SUBSCRIPTION_PTR</span><span class="p">(</span><span class="n">PointCloud2</span><span class="p">)</span> <span class="n">sub_</span><span class="p">;</span>   <span class="c1">// declared first -&gt; destroyed last</span>
 <span class="n">std</span><span class="o">::</span><span class="n">shared_ptr</span><span class="o">&lt;</span><span class="k">const</span> <span class="n">PointCloud2</span><span class="o">&gt;</span> <span class="n">latest_</span><span class="p">;</span>    <span class="c1">// destroyed first -&gt; safe</span>
@@ -32895,9 +33485,6 @@ same source compiles in both builds:</p>
 </code></pre></div></div>
 
 <p>The DDS path lets the same pointer be held indefinitely, so a node validated only with <code class="language-plaintext highlighter-rouge">ENABLE_AGNOCAST=0</code> will not show the problem.</p>
-
-<p><code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_PTR(S)</code> / <code class="language-plaintext highlighter-rouge">AUTOWARE_SERVICE_PTR(S)</code> and the <code class="language-plaintext highlighter-rouge">AUTOWARE_CLIENT_*FUTURE*</code> macros resolve to
-the wrapper’s own <code class="language-plaintext highlighter-rouge">Client&lt;S&gt;</code> / <code class="language-plaintext highlighter-rouge">Service&lt;S&gt;</code> types in <strong>both</strong> builds, so client and service code needs no</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/autowarefoundation/autoware_core/tree/main/common/autoware_agnocast_wrapper/README.md">see the full file</a></p>
 </div>
@@ -33403,6 +33990,19 @@ pre-commit-ci[bot]
                   <th class="text-center">Deps</th>
                 </thead>
                 <tbody>
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/autoware_default_adapi/#noetic">autoware_default_adapi</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/autoware_default_adapi/#noetic-deps" >
+                          <span class="glyphicon glyphicon-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
                   
                     
                     
@@ -34036,7 +34636,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-09-09</em>
+        <em class="hidden-xs">| generated on 2026-09-13</em>
       
       </div>
       <div style="float:right;">
