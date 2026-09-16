@@ -587,7 +587,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -692,6 +692,92 @@
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -717,89 +803,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -1403,7 +1407,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -1508,6 +1512,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -1533,89 +1623,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -2219,7 +2227,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -2324,6 +2332,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -2349,89 +2443,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -3035,7 +3047,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -3140,6 +3152,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -3165,89 +3263,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -3851,7 +3867,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -3956,6 +3972,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -3981,89 +4083,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -4671,7 +4691,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -4776,6 +4796,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -4801,89 +4907,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -5491,7 +5515,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -5596,6 +5620,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -5621,89 +5731,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -6311,7 +6339,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -6416,6 +6444,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -6441,89 +6555,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -7131,7 +7163,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -7236,6 +7268,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -7261,89 +7379,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -7951,7 +7987,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -8056,6 +8092,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -8081,89 +8203,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -8767,7 +8807,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -8872,6 +8912,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -8897,89 +9023,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -9583,7 +9627,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -9688,6 +9732,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -9713,89 +9843,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -11154,7 +11202,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -11259,6 +11307,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -11284,89 +11418,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -11992,7 +12044,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -12097,6 +12149,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -12122,89 +12260,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -12830,7 +12886,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -12935,6 +12991,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -12960,89 +13102,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -13668,7 +13728,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -13773,6 +13833,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -13798,89 +13944,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -14506,7 +14570,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-11
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
         </span>
       </td>
     </tr>
@@ -14611,6 +14675,92 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_system">Changelog for package mrpt_system</h1>
 
+<h2 id="forthcoming">Forthcoming</h2>
+
+<ul>
+  <li>
+    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1405">#1405</a>
+from MRPT/feat/coverage-graphslam-gui-xvfb Coverage pass on
+mrpt_graphslam and mrpt_gui (headless GUI tests under Xvfb)</p>
+  </li>
+  <li>
+    <p>Address PR review: CTicTac alignment on MSVC, read-only CI token</p>
+
+    <p>* CTicTac's storage is now uint64_t[4] rather than unsigned
+long[4]. The latter is 4 bytes and 4-byte aligned on MSVC, so
+dropping the (excessive, crash-causing) alignas(16) left it
+under-aligned for the LARGE_INTEGER it is reinterpreted as; uint64_t
+is 8-byte aligned everywhere, which is what both LARGE_INTEGER and
+struct timespec need, and is still below the over-alignment that
+broke virtual-base layout. The constructor now asserts alignment as
+well as size, per platform.</p>
+
+    <p>* build-linux.yml declares top-level [permissions: contents:
+read]{.title-ref}; nothing in the workflow writes to the repository.
+Also documents, in the GUI test helper, that a
+configured-but-unreachable DISPLAY is deliberately left to fail
+rather than skip, and how to opt out. Co-Authored-By: Claude Opus 5
+&lt;&lt;noreply@anthropic.com&gt;&gt; Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Coverage pass on mrpt_graphslam and mrpt_gui; fix the bugs it
+uncovered mrpt_graphslam 73.3% -&gt; 81.6%, mrpt_gui 0.5% -&gt; 40.6%
+lines. The mrpt_gui window classes are now tested headlessly under a
+virtual X display, so CI installs xvfb + Mesa's software GL and
+wraps [colcon test]{.title-ref} in [xvfb-run]{.title-ref}; the tests
+GTEST_SKIP() when no display is reachable. Bugs found and fixed
+along the way:</p>
+
+    <p>* CTicTac declared its timestamp storage alignas(16) for no reason.
+That alignment propagated through CTimeLogger up to
+CRegistrationDeciderOrOptimizer, which is used as a virtual base,
+and GCC then emitted movdqa on a subobject that is only 8-byte
+aligned inside a derived class: constructing a CFixedIntervalsNRD
+segfaulted in every optimized build. Same failure mode already
+documented in CMatrixFixed.</p>
+
+    <p>* CNodeRegistrationDecider::registerNewNodeAtEnd() placed the root
+node at the current pose estimate instead of the origin, applying
+the accumulated motion twice.</p>
+
+    <p>* The three decider TParams structs left
+registration_max_distance/_angle uninitialized, making their
+documented defaults dead code.</p>
+
+    <p>* CIncrementalNodeRegistrationDecider and
+TUncertaintyPath::hasLowerUncertaintyThan() did not compile if
+instantiated (undefined report_sep, unqualified INVALID_NODEID, a
+const method calling a non-const one).</p>
+
+    <p>* CGlCanvasBase's mouse setters and
+CGlCanvasBaseHeadless::renderError() were declared but never
+defined. updateLastPos() is restored and wired into the wx mouse
+handlers, which never recorded the pointer position, so
+CDisplayWindow3D::getLastMousePosition() and 3D picking always
+returned pixel (0,0). The two click setters were dead and are
+removed.</p>
+
+    <p>* wxImage2MRPTImage() swapped red and blue: a leftover from MRPT
+2.x, when CImage stored BGR.</p>
+
+    <p>* CWindowObserver compared key modifiers with == against a magic
+8192, so Ctrl+C was missed if any other modifier was held.</p>
+
+    <p>* CNodeRegistrationDecider_impl.h had [using namespace
+std;]{.title-ref} at global scope in a public header.
+Co-Authored-By: Claude Opus 5 &lt;&lt;noreply@anthropic.com&gt;&gt;
+Claude-Session:
+<a href="https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh">https://claude.ai/code/session_01Uitwp7fw5JbCYkiKe7QYnh</a></p>
+  </li>
+  <li>
+    <p>Merge branch 'develop' into fix/stereo-rectify-map-axis-swap</p>
+  </li>
+  <li>
+    <p>Contributors: Jose Luis Blanco-Claraco</p>
+  </li>
+</ul>
+
 <h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
 
 <ul>
@@ -14636,89 +14786,7 @@ ReadDirectoryChangesW() return, which is what the join needs.</p>
   <li>
     <p>fix(mrpt_system): join CFileSystemWatcher's watch thread on
 destruction On Windows the constructor starts a std::thread and the
-destructor only closed the notification handle, so destroying a
-successfully-constructed watcher hit std::thread's destructor with
-a joinable thread and called std::terminate(). The new unit tests
-are the first code to ever destroy one, and they took the whole test
-binary down with them. The pending ReadDirectoryChangesW() is now
-cancelled before the handle is closed, the thread is joined, and
-whatever it had queued but nobody read is freed instead of leaked.
-Also fixes the POSIX branch, which called inotify_rm_watch() with a
-descriptor it had already closed and reset to -1.</p>
-  </li>
-  <li>
-    <p>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1392">#1392</a>
-from MRPT/test/coverage-io test(mrpt_io): cover the stream,
-compression and path helpers</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): skip the missing-directory watcher test where
-unsupported Without inotify (macOS, and any other platform with no
-notification backend) CFileSystemWatcher's constructor is a no-op,
-so it never notices that the watched directory does not exist. Skip
-that expectation there, and pin the empty-path assertion, which does
-hold everywhere.</p>
-  </li>
-  <li>
-    <p>test(mrpt_system): cover the untested helpers and the file system
-watcher Four files in this module had never had an assertion run
-against them ([CFileSystemWatcher.cpp]{.title-ref},
-[CObserver.cpp]{.title-ref}, [progress.cpp]{.title-ref},
-[hyperlink.cpp]{.title-ref}), and several others were only covered
-incidentally by other modules' tests. New test files:</p>
-
-    <p>* [CFileSystemWatcher_unittest.cpp]{.title-ref} watches a temporary
-directory and checks that file creation, deletion and sub-directory
-creation are all reported, skipping itself where the platform
-provides no notification support (0% -&gt; 91%).</p>
-
-    <p>* [CObserver_unittest.cpp]{.title-ref} covers the
-observer/observable pair: publishing to several subscribers,
-unsubscribing, and the two destruction orders --observer first and
-observable first, the latter of which publishes mrptEventOnDestroy
-before dropping everyone.</p>
-
-    <p>* [misc_system_unittest.cpp]{.title-ref} covers progress(),
-hyperlink(), the CRC helpers, every thread and process priority
-level, and CRateTimer.</p>
-
-    <p>* [os_unittest.cpp]{.title-ref} covers the os:: C-library wrappers,
-getMRPTLicense(), executeCommand() (including its working-directory
-form), launchProcess() and the plug-in loader's failure paths.</p>
-
-    <p>* [datetime_format_unittest.cpp]{.title-ref} covers the timestamp
-formatters, the parts/timestamp round trip in both UTC and local
-time, and every unit branch of intervalFormat() (16.7% -&gt; 97.0% for
-datetime.cpp). Bugs found and fixed:</p>
-
-    <p>* [mrpt::system::consoleColorAndStyle()]{.title-ref} had its stream
-selection inverted: [applyToStdErr = true]{.title-ref} emitted the
-escape sequence on <strong>stdout</strong> and vice versa. COutputLogger passes
-that flag for its error-level messages, so the color codes landed on
-the opposite stream from the text they were meant to color. Its memo
-of the last colors applied was also shared between the two streams,
-which would suppress a needed escape sequence when alternating
-between them; it is now kept per stream. Module coverage: 66.0% -&gt;
-82.5% lines, 48.2% -&gt; 62.3% branches.</p>
-  </li>
-  <li>
-    <p>test(mrpt_io): cover the stream, compression and path helpers New
-test files for the parts of the module that had never been exercised
-directly: CStream's printf/printf_vector/getline, CMemoryStream's
-cursor and buffer management, the file input/output streams
-(including every error path), the compressed streams (a
-parameterized round-trip over None/Gzip/Zstd plus the CFileGZ*
-pair), the zip:: helpers, detect_compression, the lazy-load path
-helpers and CTextFileLinesParser. Bugs found and fixed:</p>
-
-    <p>* [mrpt::io::CompressionType]{.title-ref} was defined twice,
-identically, in [detect_compression.h]{.title-ref} and in
-[compression_options.h]{.title-ref}, both in namespace `mrpt::io`:
-including both headers in the same translation unit did not compile.
-[detect_compression.h]{.title-ref} now includes the other one.</p>
-
-    <p>* [zip::decompress()]{.title-ref}'s std::vector overload passed an
-<em>uninitialized</em> length to zlib's [uncompress()]{.title-ref}, which</p>
+destructor only closed the notification handle, so destroying a</p>
   </li>
 </ul>
 
@@ -16822,7 +16890,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-09-13</em>
+        <em class="hidden-xs">| generated on 2026-09-16</em>
       
       </div>
       <div style="float:right;">
