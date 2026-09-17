@@ -540,7 +540,7 @@
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -587,7 +587,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -692,109 +692,77 @@
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -1372,7 +1340,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -1419,7 +1387,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -1524,109 +1492,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -2204,7 +2140,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -2251,7 +2187,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -2356,109 +2292,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -3036,7 +2940,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -3083,7 +2987,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -3188,109 +3092,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -3920,7 +3792,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -3967,7 +3839,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -4072,109 +3944,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -4808,7 +4648,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -4855,7 +4695,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -4960,109 +4800,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -5644,7 +5452,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -5691,7 +5499,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -5796,109 +5604,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -6480,7 +6256,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -6527,7 +6303,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -6632,109 +6408,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -7316,7 +7060,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -7363,7 +7107,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -7468,109 +7212,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -8152,7 +7864,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -8199,7 +7911,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -8304,109 +8016,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -8984,7 +8664,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -9031,7 +8711,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -9136,109 +8816,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -9816,7 +9464,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -9863,7 +9511,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -9968,109 +9616,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -11426,7 +11042,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -11473,7 +11089,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -11578,109 +11194,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -12280,7 +11864,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -12327,7 +11911,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -12432,109 +12016,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -13134,7 +12686,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -13181,7 +12733,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -13286,109 +12838,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -13988,7 +13508,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -14035,7 +13555,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -14140,109 +13660,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -14842,7 +14330,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>3.1.4</td>
+                <td>3.2.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -14889,7 +14377,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-15
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-16
         </span>
       </td>
     </tr>
@@ -14994,109 +14482,77 @@ jQuery(function() {
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mrpt_img">Changelog for package mrpt_img</h1>
 
-<h2 id="forthcoming">Forthcoming</h2>
+<h2 id="320-2026-09-16">3.2.0 (2026-09-16)</h2>
 
 <ul>
-  <li>
-    <p>fix: resolve gcc warnings flagged by the ROS buildfarm
-(Humble/Jazzy) (<a href="https://github.com/MRPT/mrpt/issues/1412">#1412</a>)</p>
-
-    <p>* fix: resolve gcc warnings flagged across the ROS buildfarm
-(Humble/Jazzy) Addresses every warning category surfaced by the last
-Humble (Ubuntu Jammy, gcc-11) and Jazzy (Ubuntu Noble, gcc-13) ROS
-buildfarm dev jobs: -Wold-style-cast, -Wconversion,
--Wsign-conversion, -Wfloat-conversion, -Wunused-parameter,
--Wunused-result, -Wdeprecated-declarations, -Wdangling-else,
--Wdangling-reference, -Wnon-virtual-dtor, -Woverloaded-virtual,
--Wsign-compare, -Wstringop-overread, -Wshadow, -Wreturn-local-addr
-and -Wrange-loop-construct, spanning mrpt_bayes, mrpt_containers,
-mrpt_core, mrpt_graphs, mrpt_graphslam, mrpt_hwdrivers, mrpt_img,
-mrpt_maps, mrpt_math, mrpt_nav, mrpt_obs, mrpt_poses,
-mrpt_serialization, mrpt_slam, mrpt_system and mrpt_viz. Real bugs
-fixed along the way (not just silenced casts):</p>
-
-    <p>* CPose3DQuat::operator[](i) const returned a temporary
-[double]{.title-ref} by value while its [const_iterator]{.title-ref}
-bound it to a [const double&amp;]{.title-ref}, making every dereference
-of a const iterator dangling (-Wreturn-local-addr).</p>
-
-    <p>* CDirectedTree::Visitor and every one of its subclasses had
-virtual functions but a non-virtual destructor.</p>
-
-    <p>* CSerializable's schema-archive overloads of
-serializeTo/serializeFrom were silently hidden in any class using
-DEFINE_SERIALIZABLE, so they were unreachable without explicit
-qualification; added the missing [using]{.title-ref} declarations.</p>
-
-    <p>* mrpt::Clock::time_point had no discoverable (ADL-reachable)
-operator&lt;&lt;, which made gtest's EXPECT_EQ/ASSERT_EQ fail to
-compile wherever it compared two timestamps on gcc-11/older
-libstdc++ (the actual Humble build error, not just a warning) --
-this was the one case where mrpt::system::operator&lt;&lt;(TTimeStamp)
-already existed but lived in a namespace ADL never finds from
-outside mrpt::system; it is now [mrpt::operator&lt;&lt;]{.title-ref},
-with [mrpt::system]{.title-ref} bringing it back in via a
-[using]{.title-ref} declaration for existing qualified callers.</p>
-
-    <p>* Several TKFMethod-shaped unscoped enums (TKFMethod,
-TLaserSimulUncertaintyMethod, TMatrixTextFileFormat,
-TICPCovarianceMethod) had no fixed underlying type, so a test
-casting an intentionally-invalid value into them triggered
-"conversion is unspecified" rather than the well-defined
-reinterpret a fixed underlying type gives. Everything else is either
-a widening/narrowing cast made explicit, an unused parameter renamed
-to a comment, [else]{.title-ref}-ambiguous one-liners given braces,
-or a documented false-positive (e.g. a wrapper around a
-cached-static-map accessor gcc's -Wdangling-reference still flags)
-resolved by dropping the unnecessary named reference instead of
-suppressing the warning. Verified with an incremental colcon build
-of all 16 touched packages under mrpt_common's warning set (-Wall
--Wextra -Wshadow -Wtype-limits -Wcast-align -Wparentheses -Wunused
--Wpedantic -Wconversion -Wsign-conversion -Wdouble-promotion
--Woverloaded-virtual -Wold-style-cast -Wnon-virtual-dtor): zero
-warnings left other than a gcc-13/-O3 -Wmaybe-uninitialized false
-positive on small fixed-size CMatrixDynamic construction that isn't
-present in either buildfarm log and isn't touched by this change.
-All existing unit tests (2000+ cases across the touched packages)
-still pass. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-
-    <p>* fix: replace the Clock::time_point operator&lt;&lt; with a gtest
-PrintTo hook The operator&lt;&lt;(Clock::time_point) added in the
-previous commit, found via ADL because mrpt::Clock is in namespace
-mrpt, broke unrelated [os &lt;&lt; x]{.title-ref} calls in any
-translation unit with several [using namespace
-mrpt::...;]{.title-ref} directives active at once (e.g.
-MonteCarloLocalization_App.cpp, which has ~15 of them): overload
-resolution for [os &lt;&lt; particles_count]{.title-ref} (a
-std::vector&lt;int&gt;) stopped finding mrpt::math's own
-operator&lt;&lt;(ostream&amp;, const std::vector&lt;T&gt;&amp;) entirely -- this
-broke all four CI compilers (gcc, clang, AppleClang, MSVC), all
-failing on the exact same line. It was also never the right fix for
-a second reason: mrpt::system already had an
-operator&lt;&lt;(TTimeStamp) doing the same thing (TTimeStamp being just
-an alias of Clock::time_point), so having both in scope at once was
-flat-out ambiguous the moment [using namespace
-mrpt::system;]{.title-ref} and ADL both applied -- which is exactly
-the CObservation.cpp failure this was meant to fix in the first
-place. gtest's own recommended mechanism for exactly this situation
---teaching it to print a type it doesn't otherwise know how to --
-is a [PrintTo(value, ostream*)]{.title-ref} overload, looked up via
-ADL <em>before</em> gtest falls back to operator&lt;&lt;. It doesn't add
-anything to the type's normal operator&lt;&lt; overload set, so it
-cannot participate in, or break, any unrelated overload resolution.
-mrpt::system::operator&lt;&lt;(TTimeStamp) is reverted to its original,
-unmodified form. Verified with a clean incremental build of all 21
-packages (the 16 from the previous commit plus
-mrpt_libapps_gui/_cli, mrpt_gui, mrpt_apps_gui/_cli, which pulled
-in MonteCarloLocalization_App.cpp): zero errors, zero warnings. The
-four originally-affected unit test binaries (mrpt_core, mrpt_system,
-mrpt_containers, mrpt_obs) still pass in full. Claude-Session:
-<a href="https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ">https://claude.ai/code/session_01PvVpfLXnmP5wfAzpEjd7vJ</a></p>
-  </li>
+  <li>fix: resolve ROS buildfarm warnings and the real code issues they
+exposed across the project.</li>
+  <li>feat: reconnect SIMD paths and close image coverage gaps with new
+legacy-format and camera tests.</li>
+  <li>fix: correct stereo rectification forward-axis bugs and preserve the
+expected image geometry.</li>
+  <li>fix: clean up deprecated or misleading image behavior and maintain
+compatibility with legacy serialization paths.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
 </ul>
 
-<p>File truncated at 100 lines <a href="https://github.com/MRPT/mrpt/tree/develop/modules/mrpt_img/CHANGELOG.rst">see the full file</a></p>
+<h2 id="314-2026-09-04">3.1.4 (2026-09-04)</h2>
+
+<ul>
+  <li>fix(mrpt_img): fix CImage grayscale deserialization of legacy
+rawlogs storing PixelDepth as 0
+(<a href="https://github.com/MRPT/mrpt/issues/1399">#1399</a>).</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="313-2026-08-12">3.1.3 (2026-08-12)</h2>
+
+<ul>
+  <li>fix(mrpt_img): add missing &lt;algorithm&gt; include for std::min/max
+initializer-list overloads.</li>
+  <li>mrpt_img: increase code coverage and fix bugs. Add tests across
+CImage, drawing primitives, and camera classes. Fix bugs in
+CMappedImage interpolation, RGB-to-HSV conversion, undistort_points,
+FFT cross-correlation, KLT bounds, and JPEG stream saving.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="312-2026-07-07">3.1.2 (2026-07-07)</h2>
+
+<h2 id="311-2026-07-04">3.1.1 (2026-07-04)</h2>
+
+<h2 id="310-2026-07-03">3.1.0 (2026-07-03)</h2>
+
+<ul>
+  <li>chore: remove undesired bin file</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="304-2026-06-17">3.0.4 (2026-06-17)</h2>
+
+<h2 id="303-2026-06-15">3.0.3 (2026-06-15)</h2>
+
+<h2 id="302-2026-06-11">3.0.2 (2026-06-11)</h2>
+
+<h2 id="301-2026-06-11">3.0.1 (2026-06-11)</h2>
+
+<ul>
+  <li>Merge pull request <a href="https://github.com/MRPT/mrpt/issues/1363">#1363</a>
+from MRPT/fix/dont-export-eigen3-dep refactor: limit visibility of
+eigen3 as build dep</li>
+  <li>refactor: limit visibility of eigen3 as build dep</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
+
+<h2 id="300-2026-06-06">3.0.0 (2026-06-06)</h2>
+
+<h2 id="2200-2026-06-06">2.20.0 (2026-06-06)</h2>
+
+<ul>
+  <li>Last release of the 2.x series. Starting from 3.0.0, changes are
+tracked in each module's own CHANGELOG.rst file.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 </div>
             
           </div>
@@ -17267,7 +16723,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-09-16</em>
+        <em class="hidden-xs">| generated on 2026-09-17</em>
       
       </div>
       <div style="float:right;">
