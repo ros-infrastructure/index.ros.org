@@ -412,7 +412,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -696,6 +696,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -713,6 +734,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -750,52 +790,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -1170,7 +1165,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -1454,6 +1449,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -1471,6 +1487,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -1508,52 +1543,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -1932,7 +1922,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -2216,6 +2206,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -2233,6 +2244,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -2270,52 +2300,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -2694,7 +2679,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -2978,6 +2963,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -2995,6 +3001,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -3032,52 +3057,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -3456,7 +3436,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -3740,6 +3720,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -3757,6 +3758,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -3794,52 +3814,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -4218,7 +4193,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -4502,6 +4477,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -4519,6 +4515,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -4556,52 +4571,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -4980,7 +4950,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -5264,6 +5234,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -5281,6 +5272,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -5318,52 +5328,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -5742,7 +5707,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -6026,6 +5991,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -6043,6 +6029,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -6080,52 +6085,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -6504,7 +6464,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -6788,6 +6748,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -6805,6 +6786,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -6842,52 +6842,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -7266,7 +7221,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -7550,6 +7505,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -7567,6 +7543,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -7604,52 +7599,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -8028,7 +7978,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -8312,6 +8262,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -8329,6 +8300,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -8366,52 +8356,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -8790,7 +8735,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -9074,6 +9019,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -9091,6 +9057,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -9128,52 +9113,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -9552,7 +9492,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -9836,6 +9776,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -9853,6 +9814,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -9890,52 +9870,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -10323,7 +10258,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -10607,6 +10542,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -10624,6 +10580,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -10661,52 +10636,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -11103,7 +11033,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -11387,6 +11317,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -11404,6 +11355,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -11441,52 +11411,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -11883,7 +11808,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -12167,6 +12092,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -12184,6 +12130,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -12221,52 +12186,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -12663,7 +12583,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -12947,6 +12867,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -12964,6 +12905,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -13001,52 +12961,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -13443,7 +13358,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -13727,6 +13642,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -13744,6 +13680,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -13781,52 +13736,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -14223,7 +14133,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -14507,6 +14417,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -14524,6 +14455,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -14561,52 +14511,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -15003,7 +14908,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-14
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-20
         </span>
       </td>
     </tr>
@@ -15287,6 +15192,27 @@ and ABI policy.</p>
 
 <ul>
   <li>
+    <p><code class="language-plaintext highlighter-rouge">stop()</code> called from inside a serial callback threw instead of stopping.</p>
+
+    <p>The callback runs on the transport’s own io thread, and <code class="language-plaintext highlighter-rouge">stop()</code> joined that
+thread unconditionally, so the call joined the thread with itself:
+<code class="language-plaintext highlighter-rouge">std::system_error</code>, “Resource deadlock avoided”. Without a catch at the call
+site the library’s callback dispatch swallowed and logged it, which hid the
+real damage - the throw unwound before <code class="language-plaintext highlighter-rouge">io_context::restart()</code> and before the
+wrapper released the channel, so the object was left half-stopped. A later
+<code class="language-plaintext highlighter-rouge">stop()</code> returned, but a restart’s future never completed.</p>
+
+    <p>A <code class="language-plaintext highlighter-rouge">stop()</code> from the io thread now requests the shutdown and returns without
+joining, and a later <code class="language-plaintext highlighter-rouge">stop()</code> from outside completes it, waiting even when a
+shutdown was already requested. After that call returns the object can be
+restarted and destroyed. Restarting from inside a callback, before the
+shutdown completes, remains unsupported.</p>
+
+    <p>Reproduced in <code class="language-plaintext highlighter-rouge">test/repro/serial_stop_in_callback_repro.cc</code>; covered by
+<code class="language-plaintext highlighter-rouge">SerialStopInCallbackTest</code>, which checks that the callback’s <code class="language-plaintext highlighter-rouge">stop()</code> does
+not throw and that a restarted channel receives data again.</p>
+  </li>
+  <li>
     <p>The CPack Debian package named the wrong Boost package.</p>
 
     <p>It required only <code class="language-plaintext highlighter-rouge">libboost-system-dev</code>. The package ships the headers as well
@@ -15304,6 +15230,25 @@ packaging was in view.</p>
 <h3 id="removed">Removed</h3>
 
 <ul>
+  <li>
+    <p><strong>Breaking:</strong> the Unilink compatibility layer, promised for the v0.9.x line
+only. This is why the next release is v0.10.0 rather than a v0.9 patch.</p>
+
+    <p>Gone: <code class="language-plaintext highlighter-rouge">namespace unilink</code>, the <code class="language-plaintext highlighter-rouge">&lt;unilink/...&gt;</code> forwarding headers,
+<code class="language-plaintext highlighter-rouge">find_package(unilink)</code> with its <code class="language-plaintext highlighter-rouge">unilink::unilink</code>, <code class="language-plaintext highlighter-rouge">unilink_shared</code> and
+<code class="language-plaintext highlighter-rouge">unilink_static</code> targets, <code class="language-plaintext highlighter-rouge">unilink.pc</code>, the <code class="language-plaintext highlighter-rouge">UNILINK_API</code> / <code class="language-plaintext highlighter-rouge">UNILINK_EXPORT</code> /
+<code class="language-plaintext highlighter-rouge">UNILINK_LOG_*</code> macros, <code class="language-plaintext highlighter-rouge">UnilinkException</code>, and the <code class="language-plaintext highlighter-rouge">UNILINK_*</code> CMake option
+and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL</code> fallbacks. The first group fails loudly at configure or
+compile time. The last two do not: an old <code class="language-plaintext highlighter-rouge">-DUNILINK_BUILD_TESTS=ON</code> draws
+only CMake’s unused-variable warning, and <code class="language-plaintext highlighter-rouge">UNILINK_LOG_LEVEL=debug</code> is
+ignored outright.</p>
+
+    <p>Migrate on v0.9.x first, where both names build; see
+<code class="language-plaintext highlighter-rouge">docs/migration-from-unilink.md</code>. For packagers, the install tree no longer
+contains <code class="language-plaintext highlighter-rouge">include/unilink/</code>, <code class="language-plaintext highlighter-rouge">lib/cmake/unilink/</code> or <code class="language-plaintext highlighter-rouge">unilink.pc</code>, so the
+vcpkg port’s <code class="language-plaintext highlighter-rouge">vcpkg_cmake_config_fixup(PACKAGE_NAME unilink)</code> must go with
+this release or the port build fails.</p>
+  </li>
   <li>
     <p><code class="language-plaintext highlighter-rouge">wirestead/memory/memory_validator.hpp</code>, in full.</p>
 
@@ -15341,52 +15286,7 @@ are not - <code class="language-plaintext highlighter-rouge">ThreadSafeState</co
     <p>Adopting rather than deleting was considered and rejected.
 <code class="language-plaintext highlighter-rouge">ThreadSafeState::notify_callbacks()</code> took a mutex on every state transition to
 iterate a callback list nothing ever registered into, so converting the
-transports to it would have added a lock per connection state change and bought
-nothing over the <code class="language-plaintext highlighter-rouge">AtomicLinkState</code> they already use. Removing the three also
-drops <code class="language-plaintext highlighter-rouge">&lt;shared_mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;condition_variable&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;functional&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;vector&gt;</code>,
-<code class="language-plaintext highlighter-rouge">&lt;mutex&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;algorithm&gt;</code> and <code class="language-plaintext highlighter-rouge">&lt;chrono&gt;</code> from a header six transports include.</p>
-
-    <p><code class="language-plaintext highlighter-rouge">wirestead-docs</code> documents all four types. Those sections describe v0.9.6
-correctly and must be corrected when this change ships: the <code class="language-plaintext highlighter-rouge">ThreadSafeState</code>,
-<code class="language-plaintext highlighter-rouge">ThreadSafeCounter</code> and <code class="language-plaintext highlighter-rouge">ThreadSafeFlag</code> sections of
-<code class="language-plaintext highlighter-rouge">docs/contributor/architecture/memory_safety.md</code> go, the <code class="language-plaintext highlighter-rouge">AtomicState</code> section
-stays, and the thread-safety row of its safety-feature table needs rewording.</p>
-  </li>
-  <li>
-    <p><code class="language-plaintext highlighter-rouge">ErrorStats::successful_retries</code> and <code class="language-plaintext highlighter-rouge">ErrorStats::failed_retries</code>.</p>
-
-    <p>Both were declared and cleared in <code class="language-plaintext highlighter-rouge">reset()</code>, and neither was ever incremented
-or read. <code class="language-plaintext highlighter-rouge">retryable_errors</code> beside them is incremented and stays. Because
-<code class="language-plaintext highlighter-rouge">ErrorHandler::error_stats()</code> is public, a caller reading these two always got
-0 - not an absent statistic but a silently wrong one.</p>
-
-    <p>Populating them is not a small wiring job: <code class="language-plaintext highlighter-rouge">ErrorHandler</code> only ever sees
-errors that were reported to it, and a retry that succeeds reports nothing, so
-the success count can never reach it without new plumbing from the reconnect
-path. <code class="language-plaintext highlighter-rouge">RuntimeStats</code>, where transport telemetry belongs, has no retry counters
-either. Retry telemetry is a feature to design there, not two fields pinned at
-zero here.</p>
-  </li>
-  <li>
-    <p>Public API that nothing called, anywhere in this project, its tests, its six
-satellite repositories or its documentation:</p>
-
-    <ul>
-      <li>
-<code class="language-plaintext highlighter-rouge">GlobalMemoryPool::create_optimized()</code> and <code class="language-plaintext highlighter-rouge">create_size_optimized()</code>. The
-per-channel pool path they were meant to serve is used - <code class="language-plaintext highlighter-rouge">serial.cc</code>
-constructs <code class="language-plaintext highlighter-rouge">MemoryPool pool_{0, 200}</code> directly - so the factories were a
-redundant second entrance with numbers nobody chose.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">PlatformInfo::get_feature_level()</code> and <code class="language-plaintext highlighter-rouge">get_platform_description()</code>. The
-other five members of that class stay.</li>
-      <li>
-<code class="language-plaintext highlighter-rouge">ConfigFactory::create_from_file()</code> and <code class="language-plaintext highlighter-rouge">get_singleton()</code>, with the
-singleton storage and mutex they were the only users of.</li>
-      <li>Thirteen <code class="language-plaintext highlighter-rouge">InputValidator::validate_*</code> overloads: the throwing wrappers for
-host, IPv4, IPv6, UDS path, device path, baud rate, data bits, stop bits,
-parity, buffer size, memory alignment, timeout and retry interval. No</li>
-    </ul>
+transports to it would have added a lock per connection state change and bought</p>
   </li>
 </ul>
 
@@ -15916,7 +15816,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-09-16</em>
+        <em class="hidden-xs">| generated on 2026-09-20</em>
       
       </div>
       <div style="float:right;">
