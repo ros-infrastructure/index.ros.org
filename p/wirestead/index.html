@@ -412,7 +412,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -692,9 +692,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -736,69 +798,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -1173,7 +1173,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -1453,9 +1453,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -1497,69 +1559,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -1938,7 +1938,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -2218,9 +2218,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -2262,69 +2324,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -2703,7 +2703,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -2983,9 +2983,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -3027,69 +3089,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -3468,7 +3468,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -3748,9 +3748,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -3792,69 +3854,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -4233,7 +4233,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -4513,9 +4513,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -4557,69 +4619,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -4998,7 +4998,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -5278,9 +5278,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -5322,69 +5384,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -5763,7 +5763,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -6043,9 +6043,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -6087,69 +6149,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -6528,7 +6528,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -6808,9 +6808,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -6852,69 +6914,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -7293,7 +7293,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -7573,9 +7573,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -7617,69 +7679,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -8058,7 +8058,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -8338,9 +8338,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -8382,69 +8444,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -8823,7 +8823,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -9103,9 +9103,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -9147,69 +9209,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -9588,7 +9588,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -9868,9 +9868,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -9912,69 +9974,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -10362,7 +10362,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -10642,9 +10642,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -10686,69 +10748,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -11145,7 +11145,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -11425,9 +11425,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -11469,69 +11531,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -11928,7 +11928,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -12208,9 +12208,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -12252,69 +12314,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -12711,7 +12711,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -12991,9 +12991,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -13035,69 +13097,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -13494,7 +13494,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -13774,9 +13774,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -13818,69 +13880,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -14277,7 +14277,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -14557,9 +14557,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -14601,69 +14663,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -15060,7 +15060,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-24
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-25
         </span>
       </td>
     </tr>
@@ -15340,9 +15340,71 @@ and ABI policy.</p>
 
 <h2 id="unreleased">Unreleased</h2>
 
+<h3 id="changed">Changed</h3>
+
+<ul>
+  <li>
+    <p>Extend logical-request send accounting to UDS clients and Serial, including
+partial gather completion, reset epochs, stop/loss and queue-pressure causes.
+Injected inline write completions are deferred to the strand. Serial write
+EOF now closes/reopens according to configuration instead of taking the
+transient read-EOF path and leaving queued writes stranded.</p>
+  </li>
+  <li>
+    <p><strong>Breaking ABI:</strong> RuntimeStats gains optional send_accounting. Rebuild C++
+consumers. The built-in TCP client reports logical accepted/written/outstanding
+requests and pre-write discard/active abort totals by stop, connection loss
+and queue pressure. Unsupported transports return no accounting capability.
+Existing counters retain their meanings. See docs/tcp_send_accounting.md.</p>
+  </li>
+  <li>
+    <p><strong>Breaking:</strong> ServerInterface and TCP/UDS/UDP server broadcast methods return
+FanoutResult, reporting selected targets, accepted/rejected counts and every
+rejection reason. Zero targets are explicit; fanout never waits for capacity.
+Rebuild consumers and use explicit bool conversion for legacy bool adapters.
+See docs/server_fanout_results.md.</p>
+  </li>
+  <li>
+<strong>Breaking:</strong> ChannelInterface and TCP/UDS/UDP/Serial client wrappers return
+SendResult from all ten send methods. Contextual bool checks still work;
+bool assignments/adapters must use accepted(). Rebuild all consumers.</li>
+  <li>
+<strong>Breaking:</strong> Injected client channels must be the corresponding native
+transport or implement ConnectionChannel. Unsupported/null channels throw
+invalid_argument before callback or lifecycle effects; bool-only refusal
+reasons are never guessed. Wrappers require start() even for connected
+injected channels. See docs/client_send_results.md.</li>
+</ul>
+
 <h3 id="added">Added</h3>
 
 <ul>
+  <li>
+    <p>Custom ConnectionChannel implementations can provide connection-pinned
+Reliable sends to all four client wrappers. Waits preserve the first
+stop/loss cause across reconnect, final admission cannot retarget a new
+connection, and only WouldBlock is retried. Legacy injected Channels and
+public bool client methods retain their existing compatibility boundary.</p>
+  </li>
+  <li>
+    <p>ResultChannel exposes six structured single-target write admission methods,
+implemented by TCP/UDS clients, UDP and serial. Final legacy bool adapters
+delegate exactly once. Custom bool-only channels and server fanout remain
+unchanged; client wrapper result migration remains pending. Native class ABI
+changes require rebuilding consumers.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server Reliable and explicit blocking sends retain one internal
+SendResult across validation, per-session capacity waiting and pinned final
+admission. Waits preserve the first stop/loss cause across later changes;
+only transient native WouldBlock is retried. Public methods remain bool.</p>
+  </li>
+  <li>
+    <p>TCP/UDS server sessions and targeted sends retain internal SendResult
+decisions. Nonblocking wrapper sends combine validation, lifecycle and
+native admission; explicit try keeps WouldBlock and BestEffort maps it to
+QueueFull. Public return types remain bool.</p>
+  </li>
   <li>
     <p>Serial native and wrapper sends retain internal SendResult decisions across
 validation, readiness, capacity waiting and pinned device admission. Waits
@@ -15384,69 +15446,7 @@ rejections are preserved at their original decision point; public APIs still
 return bool while D-3 wrapper result mapping continues.</p>
   </li>
   <li>
-    <p>Built-in TCP capacity waits retain their first stop/loss reason in an
-internal SendResult: CancelledWhileWaiting for stop, NotReady for connection
-loss. A selected capacity-release result also remains fixed. Public send
-methods still return bool while the D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>Shared wrapper payload-size validation now produces SendResult internally:
-InvalidArgument for empty input and TooLarge for message/queue size limits.
-Public sends still return bool; transport rejection and accounting remain
-unchanged while D-3 migration continues.</p>
-  </li>
-  <li>
-    <p>SendResult and SendRejection provide the D-3 acceptance-result value type:
-explicit accept/reject factories, accepted(), an explicit bool conversion,
-and a reason() accessor for rejected values. Existing send APIs still return
-bool; this is the result-type foundation, not the transport migration.</p>
-  </li>
-</ul>
-
-<h3 id="changed">Changed</h3>
-
-<ul>
-  <li>
-    <p><strong>Breaking:</strong> Serial writes require an opened and configured device. Device
-loss discards old queued/posted data instead of replaying it after reopen.
-Wrappers require start even with an injected connected native port, and early
-invalid wrapper sends bypass native accounting. Old I/O completions retain
-their buffers without changing replacement-device state.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> Native UDP writes require an opened socket, and default-target
-writes also require a configured/learned peer. Built-in wrappers require their
-own start and validate payloads before native counters/diagnostics or waiting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/udp_send_results.md">UDP send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking:</strong> UDS client loss now discards old queued/posted writes instead of
-replaying them after reconnect. Old completions retain their own buffers and
-cannot alter new connection state. Built-in UDS wrapper sends require wrapper
-start and reject invalid payloads before waiting or native accounting.
-See <a href="https://github.com/wirestead/wirestead/tree/main/./docs/uds_send_results.md">UDS send results</a>.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP Reliable and explicit blocking sends now reject invalid payloads before
-native handoff, matching nonblocking sends; these early rejections do not
-increment native failure/drop counters. Custom Channel delegation is unchanged.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> Built-in TCP wrapper nonblocking sends validate before native handoff, so
-invalid payloads do not increment native transport failure/drop counters.
-An independently connected injected TCP transport also requires wrapper
-start before these sends can accept data.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP reconnect no longer replays data accepted on the
-previous connection. Posted writes, queued/pending buffers and unfinished
-write batches are discarded and counted as dropped. Late completions retain
-their own buffers and cannot alter the replacement connection.</p>
-  </li>
-  <li>
-    <p><strong>Breaking behavior:</strong> TCP client writes now reject before a usable connection
-exists, including before start, while connecting/TLS handshaking and after
-connection loss. Readiness publication shares the write-admission mutex.</p>
+    <p>Built-in TCP capacity waits retain their first stop/loss reason in an</p>
   </li>
 </ul>
 
@@ -15976,7 +15976,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-09-24</em>
+        <em class="hidden-xs">| generated on 2026-09-25</em>
       
       </div>
       <div style="float:right;">
