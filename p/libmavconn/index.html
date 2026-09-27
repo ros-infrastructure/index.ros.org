@@ -385,7 +385,7 @@
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -432,7 +432,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -631,6 +631,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -699,52 +741,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -1204,7 +1200,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -1251,7 +1247,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -1450,6 +1446,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -1518,52 +1556,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -2023,7 +2015,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -2070,7 +2062,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -2269,6 +2261,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -2337,52 +2371,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -2842,7 +2830,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -2889,7 +2877,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -3088,6 +3076,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -3156,52 +3186,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -3661,7 +3645,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -3708,7 +3692,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -3907,6 +3891,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -3975,52 +4001,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -4484,7 +4464,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -4531,7 +4511,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -4730,6 +4710,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -4798,52 +4820,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -5307,7 +5283,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -5354,7 +5330,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -5553,6 +5529,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -5621,52 +5639,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -6130,7 +6102,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -6177,7 +6149,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -6376,6 +6348,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -6444,52 +6458,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -6953,7 +6921,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -7000,7 +6968,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -7199,6 +7167,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -7267,52 +7277,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -7776,7 +7740,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -7823,7 +7787,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -8022,6 +7986,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -8090,52 +8096,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -8595,7 +8555,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -8642,7 +8602,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -8841,6 +8801,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -8909,52 +8911,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -9414,7 +9370,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -9461,7 +9417,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -9660,6 +9616,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -9728,52 +9726,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -10233,7 +10185,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>2.15.1</td>
+                <td>2.16.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -10280,7 +10232,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-09-27
         </span>
       </td>
     </tr>
@@ -10479,6 +10431,48 @@ run it from your own thread pool.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-libmavconn">Changelog for package libmavconn</h1>
 
+<h2 id="2160-2026-09-27">2.16.0 (2026-09-27)</h2>
+
+<ul>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2290">#2290</a> from
+mavlink/fix-io-context libmavconn: fix IoContextRunner self-close
+lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>)</li>
+  <li>libmavconn: fix IoContextRunner self-close lifetime and restart (fix
+<a href="https://github.com/mavlink/mavros/issues/2275">#2275</a>) On a
+shutdown initiated from the owned I/O thread (self-close),
+join_owned() detaches the worker thread. The runner then called
+restart() while run() was still active on that thread (undefined
+behaviour) and, after the worker detached, could be destroyed while
+the thread still wrote is_running_. Move the io_context, work
+guard, and is_running flag into a heap-shared State that the worker
+thread also holds. The worker restarts the io_context only after
+run() returns, and the State (and thus the io_context) survives even
+if the owning connection is destroyed before the detached thread
+completes.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2289">#2289</a> from
+mavlink/check-cbg plugins: fix cmd/command service deadlocks and
+const shared_ptr deprecation warnings</li>
+  <li>libmavconn: consume nodiscard result in baudrate test The serial
+baudrate regression test calls open_url_no_connect() expecting it to
+throw DeviceError; the [[nodiscard]] return was left unconsumed,
+producing -Wunused-result warnings. Capture it in a
+[[maybe_unused]] variable.</li>
+  <li>Merge pull request
+<a href="https://github.com/mavlink/mavros/issues/2287">#2287</a> from
+christophebedard/christophebedard/fix-libmavconn-missing-ament-cmake-google-benchmark-dep</li>
+  <li>Add missing test_depend on ament_cmake_google_benchmark to
+libmavconn It's used in tests since
+<a href="https://github.com/mavlink/mavros/issues/2256">#2256</a>, but it
+wasn't declared as a (test) dependency, resulting in build failures
+on the ROS 2 buildfarm:
+<a href="https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console">https://build.ros2.org/view/Hbin_uJ64/job/Hbin_uJ64__libmavconn__ubuntu_jammy_amd64__binary/160/console</a>
+<code class="language-plaintext highlighter-rouge">` 23:58:37 CMake Error at CMakeLists.txt:117 (find_package): 23:58:37   By not providing "Findament_cmake_google_benchmark.cmake" in 23:58:37   CMAKE_MODULE_PATH this project has asked CMake to find a package 23:58:37   configuration file provided by "ament_cmake_google_benchmark", but CMake 23:58:37   did not find one. 23:58:37 23:58:37   Could not find a package configuration file provided by 23:58:37   "ament_cmake_google_benchmark" with any of the following names: 23:58:37 23:58:37     ament_cmake_google_benchmarkConfig.cmake 23:58:37     ament_cmake_google_benchmark-config.cmake</code>`</li>
+  <li>Contributors: Christophe Bedard, Vladimir Ermakov</li>
+</ul>
+
 <h2 id="2151-2026-08-22">2.15.1 (2026-08-22)</h2>
 
 <ul>
@@ -10547,52 +10541,6 @@ state. Use composed asio::async_write for TCP/serial so partial
 writes are handled internally, deleting the manual MsgBuffer::pos
 tracking and resend loop (and the fragile capture of a reference
 into the tx queue).</p>
-  </li>
-  <li>
-    <p>libmavconn: fix serial close deadlock, add serial pair benchmark
-MAVConnSerial::close() held mutex while joining the io thread, while
-the io thread (do_read error handler) blocked on that same mutex -&gt;
-deadlock. Release the mutex before shutdown_owned(), matching
-UDP/TCP. Add a serial throughput benchmark case over a socat
-PTY,link=... pair (stable device paths for both ends), now that the
-close hang is fixed. UDP/TCP/serial pair throughput all benchmark
-cleanly.</p>
-  </li>
-  <li>
-    <p>libmavconn: add tcp pair benchmark, make benchmark standalone Add a
-TCP client/server pair throughput case next to the UDP one, and
-rename the UDP case MavconnUdpBenchmark for naming consistency. The
-benchmark is kept as a standalone executable (not a CI test) because
-the MAVConn async close/shutdown race intermittently hangs the TCP
-case under the test harness; run it manually to check mavconn
-hot-path regressions. A serial (tty) case was attempted over a socat
-pty pair but dropped: it works in isolation yet reproduces the same
-intermittent close() hang, and the pty master has no clean device
-path for a second MAVConnSerial.</p>
-  </li>
-  <li>
-    <p>libmavconn: add end-to-end transport pair benchmark A
-sender/receiver MAVConn UDP pair over loopback measuring sustained
-message throughput through the full send (enqueue + async send) and
-receive (async recv + parse_buffer + callback) paths, to catch
-mavconn hot-path regressions.</p>
-  </li>
-  <li>
-    <p>libmavconn: revert pool allocator experiment (benchmark showed it
-slower) benchmark (deque&lt;MsgBuffer&gt; push/pop, ros2-lyrical,
-16-core): PushPopPlain ~71 ns/op PushPopPool ~175 ns/op (~2.5x
-slower) PushPopPlainInline ~73 ns/op PushPopPoolInline ~185 ns/op
-(still ~2.5x slower even when the queue fits entirely in the inline
-chunk) The overhead is intrinsic per-op (chunk_of, free_list_
-vector ops, in_use counters, shrink_if_idle on every release);
-glibc's tcache malloc/free is faster than the hand-rolled pool even
-for same-size blocks. Restore plain std::deque&lt;MsgBuffer&gt;.</p>
-  </li>
-  <li>
-    <p>libmavconn: experiment: pool the tx queue MsgBuffer nodes Back
-std::deque&lt;MsgBuffer&gt; with a chunked pool allocator: the first 32
-blocks come from one contiguous inline array (zero alloc), further
-blocks from heap chunks freed when the queue drains back to</p>
   </li>
 </ul>
 
@@ -16278,7 +16226,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-09-20</em>
+        <em class="hidden-xs">| generated on 2026-09-27</em>
       
       </div>
       <div style="float:right;">
