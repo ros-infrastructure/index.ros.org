@@ -730,7 +730,7 @@
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -927,6 +927,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -959,85 +1039,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -1992,7 +1994,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -2189,6 +2191,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -2221,85 +2303,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -3258,7 +3262,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -3455,6 +3459,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -3487,85 +3571,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -4524,7 +4530,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -4721,6 +4727,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -4753,85 +4839,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -5790,7 +5798,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -5987,6 +5995,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -6019,85 +6107,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -7056,7 +7066,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -7253,6 +7263,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -7285,85 +7375,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -8322,7 +8334,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -8519,6 +8531,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -8551,85 +8643,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -9588,7 +9602,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -9785,6 +9799,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -9817,85 +9911,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -10854,7 +10870,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -11051,6 +11067,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -11083,85 +11179,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -12120,7 +12138,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -12317,6 +12335,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -12349,85 +12447,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -13386,7 +13406,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -13583,6 +13603,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -13615,85 +13715,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -14652,7 +14674,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -14849,6 +14871,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -14881,85 +14983,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -15918,7 +15942,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -16115,6 +16139,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -16147,85 +16251,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -17193,7 +17219,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -17390,6 +17416,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -17422,85 +17528,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -18477,7 +18505,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -18674,6 +18702,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -18706,85 +18814,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -19761,7 +19791,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -19958,6 +19988,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -19990,85 +20100,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -21045,7 +21077,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -21242,6 +21274,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -21274,85 +21386,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -22329,7 +22363,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -22526,6 +22560,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -22558,85 +22672,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -23613,7 +23649,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -23810,6 +23846,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -23842,85 +23958,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -24897,7 +24935,7 @@ jQuery(function() {
             <table class="table table-condensed">
               <tr>
                 <td style="width:100px;" class="text-right"><strong>Version</strong></td>
-                <td>1.9.0</td>
+                <td>1.10.0</td>
               </tr>
               <tr>
                 <td class="text-right"><strong>License</strong></td>
@@ -25094,6 +25132,86 @@ The node using this library must use multi thread executor.</p>
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-autoware_map_height_fitter">Changelog for package autoware_map_height_fitter</h1>
 
+<h2 id="1100-2026-09-28">1.10.0 (2026-09-28)</h2>
+
+<ul>
+  <li>
+    <p>Merge remote-tracking branch 'origin/main' into
+tmp/bot/bump_version_base</p>
+  </li>
+  <li>
+    <p>feat(map_height_fitter, pose_initializer, adapi_adaptors): move the
+nodes to agnocast_wrapper::Node
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1445">#1445</a>)</p>
+
+    <ul>
+      <li>feat(map_height_fitter, pose_initializer, adapi_adaptors): move
+the nodes to agnocast_wrapper::Node</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+use AgnocastOnlyCallbackIsolatedExecutor and drop redundant
+comments</li>
+      <li>refactor(map_height_fitter, pose_initializer, adapi_adaptors):
+drop the comments that restate the code</li>
+      <li>docs(map_height_fitter, pose_initializer, adapi_adaptors): note
+what the agnocast_env include provides</li>
+    </ul>
+
+    <p>* docs(map_height_fitter, pose_initializer): explain the
+ENABLE_AGNOCAST test gate ---------</p>
+  </li>
+  <li>
+    <p>fix(map): declare the dependencies these packages use
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1370">#1370</a>)
+Each of these packages uses a package it never declares. Either it
+includes a header of that package, or it names a symbol of it while
+the header arrives through another dependency. Both build today only
+because some declared dependency re-exports the owner, so a change
+in an unrelated repository can break them without anything here
+changing. The tag follows where the dependency is used: a use in an
+installed header or in code compiled into the library takes
+&lt;depend&gt;, one reached only from test/ takes &lt;test_depend&gt;.
+System libraries are named by the rosdep key this workspace already
+prefers.</p>
+  </li>
+  <li>
+    <p>fix(autoware_map_height_fitter): fix inverted TF lookup direction in
+fit()
+(<a href="https://github.com/autowarefoundation/autoware_core/issues/1276">#1276</a>)</p>
+
+    <p>* fix(autoware_map_height_fitter): fix inverted TF lookup direction
+in fit() tf2_buffer_.lookupTransform(target, source) combined with
+tf2::doTransform converts data from the source frame into the target
+frame. The fit() function passed the arguments in the opposite order
+for both conversions, so the input position was transformed with the
+inverse transform. This is harmless when the requested frame equals
+the map frame (identity), which is the common case, but when fit()
+is called with a pose in any other frame (e.g. rviz configured with
+a non-map fixed frame), the ground height is looked up at a wrong
+location and the returned height is offset by the frame translation.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* test(autoware_map_height_fitter): add regression test for fit()
+frame conversion Add a ROS-isolated gtest that exercises
+MapHeightFitter::fit() through TF: a static transform map -&gt;
+test_frame with a non-zero translation, and a point cloud map with
+different ground heights at the query position and at the position
+mirrored by twice the frame translation. With the previous inverted
+lookupTransform argument order, the fit sampled the ground at the
+mirrored location and offset the returned z by the frame translation
+in the wrong direction, which this test detects. The map-frame case
+(identity transform) is also covered and is unaffected by the bug.
+Co-Authored-By: Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt;</p>
+
+    <p>* style(pre-commit): autofix ---------Co-authored-by:
+Claude Fable 5 &lt;&lt;noreply@anthropic.com&gt;&gt; Co-authored-by:
+pre-commit-ci[bot]
+&lt;66853113+pre-commit-ci[bot]@users.noreply.github.com&gt;</p>
+  </li>
+  <li>
+    <p>Contributors: DWatabe, Koichi Imai, Mete Fatih Cırıt, github-actions</p>
+  </li>
+</ul>
+
 <h2 id="190-2026-06-24">1.9.0 (2026-06-24)</h2>
 
 <ul>
@@ -25126,85 +25244,7 @@ get_partial_point_cloud_map) and reused: nearestKSearch finds the
 closest point and radiusSearch restricts the lowest-z scan to a
 local candidate set, dropping per-call cost from O(N) to ~O(log N +
 k). Behavior is preserved: the KdTree indexes the horizontal (z = 0)
-projection so the 2D distance metric is unchanged, and the
-membership test is recomputed in double precision with the original
-strict '&lt; (sqrt(min_dist2) + 1.0)\^2' comparison over the
-candidate set, so the selected point set (and thus the returned
-height) is identical to the original two-pass scan. The vector-map
-nearest-point lookup and all non-finite / empty / missing-map
-fallbacks are unchanged. Also fold in two cheap, behavior-preserving
-micro-optimizations flagged in the audit: radius2 is computed as
-r*r instead of std::pow(..., 2.0), and the partial-map merge loop
-reserves the total data size before concatenating grids. Add a gtest
-suite (test/test_map_height_fitter_kernel.cpp) covering the
-empty-cloud and single-point fallbacks, lowest-z-within-radius
-selection, the horizontal-only distance metric, the
-prebuilt-vs-convenience overload equivalence, the vector-map nearest
-height and its non-finite/empty fallbacks, and a 300-trial
-randomized characterization test asserting the new kernel matches
-the original two-pass scan exactly. The package previously had zero
-tests. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* perf(autoware_map_height_fitter): preserve double-precision
-nearest search The KdTree path searched entirely in float: both the
-query and the indexed coordinates were rounded to float, and
-min_dist2 was taken from the single index returned by
-nearestKSearch. At large map coordinates (MGRS/UTM-derived) or for
-near-tied points the float nearest can differ from the true
-double-precision nearest, changing the radius and the selected
-height, so the documented bit-for-bit behavior preservation did not
-hold (demonstrably ~1 in 2000 at coordinates up to 2e6). Recompute
-min_dist2 in double precision over a margin-enlarged candidate set
-that is a guaranteed superset of the double-nearest point, and size
-both the nearest and the height radiusSearch margins from the
-coordinate magnitude (2 * coord_max * 2\^-23 + 1e-3) instead of a
-fixed 1e-3, so every point the strict double-precision test accepts
-is in the candidate set regardless of coordinate scale. The
-double-precision filter then reproduces the original membership
-exactly. Add a large-coordinate / near-tie characterization test
-(5000 trials, centers up to 2e6) that asserts bit-equality against
-the original two-pass scan; it fails on the previous float-only
-logic and passes now. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <p>* test(autoware_map_height_fitter): pin non-finite kernel inputs
-and guard NaN query
-(<a href="https://github.com/autowarefoundation/autoware_core/issues/67">#67</a>)
-Add edge-case kernel tests for non-finite cloud coords, query, and z
-against the in-test double-precision oracle; guard a non-finite
-query so the KdTree path returns fallback_z instead of tripping a
-FLANN assert, preserving the pre-PR scan behavior. Refs:
-<a href="https://github.com/autowarefoundation/autoware_core/issues/1096">autowarefoundation/autoware_core#1096</a></p>
-
-    <ul>
-      <li>ci(autoware_map_height_fitter): add cspell:ignore for distance
-var names</li>
-    </ul>
-
-    <p>* refactor(autoware_map_height_fitter): move internal kernel header
-to src/ Address review: map_height_fitter_kernel.hpp is only used
-within this package (nothing outside includes it), so move it out of
-the public include/ tree into src/ as a non-installed internal
-header. Switch its include guard to the bare-filename form required
-for src/ headers, point the three includers at the relative path,
-and let the gtest reach it via target_include_directories(PRIVATE
-src). ---------</p>
-  </li>
-  <li>
-    <p>Contributors: Yutaka Kondo, github-actions</p>
-  </li>
-</ul>
-
-<h2 id="180-2026-05-01">1.8.0 (2026-05-01)</h2>
-
-<ul>
-  <li>
-    <p>Merge remote-tracking branch 'origin/main' into
-tmp/bot/bump_version_base</p>
-  </li>
-  <li>
-    <p>refactor(autoware_core): add USE_SCOPED_HEADER_INSTALL_DIR to map</p>
+projection so the 2D distance metric is unchanged, and the</p>
   </li>
 </ul>
 
@@ -25996,7 +26036,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-09-28</em>
+        <em class="hidden-xs">| generated on 2026-09-29</em>
       
       </div>
       <div style="float:right;">
