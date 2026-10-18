@@ -318,7 +318,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -424,11 +424,46 @@
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -480,41 +515,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -774,7 +775,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -880,11 +881,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -936,41 +972,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -1234,7 +1236,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -1340,11 +1342,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -1396,41 +1433,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -1694,7 +1697,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -1800,11 +1803,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -1856,41 +1894,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -2154,7 +2158,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -2260,11 +2264,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -2316,41 +2355,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -2614,7 +2619,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -2720,11 +2725,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -2776,41 +2816,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -3074,7 +3080,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -3180,11 +3186,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -3236,41 +3277,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -3534,7 +3541,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -3640,11 +3647,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -3696,41 +3738,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -3994,7 +4002,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -4100,11 +4108,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -4156,41 +4199,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -4454,7 +4463,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -4560,11 +4569,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -4616,41 +4660,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -4914,7 +4924,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -5020,11 +5030,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -5076,41 +5121,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -5374,7 +5385,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -5480,11 +5491,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -5536,41 +5582,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -5834,7 +5846,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -5940,11 +5952,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -5996,41 +6043,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -6294,7 +6307,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -6400,11 +6413,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -6456,41 +6504,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -6754,7 +6768,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -6860,11 +6874,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -6916,41 +6965,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -7214,7 +7229,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -7320,11 +7335,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -7376,41 +7426,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -7674,7 +7690,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -7780,11 +7796,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -7836,41 +7887,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -8134,7 +8151,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -8240,11 +8257,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -8296,41 +8348,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -8594,7 +8612,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -8700,11 +8718,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -8756,41 +8809,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -9054,7 +9073,7 @@ Response time: typically within 24 hours.
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-17
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
         </span>
       </td>
     </tr>
@@ -9160,11 +9179,46 @@ Response time: typically within 24 hours.
 <a href="https://manankharwar.github.io/fusioncore/"><img src="https://img.shields.io/badge/docs-manankharwar.github.io%2Ffusioncore-blue" alt="Docs"></a>
 <a href="https://manankharwar.substack.com"><img src="https://img.shields.io/badge/newsletter-subscribe-orange" alt="Newsletter"></a></p>
 
-<p><strong>A 23-state UKF for outdoor robots: IMU, wheel encoders, GPS and visual SLAM at 100 Hz. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
+<p><strong>Sensor fusion for outdoor wheeled ground robots that lose GPS. IMU, wheel encoders, GPS and visual SLAM at 100 Hz in a 23-state UKF. Two numbers from your IMU datasheet instead of days of tuning, and when the estimate goes wrong it names the sensor and the reason instead of drifting silently. Apache 2.0, ROS 2 Jazzy and Humble, and the filter itself is a plain C++ library with no ROS dependency.</strong></p>
 
 <p><img width="1080" height="608" alt="586785007-e1e07cfb-74e0-48b9-9bfd-32b68ee5a6ef" src="https://github.com/user-attachments/assets/d59b74ec-af94-4cb1-ab19-e5310a5d138b"></p>
 
 <hr>
+
+<hr>
+
+<h2 id="what-this-is-for">What this is for</h2>
+
+<p>A <strong>wheeled robot, outdoors, with wheel odometry, that loses GPS.</strong> Differential drive,
+skid steer, tracked or Ackermann. That is the platform every number on this page was
+measured on: NCLT is a wheeled Segway and the hardware runs are a four-wheeled rover.</p>
+
+<p>You tell the filter which platform it is, in one line, and that decides which states it
+bothers to estimate:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">fusioncore</span><span class="pi">:</span>
+  <span class="na">ros__parameters</span><span class="pi">:</span>
+    <span class="na">platform.profile</span><span class="pi">:</span> <span class="s">ground_robot_flat</span>   <span class="c1"># general | ground_robot | ground_robot_flat</span>
+
+</code></pre></div></div>
+
+<p>A 23-state filter can estimate more than a wheeled robot can observe. The gyro measures
+<code class="language-plaintext highlighter-rouge">WZ + B_GZ</code> and the accelerometer measures <code class="language-plaintext highlighter-rouge">AX + B_AX + gravity</code>, so those pairs are not
+separately observable, and estimating them anyway costs accuracy: measured
+<code class="language-plaintext highlighter-rouge">r(WZ, B_GZ) = -0.998</code>. On a robot with encoders you do not need to, because the encoder
+measures yaw rate with no bias term and carries the constraint instead. Declaring the
+platform is what lets the filter stop guessing. See
+<a href="https://manankharwar.github.io/fusioncore/configuration/#declaring-the-platform">Declaring the platform</a>.</p>
+
+<p><strong>Not built for drones, boats, legged robots or mecanum platforms.</strong> The library will run
+on them: the core is full 3D, there is no planar assumption, and <code class="language-plaintext highlighter-rouge">platform.profile:
+general</code> exists precisely so nothing is frozen that those platforms need. But nothing
+here is tuned or benchmarked for them, the profiles do not apply, and the non-holonomic
+constraint is wrong for anything that can move sideways on purpose.</p>
+
+<p><strong>For those platforms, and for fusing an arbitrary set of sensors, use
+<a href="https://github.com/cra-ros-pkg/robot_localization">robot_localization</a>.</strong> It is mature,
+it is general by design, and it is the right answer where this one has no evidence.</p>
 
 <h2 id="start-without-installing-anything">Start without installing anything</h2>
 
@@ -9216,41 +9270,7 @@ inventing one.</p>
 same source on ARM and x86. Build unoptimised and it is drastically slower, so do not
 skip <code class="language-plaintext highlighter-rouge">CMAKE_BUILD_TYPE</code>.</p>
 
-<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve
-rows have been re-measured at n=2 on corrected input, and the headline claim that stood
-here, that FusionCore beat robot_localization on ten of twelve, did not survive it:
-<strong>FusionCore wins two of the five and loses three</strong>, and one row reversed outright from
-a published 81% win to a measured 20% loss. The cause was a frame error in the dataset
-player (#169) that fed a wrong wheel-odometry yaw rate to <strong>both</strong> filters, so the old
-numbers describe an input that no longer exists in either column. The other seven rows
-have not been re-run and nothing should be concluded from them. If a benchmark table in
-a README has never been wrong, nobody has checked it.</p>
-
-<p><strong>What is defensible today.</strong> FusionCore rejects GPS fixes that are kinematically
-impossible, and that one is provable from physics without any reference: a 60 m jump in
-one second cannot happen to a 1.5 m/s robot. On NCLT, post-fix, it is <strong>5.0x and 4.7x
-better</strong> than robot_localization on the two sequences where it wins, and 1.2x, 1.8x and
-15x worse on the three where it loses. The spread is the open problem and it is being
-worked; the average is not the interesting number and neither is a win count.</p>
-
-<hr>
-
-<h2 id="quick-start">Quick start</h2>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">sudo </span>apt <span class="nb">install </span>ros-jazzy-fusioncore     <span class="c"># or ros-humble-fusioncore</span>
-
-</code></pre></div></div>
-
-<p>Or from source:</p>
-
-<div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nb">mkdir</span> <span class="nt">-p</span> ~/ros2_ws/src <span class="o">&amp;&amp;</span> <span class="nb">cd</span> ~/ros2_ws/src
-git clone https://github.com/manankharwar/fusioncore.git
-<span class="nb">cd</span> ~/ros2_ws
-rosdep <span class="nb">install</span> <span class="nt">--from-paths</span> src <span class="nt">--ignore-src</span> <span class="nt">-r</span> <span class="nt">-y</span>
-colcon build <span class="nt">--packages-up-to</span> fusioncore_ros
-<span class="nb">source install</span>/setup.bash
-
-</code></pre></div></div>
+<p><strong>No, you should not trust the benchmark table below right now.</strong> Five of its twelve</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/manankharwar/fusioncore/tree/main/README.md">see the full file</a></p>
 </div>
@@ -9473,7 +9493,7 @@ Response time: typically within 24 hours.
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-10-17</em>
+        <em class="hidden-xs">| generated on 2026-10-18</em>
       
       </div>
       <div style="float:right;">
