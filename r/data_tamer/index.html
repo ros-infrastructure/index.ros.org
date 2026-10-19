@@ -273,7 +273,7 @@
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -310,7 +310,7 @@
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -368,7 +368,7 @@
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -401,7 +401,9 @@
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -436,7 +438,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -451,50 +456,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -561,7 +561,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -598,7 +598,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -656,7 +656,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -689,7 +689,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -724,7 +726,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -739,50 +744,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -849,7 +849,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -886,7 +886,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -944,7 +944,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -977,7 +977,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -1012,7 +1014,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -1027,50 +1032,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -1137,7 +1137,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -1174,7 +1174,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -1232,7 +1232,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -1265,7 +1265,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -1300,7 +1302,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -1315,50 +1320,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -1425,7 +1425,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -1462,7 +1462,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -1520,7 +1520,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -1553,7 +1553,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -1588,7 +1590,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -1603,50 +1608,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -1717,7 +1717,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -1754,7 +1754,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -1812,7 +1812,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -1845,7 +1845,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -1880,7 +1882,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -1895,50 +1900,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -2009,7 +2009,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -2046,7 +2046,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -2104,7 +2104,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -2137,7 +2137,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -2172,7 +2174,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -2187,50 +2192,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -2301,7 +2301,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -2338,7 +2338,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -2396,7 +2396,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -2429,7 +2429,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -2464,7 +2466,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -2479,50 +2484,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -2593,7 +2593,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -2630,7 +2630,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -2688,7 +2688,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -2721,7 +2721,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -2756,7 +2758,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -2771,50 +2776,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -2885,7 +2885,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -2922,7 +2922,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -2980,7 +2980,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -3013,7 +3013,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -3048,7 +3050,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -3063,50 +3068,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -3177,7 +3177,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -3214,7 +3214,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -3272,7 +3272,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -3305,7 +3305,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -3340,7 +3342,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -3355,50 +3360,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -3469,7 +3469,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -3506,7 +3506,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -3564,7 +3564,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -3597,7 +3597,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -3632,7 +3634,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -3647,50 +3652,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -3761,7 +3761,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -3798,7 +3798,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -3856,7 +3856,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -3889,7 +3889,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -3924,7 +3926,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -3939,50 +3944,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -4053,7 +4053,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -4090,7 +4090,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -4148,7 +4148,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -4181,7 +4181,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -4216,7 +4218,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -4231,50 +4236,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -4345,7 +4345,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -4382,7 +4382,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -4440,7 +4440,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -4473,7 +4473,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -4508,7 +4510,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -4523,50 +4528,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -4637,7 +4637,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -4674,7 +4674,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -4732,7 +4732,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -4765,7 +4765,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -4800,7 +4802,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -4815,50 +4820,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -4929,7 +4929,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -4966,7 +4966,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -5024,7 +5024,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -5057,7 +5057,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -5092,7 +5094,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -5107,50 +5112,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -5221,7 +5221,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -5258,7 +5258,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -5316,7 +5316,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -5349,7 +5349,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -5384,7 +5386,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -5399,50 +5404,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -5513,7 +5513,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -5550,7 +5550,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -5608,7 +5608,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -5641,7 +5641,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -5676,7 +5678,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -5691,50 +5696,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -5805,7 +5805,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td>
         <h3><a style="text-decoration:none;" href="/r/data_tamer/">data_tamer</a> <small>repository</small></h3>
         
-        <a class="label label-primary pkg-label" href="/p/data_tamer_cpp/">data_tamer_cpp</a>
+        <a class="label label-primary pkg-label" href="/p/data_tamer_v2/">data_tamer_v2</a>
         
         <a class="label label-primary pkg-label" href="/p/data_tamer_msgs/">data_tamer_msgs</a>
         
@@ -5842,7 +5842,7 @@ You can also register a custom type, as shown in the example below.</p>
       <td style="white-space: nowrap;" class="text-right"><b>Last Updated</b></div>
       <td>
         
-          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-18
+          <span class="label label-default"><span class="glyphicon glyphicon-time"></span> 2026-10-19
         </span>
       </td>
     </tr>
@@ -5900,7 +5900,7 @@ You can also register a custom type, as shown in the example below.</p>
                 <tbody>
                 
                   <tr>
-                    <td><a href="/p/data_tamer_cpp/">data_tamer_cpp</a></td>
+                    <td><a href="/p/data_tamer_v2/">data_tamer_v2</a></td>
                     <td>2.0.0</td>
                   </tr>
                 
@@ -5933,7 +5933,9 @@ You can also register a custom type, as shown in the example below.</p>
 takes periodic “snapshots” of their values, to later visualize them as <strong>timeseries</strong>.</p>
 
 <p>It works great with <a href="https://github.com/facontidavide/PlotJuggler">PlotJuggler</a>,
-the timeseries visualization tool (note: you will need PlotJuggler <strong>3.8.2</strong> or later).</p>
+the timeseries visualization tool (note: you will need PlotJuggler <strong>4</strong> or later).
+For ROS 2 topics and rosbag2 recordings, use <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/data_tamer_foxglove/extension/README.md">Foxglove with the data_tamer
+extension</a> (desktop or web).</p>
 
 <p><strong>DataTamer</strong> is “fearless data logger” because you can record hundreds or <strong>thousands of variables</strong>:
 even 1 million points per second should have a fairly small CPU overhead.</p>
@@ -5968,7 +5970,10 @@ visualize your logs offline or in real-time.</p>
 <strong>Serialization schema is created at run-time</strong>: no need to do code generation.</li>
   <li>
 <strong>Suitable for real-time applications</strong>: very low latency (on the side of the callee);
-<code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither blocks nor allocates.</li>
+once logging started (<code class="language-plaintext highlighter-rouge">startLogging()</code> before the loop), <code class="language-plaintext highlighter-rouge">tryTakeSnapshot()</code> neither
+blocks nor allocates. With Clang 20 or later, the real-time API is
+<code class="language-plaintext highlighter-rouge">[[clang::nonblocking]]</code>, so <code class="language-plaintext highlighter-rouge">-Wfunction-effects</code> and RealtimeSanitizer check your
+control loop.</li>
   <li>
 <strong>Multi-sink architecture</strong>: recorded data can be forwarded to multiple “backends”.</li>
   <li>
@@ -5983,50 +5988,45 @@ only when you ask, for instance after a fault.</li>
 
 <h2 id="basic-example">Basic example</h2>
 
-<div class="language-cpp highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="cp">#include</span> <span class="cpf">"data_tamer_v2/data_tamer.hpp"</span><span class="cp">
-#include</span> <span class="cpf">"data_tamer_v2/sinks/mcap_sink.hpp"</span><span class="cp">
-</span>
-<span class="kt">int</span> <span class="nf">main</span><span class="p">()</span>
-<span class="p">{</span>
-  <span class="c1">// You can register any arithmetic value. You are responsible for their lifetime:</span>
-  <span class="c1">// declare them before the channel, so that they outlive it.</span>
-  <span class="kt">double</span> <span class="n">value_real</span> <span class="o">=</span> <span class="mf">3.14</span><span class="p">;</span>
-  <span class="kt">int</span> <span class="n">value_int</span> <span class="o">=</span> <span class="mi">42</span><span class="p">;</span>
+<p>```cpp
+#include “data_tamer_v2/channel.hpp”
+#include “data_tamer_v2/sinks/mcap_sink.hpp”</p>
 
-  <span class="c1">// Multiple channels can use this sink. Data will be saved in mylog.mcap</span>
-  <span class="k">auto</span> <span class="n">mcap_sink</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">MCAPSink</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"mylog.mcap"</span><span class="p">);</span>
+<p>#include <chrono>
+#include <cmath>
+#include <thread></thread></cmath></chrono></p>
 
-  <span class="c1">// Create a channel and attach a sink. A channel can have multiple sinks</span>
-  <span class="k">auto</span> <span class="n">channel</span> <span class="o">=</span> <span class="n">DataTamer</span><span class="o">::</span><span class="n">LogChannel</span><span class="o">::</span><span class="n">create</span><span class="p">(</span><span class="s">"my_channel"</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">addDataSink</span><span class="p">(</span><span class="n">mcap_sink</span><span class="p">);</span>
+<p>int main()
+{
+  // The channel borrows these variables: declare them first so they outlive it.
+  double shoulder_position = 0, shoulder_velocity = 0, shoulder_effort = 0;
+  double elbow_position = 0, elbow_velocity = 0, elbow_effort = 0;</p>
 
-  <span class="k">auto</span> <span class="n">id1</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_real"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_real</span><span class="p">);</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">registerValue</span><span class="p">(</span><span class="s">"value_int"</span><span class="p">,</span> <span class="o">&amp;</span><span class="n">value_int</span><span class="p">);</span>
+<p>// A worker that owns the sink writing the file (mcap-&gt;sink() is the MCAPSink). The
+  // channel takes snapshots and hands them to its sinks.
+  auto mcap = DataTamer2::MCAPSink::create(“T01_joint_states.mcap”);
+  auto channel = DataTamer2::LogChannel::create(“controller”);
+  channel-&gt;addDataSink(mcap);</p>
 
-  <span class="c1">// If you prefer to use RAII, use this method instead</span>
-  <span class="c1">// logged_real will unregister itself when it goes out of scope.</span>
-  <span class="k">auto</span> <span class="n">logged_real</span> <span class="o">=</span> <span class="n">channel</span><span class="o">-&gt;</span><span class="n">createLoggedValue</span><span class="o">&lt;</span><span class="kt">float</span><span class="o">&gt;</span><span class="p">(</span><span class="s">"my_real"</span><span class="p">);</span>
+<p>channel-&gt;registerValue(“shoulder/position”, &amp;shoulder_position);
+  channel-&gt;registerValue(“shoulder/velocity”, &amp;shoulder_velocity);
+  channel-&gt;registerValue(“shoulder/effort”, &amp;shoulder_effort);
+  channel-&gt;registerValue(“elbow/position”, &amp;elbow_position);
+  channel-&gt;registerValue(“elbow/velocity”, &amp;elbow_velocity);
+  channel-&gt;registerValue(“elbow/effort”, &amp;elbow_effort);</p>
 
-  <span class="c1">// Store the current value of all the registered values. It returns</span>
-  <span class="c1">// SnapshotResult::ok when every sink accepted it; stats() counts the rest.</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-
-  <span class="c1">// You can disable (i.e., stop recording) a value like this</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="n">id1</span><span class="p">,</span> <span class="nb">false</span><span class="p">);</span>
-  <span class="c1">// or, in the case of a LoggedValue</span>
-  <span class="n">logged_real</span><span class="o">-&gt;</span><span class="n">setEnabled</span><span class="p">(</span><span class="nb">false</span><span class="p">);</span>
-
-  <span class="c1">// The next snapshot will contain only value_int,</span>
-  <span class="c1">// since the other two were disabled</span>
-  <span class="n">channel</span><span class="o">-&gt;</span><span class="n">takeSnapshot</span><span class="p">();</span>
-<span class="p">}</span>
-
-</code></pre></div></div>
-
-<h2 id="how-to-register-custom-types">How to register custom types</h2>
-
-<p>Containers such as <code class="language-plaintext highlighter-rouge">std::vector</code> and <code class="language-plaintext highlighter-rouge">std::array</code> are supported out of the box.
-You can also register a custom type, as shown in the example below.</p>
+<p>for(int cycle = 0; cycle &lt; 1500; ++cycle)
+  {
+    const double t = cycle * 0.001;
+    shoulder_position = std::sin(4 * t);
+    shoulder_velocity = 4 * std::cos(4 * t);
+    shoulder_effort = 0.2 * std::sin(4 * t);
+    elbow_position = std::sin(4 * t + 0.5);
+    elbow_velocity = 4 * std::cos(4 * t + 0.5);
+    elbow_effort = 0.2 * std::sin(4 * t + 0.5);
+    channel-&gt;takeSnapshot();  // One sample of every registered value.
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/PickNikRobotics/data_tamer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -6101,7 +6101,7 @@ You can also register a custom type, as shown in the example below.</p>
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="hidden-xs">| generated on 2026-10-18</em>
+        <em class="hidden-xs">| generated on 2026-10-19</em>
       
       </div>
       <div style="float:right;">
