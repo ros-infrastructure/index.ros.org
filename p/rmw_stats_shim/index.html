@@ -394,7 +394,7 @@
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -441,7 +441,7 @@
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -603,50 +603,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -1006,7 +1071,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -1053,7 +1118,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -1215,50 +1280,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -1618,7 +1748,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -1665,7 +1795,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -1827,50 +1957,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -2230,7 +2425,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -2277,7 +2472,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -2439,50 +2634,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -2842,7 +3102,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -2889,7 +3149,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -3051,50 +3311,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -3458,7 +3783,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -3505,7 +3830,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -3667,50 +3992,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -4074,7 +4464,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -4121,7 +4511,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -4283,50 +4673,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -4690,7 +5145,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -4737,7 +5192,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -4899,50 +5354,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -5306,7 +5826,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -5353,7 +5873,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -5515,50 +6035,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -5922,7 +6507,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -5969,7 +6554,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -6131,50 +6716,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -6538,7 +7188,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -6585,7 +7235,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -6747,50 +7397,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -7154,7 +7869,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -7201,7 +7916,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -7363,50 +8078,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -7770,7 +8550,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -7817,7 +8597,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -7979,50 +8759,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -8395,7 +9240,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -8442,7 +9287,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -8604,50 +9449,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -9029,7 +9939,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -9076,7 +9986,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -9238,50 +10148,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -9663,7 +10638,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -9710,7 +10685,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -9872,50 +10847,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -10297,7 +11337,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -10344,7 +11384,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -10506,50 +11546,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -10931,7 +12036,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -10978,7 +12083,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -11140,50 +12245,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -11565,7 +12735,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -11612,7 +12782,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -11774,50 +12944,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -12199,7 +13434,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>0.3.0</td>
+                <td>0.3.2</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -12246,7 +13481,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-29
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-02
         </span>
       </td>
     </tr>
@@ -12408,50 +13643,115 @@ export RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-rmw_stats_shim">Changelog for package rmw_stats_shim</h1>
 
-<h2 id="030-2026-10-07">0.3.0 (2026-10-07)</h2>
+<h2 id="032-2026-11-02">0.3.2 (2026-11-02)</h2>
 
 <ul>
-  <li>fix: lyrical+rolling tests
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/57">#57</a>)</li>
-  <li>lint: Move from ament linters to polymath_code_standard
-autoformatters
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/53">#53</a>)</li>
-  <li>Link rmw_stats_shim against Threads
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/52">#52</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>)</li>
-  <li>Use ros_environment to detect distro instead of ament_cmake version
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/39">#39</a>)</li>
-  <li>Add documentation skeleton for all released packages
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/44">#44</a>)</li>
-  <li>Add new methods added to graph interface in Rolling
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/48">#48</a>)</li>
-  <li>Fix race condition in StatCollector destructor
-(<a href="https://github.com/ros-tooling/graph-monitor/pull/50">#50</a>)</li>
-  <li>Contributors: Emerson Knapp, shrujan, Skyler Medeiros, Tobias
-Fischer</li>
+  <li>
+    <p>fix(rmw_stats_shim): populate TopicStatistic min and max
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/79">#79</a>)
+Fixes <a href="https://github.com/ros-tooling/graph-monitor/issues/78">#78</a>.
+[EndpointStatistics::periodMsg()]{.title-ref} and
+[ageMsg()]{.title-ref} set only [mean]{.title-ref}, so
+[min]{.title-ref} and [max]{.title-ref} in every
+[TopicStatistic]{.title-ref} stayed zero.
+[RollingMeanAccumulator]{.title-ref} had nothing to fill them from,
+since it only kept a running sum. This adds
+[getRollingMin()]{.title-ref} and [getRollingMax()]{.title-ref} to
+[RollingMeanAccumulator]{.title-ref}. They scan the values still in
+the window, so they cover the same
+[ROS_TOPIC_STATISTICS_WINDOW_SIZE]{.title-ref} samples as the mean,
+and values that leave the window drop out of both.
+[periodMsg()]{.title-ref} and [ageMsg()]{.title-ref} now fill
+[min]{.title-ref} and [max]{.title-ref} from them. The scan is
+linear in the window size and runs once per published statistic, not
+per message. Tests:</p>
+
+    <p>- [test_rolling_mean_accumulator.cpp]{.title-ref} checks min and
+max on a partly filled window and after the window wraps.</p>
+
+    <p>- [EndpointStatistics.MessagesReportWindowMinAndMax]{.title-ref} in
+[test_stat_collector.cpp]{.title-ref} feeds periods of 10, 20 and 6
+ms and ages of 7, 3 and 15 ms, then checks [mean]{.title-ref},
+[min]{.title-ref} and [max]{.title-ref} in both messages. Without
+the change in [stat_collector.cpp]{.title-ref} it fails with
+[min]{.title-ref} and [max]{.title-ref} at 0. Built with colcon on
+Jazzy ([rosgraph_monitor_msgs]{.title-ref} and
+[rmw_stats_shim]{.title-ref} with [BUILD_TESTING=ON]{.title-ref});
+[test_rolling_mean_accumulator]{.title-ref},
+[test_stat_collector]{.title-ref} and [test_timer]{.title-ref} pass,
+and the pre-commit hooks pass on the changed files.
+---------</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)
+Follows up
+<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>.
+[StatCollector]{.title-ref} is a process-wide singleton. Its maps
+([nodes_]{.title-ref}, [stat_publishers_]{.title-ref},
+[publishers_]{.title-ref}, [subscriptions_]{.title-ref}) were
+accessed with no locking from three kinds of thread:</p>
+
+    <p>- DDS and executor threads:
+[onPublish]{.title-ref}/[onReceive]{.title-ref}, called from the
+wrapped [rmw_publish]{.title-ref}/[rmw_take*]{.title-ref}.</p>
+
+    <ul>
+      <li>Any thread creating or destroying entities:
+[add*]{.title-ref}/[remove*]{.title-ref}.</li>
+    </ul>
+
+    <p>- The stats [Timer]{.title-ref} thread:
+[publishStatistics]{.title-ref}. A rehash during an insert while
+another thread ran [find]{.title-ref} caused a SIGSEGV in
+[StatCollector::onReceive]{.title-ref}
+([stat_function.h]{.title-ref}/[find]{.title-ref} frame) during test
+teardown in a downstream CI. To solve it, add mutex protection for
+this state. Use separate mutexes for nodes vs endpoints. ##
+Performance This adds one uncontended mutex lock per publish/take in
+every process with the shim loaded. The downstream project plans to
+benchmark it.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): make Timer::stop idempotent
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/75">#75</a>) ##
+Problem Since
+<a href="https://github.com/ros-tooling/graph-monitor/issues/50">#50</a>,
+[~StatCollector]{.title-ref} calls [timer_-&gt;stop()]{.title-ref}
+explicitly. Then [~optional&lt;Timer&gt;]{.title-ref} runs
+[~Timer]{.title-ref}, which calls [stop()]{.title-ref} again. The
+second call does [thread_.join()]{.title-ref} on an empty
+[std::thread]{.title-ref}, which throws
+[std::system_error]{.title-ref} ([Invalid argument]{.title-ref})
+during static destruction. As a result, in 0.3.0 every process that
+loads the shim
+([RMW_IMPLEMENTATION_WRAPPER=rmw_stats_shim]{.title-ref}) aborts on
+a normal exit:
+<code class="language-plaintext highlighter-rouge">` terminate called after throwing an instance of 'std::system_error' what():  Invalid argument ... Timer::stop          timer.cpp:43 ... Timer::~Timer        timer.cpp:16 ... StatCollector::~StatCollector  stat_collector.cpp:309</code>[
+This showed up as 19 failing test executables downstream when we
+bumped to 0.3.0: the tests passed, but every process SIGABRTed at
+exit. ## Fix Guard the join with `joinable()]{.title-ref},
+matching the header's documented contract for [stop()]{.title-ref}
+("No-op if not running"). ## Tests Adds
+[rmw_stats_shim/test/test_timer.cpp]{.title-ref}, the package's
+first tests: stop without start, stop twice, destroy after stop,
+restart after stop. They fail on [main]{.title-ref} and pass with
+this change (built and run on Jazzy). ## Not in this PR
+[StatCollector]{.title-ref}'s [nodes_]{.title-ref},
+[publishers_]{.title-ref} and [subscriptions_]{.title-ref} maps
+are still accessed without a lock from DDS listener threads
+([onReceive]{.title-ref}/[onPublish]{.title-ref}), the main thread
+(endpoint add/remove) and the stats timer thread. We've seen a
+SIGSEGV in [onReceive]{.title-ref} from this. I'll follow up
+separately.</p>
+  </li>
+  <li>
+    <p>fix(rmw_stats_shim): lock StatCollector endpoint maps
+(<a href="https://github.com/ros-tooling/graph-monitor/issues/76">#76</a>)</p>
+  </li>
 </ul>
 
-<h2 id="023-2025-10-22">0.2.3 (2025-10-22)</h2>
-
-<ul>
-  <li>Fix circular dependency
-(<a href="https://github.com/ros-tooling/graph-monitor/issues/38">#38</a>)</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
-
-<h2 id="022-2025-10-16">0.2.2 (2025-10-16)</h2>
-
-<h2 id="021-2025-10-15">0.2.1 (2025-10-15)</h2>
-
-<h2 id="012-2025-05-12">0.1.2 (2025-05-12)</h2>
-
-<h2 id="011-2025-04-09">0.1.1 (2025-04-09)</h2>
-
-<ul>
-  <li>Initial package setup</li>
-  <li>Contributors: Emerson Knapp</li>
-</ul>
+<p>File truncated at 100 lines <a href="https://github.com/ros-tooling/graph-monitor/tree/main/rmw_stats_shim/CHANGELOG.rst">see the full file</a></p>
 </div>
             
           </div>
@@ -12998,7 +14298,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="d-none d-md-inline">| generated on 2026-11-01</em>
+        <em class="d-none d-md-inline">| generated on 2026-11-03</em>
       
       </div>
       <div style="float:right;">
