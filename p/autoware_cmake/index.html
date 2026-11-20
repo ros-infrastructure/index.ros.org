@@ -431,7 +431,7 @@
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -589,6 +589,47 @@
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -2671,7 +2712,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -2829,6 +2870,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -4807,7 +4889,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -4965,6 +5047,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -5500,7 +5623,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -5658,6 +5781,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -6349,7 +6513,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -6507,6 +6671,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -7202,7 +7407,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -7360,6 +7565,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -9446,7 +9692,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -9604,6 +9850,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -11690,7 +11977,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -11848,6 +12135,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -13934,7 +14262,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -14092,6 +14420,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -16178,7 +16547,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -16336,6 +16705,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -18422,7 +18832,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -18580,6 +18990,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -20666,7 +21117,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -20824,6 +21275,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -22910,7 +23402,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -23068,6 +23560,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -25163,7 +25696,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -25321,6 +25854,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -27425,7 +27999,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -27583,6 +28157,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -29687,7 +30302,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -29845,6 +30460,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -31949,7 +32605,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -32107,6 +32763,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -34211,7 +34908,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -34369,6 +35066,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -36473,7 +37211,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -36631,6 +37369,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -38735,7 +39514,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-10-20
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -38893,6 +39672,47 @@ jQuery(function() {
   <li>
 <code class="language-plaintext highlighter-rouge">INSTALL_TO_SHARE</code>: Install additional directories to <code class="language-plaintext highlighter-rouge">share/${PROJECT_NAME}/</code>
 </li>
+</ul>
+
+<p>The wrapper also takes <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>. With it, the headers go to <code class="language-plaintext highlighter-rouge">include/${PROJECT_NAME}/</code> instead of <code class="language-plaintext highlighter-rouge">include/</code>.</p>
+
+<h4 id="export-the-libraries-as-cmake-targets">Export the libraries as CMake targets</h4>
+
+<p>Add <code class="language-plaintext highlighter-rouge">EXPORT_LIBRARY_TARGETS</code> to export each library of the package as a CMake target, <code class="language-plaintext highlighter-rouge">&lt;package&gt;::&lt;library&gt;</code>:</p>
+
+<div class="language-cmake highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nf">autoware_ament_auto_package</span><span class="p">(</span>EXPORT_LIBRARY_TARGETS<span class="p">)</span>
+
+</code></pre></div></div>
+
+<p>A package that depends on it can link the targets with <code class="language-plaintext highlighter-rouge">target_link_libraries(&lt;target&gt; ${&lt;package&gt;_TARGETS})</code>. On all distributions, <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code> use the targets without a change. On Humble and Jazzy, <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> uses them too. The headers of the package reach these packages as system headers. For <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> and <code class="language-plaintext highlighter-rouge">ament_auto_add_executable()</code>, this is as before. An <code class="language-plaintext highlighter-rouge">ament_target_dependencies()</code> call without <code class="language-plaintext highlighter-rouge">SYSTEM</code> gave them as normal headers before.</p>
+
+<p>The package also keeps exporting its own <code class="language-plaintext highlighter-rouge">&lt;package&gt;_LIBRARIES</code> and <code class="language-plaintext highlighter-rouge">&lt;package&gt;_INCLUDE_DIRS</code>. But the classic variables one level downstream change. When package B depends on package A, and A uses the flag, <code class="language-plaintext highlighter-rouge">B_LIBRARIES</code> still holds the library file of A, and it also holds the targets of the dependencies of A. <code class="language-plaintext highlighter-rouge">B_INCLUDE_DIRS</code> and <code class="language-plaintext highlighter-rouge">B_RECURSIVE_DEPENDENCIES</code> no longer hold the entries of the dependencies of A.</p>
+
+<p>The flag takes its name from the open upstream proposal <a href="https://github.com/ament/ament_cmake/pull/455">ament/ament_cmake#455</a>. It differs from that proposal in these points:</p>
+
+<ul>
+  <li>It keeps the classic export.</li>
+  <li>It exports the targets in <code class="language-plaintext highlighter-rouge">${PROJECT_NAME}_TARGETS</code> only with the flag.</li>
+  <li>The installed include folder follows <code class="language-plaintext highlighter-rouge">USE_SCOPED_HEADER_INSTALL_DIR</code>.</li>
+  <li>It marks the installed include folder as a system folder for the packages that use the library.</li>
+  <li>It stops when an exported library links a dependency that is only a build dependency.</li>
+</ul>
+
+<h5 id="problems-that-the-flag-shows">Problems that the flag shows</h5>
+
+<p>With the flag, CMake checks each exported library when it configures the package, before anything compiles. Fix these cases in the package:</p>
+
+<ul>
+  <li>An include folder inside the source or build folder stops the configure step. The macro handles the <code class="language-plaintext highlighter-rouge">include</code> folder that <code class="language-plaintext highlighter-rouge">ament_auto_add_library()</code> adds. Wrap other folders in <code class="language-plaintext highlighter-rouge">$&lt;BUILD_INTERFACE:...&gt;</code>. If the package installs such a folder, also add <code class="language-plaintext highlighter-rouge">$&lt;INSTALL_INTERFACE:...&gt;</code> with the install path.</li>
+  <li>A local target that an exported library links stops the configure step, for example the target of <code class="language-plaintext highlighter-rouge">generate_parameter_library()</code>. Add it to the export before the macro call: <code class="language-plaintext highlighter-rouge">list(APPEND ${PROJECT_NAME}_TARGETS &lt;target&gt;)</code>.</li>
+  <li>A dependency of an exported library must reach each package that uses the library, or that package stops with “the target was not found”. The macro passes on a dependency only when <code class="language-plaintext highlighter-rouge">package.xml</code> lists it as <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>, <code class="language-plaintext highlighter-rouge">&lt;build_export_depend&gt;</code> or <code class="language-plaintext highlighter-rouge">&lt;exec_depend&gt;</code>. If the dependency is only a <code class="language-plaintext highlighter-rouge">&lt;build_depend&gt;</code>, the macro stops and asks you to change it to <code class="language-plaintext highlighter-rouge">&lt;depend&gt;</code>. If the CMake package name differs from the <code class="language-plaintext highlighter-rouge">package.xml</code> key, as for <code class="language-plaintext highlighter-rouge">eigen</code> and <code class="language-plaintext highlighter-rouge">Eigen3</code>, add <code class="language-plaintext highlighter-rouge">ament_export_dependencies(Eigen3)</code> before the macro call.</li>
+</ul>
+
+<p>Two more effects do not stop the build:</p>
+
+<ul>
+  <li>The <code class="language-plaintext highlighter-rouge">PUBLIC</code> compile options and definitions of an exported library now reach every package that links it. Make them <code class="language-plaintext highlighter-rouge">PRIVATE</code> when only the library needs them.</li>
+  <li>With <code class="language-plaintext highlighter-rouge">colcon build --symlink-install</code>, the exported libraries are copied to the install folder, not linked. After a rebuild outside colcon, run <code class="language-plaintext highlighter-rouge">colcon build</code> again to update the install folder.</li>
 </ul>
 </div>
               </div>
@@ -41125,7 +41945,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="d-none d-md-inline">| generated on 2026-11-10</em>
+        <em class="d-none d-md-inline">| generated on 2026-11-20</em>
       
       </div>
       <div style="float:right;">

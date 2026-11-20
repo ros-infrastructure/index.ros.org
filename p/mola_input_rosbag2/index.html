@@ -441,7 +441,7 @@
     
     
     
-    <a class="nav-link" href="#humble-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#humble-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#humble-questions" data-bs-toggle="tab"><span id="humble-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -459,7 +459,7 @@
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -506,7 +506,7 @@
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -629,6 +629,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -652,6 +680,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -755,20 +798,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -859,6 +889,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#humble">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#humble-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#humble">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -1000,7 +1043,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#humble">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#humble-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#humble-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#humble">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#humble-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -1316,7 +1372,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#jazzy-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#jazzy-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#jazzy-questions" data-bs-toggle="tab"><span id="jazzy-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -1334,7 +1390,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -1381,7 +1437,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -1504,6 +1560,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -1527,6 +1611,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -1630,20 +1729,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -1734,6 +1820,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#jazzy">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#jazzy-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#jazzy">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -1875,7 +1974,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#jazzy">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#jazzy-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#jazzy-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#jazzy">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#jazzy-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -2178,7 +2290,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#kilted-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#kilted-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#kilted-questions" data-bs-toggle="tab"><span id="kilted-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -2196,7 +2308,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -2243,7 +2355,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -2366,6 +2478,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -2389,6 +2529,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -2492,20 +2647,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -2596,6 +2738,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#kilted">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#kilted-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#kilted">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -2737,7 +2892,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#kilted">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#kilted-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#kilted-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#kilted">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#kilted-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -3040,7 +3208,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#lyrical-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#lyrical-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#lyrical-questions" data-bs-toggle="tab"><span id="lyrical-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -3058,7 +3226,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -3105,7 +3273,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -3228,6 +3396,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -3251,6 +3447,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -3354,20 +3565,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -3458,6 +3656,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#lyrical">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#lyrical-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#lyrical">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -3599,7 +3810,33 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#lyrical">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#lyrical-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#lyrical-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#lyrical">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#lyrical-deps" class="endoftree">
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_rgbd_slam/#lyrical">mola_rgbd_slam</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_rgbd_slam/#lyrical-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -3902,7 +4139,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#rolling-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#rolling-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#rolling-questions" data-bs-toggle="tab"><span id="rolling-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -3920,7 +4157,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -3967,7 +4204,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -4090,6 +4327,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -4113,6 +4378,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -4216,20 +4496,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -4320,6 +4587,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#rolling">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#rolling-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#rolling">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -4461,7 +4741,33 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#rolling">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#rolling-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#rolling-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#rolling">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#rolling-deps" class="endoftree">
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_rgbd_slam/#rolling">mola_rgbd_slam</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_rgbd_slam/#rolling-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -4768,7 +5074,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#ardent-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#ardent-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#ardent-questions" data-bs-toggle="tab"><span id="ardent-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -4786,7 +5092,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -4833,7 +5139,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -4956,6 +5262,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -4979,6 +5313,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -5082,20 +5431,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -5186,6 +5522,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#ardent">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#ardent-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#ardent">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -5327,7 +5676,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#ardent">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#ardent-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#ardent-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#ardent">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#ardent-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -5647,7 +6009,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#bouncy-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#bouncy-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#bouncy-questions" data-bs-toggle="tab"><span id="bouncy-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -5665,7 +6027,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -5712,7 +6074,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -5835,6 +6197,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -5858,6 +6248,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -5961,20 +6366,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -6065,6 +6457,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#bouncy">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#bouncy-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#bouncy">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -6206,7 +6611,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#bouncy">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#bouncy-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#bouncy-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#bouncy">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#bouncy-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -6526,7 +6944,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#crystal-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#crystal-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#crystal-questions" data-bs-toggle="tab"><span id="crystal-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -6544,7 +6962,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -6591,7 +7009,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -6714,6 +7132,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -6737,6 +7183,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -6840,20 +7301,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -6944,6 +7392,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#crystal">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#crystal-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#crystal">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -7085,7 +7546,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#crystal">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#crystal-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#crystal-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#crystal">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#crystal-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -7405,7 +7879,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#eloquent-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#eloquent-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#eloquent-questions" data-bs-toggle="tab"><span id="eloquent-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -7423,7 +7897,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -7470,7 +7944,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -7593,6 +8067,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -7616,6 +8118,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -7719,20 +8236,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -7823,6 +8327,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#eloquent">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#eloquent-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#eloquent">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -7964,7 +8481,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#eloquent">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#eloquent-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#eloquent-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#eloquent">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#eloquent-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -8284,7 +8814,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#dashing-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#dashing-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#dashing-questions" data-bs-toggle="tab"><span id="dashing-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -8302,7 +8832,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -8349,7 +8879,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -8472,6 +9002,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -8495,6 +9053,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -8598,20 +9171,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -8702,6 +9262,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#dashing">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#dashing-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#dashing">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -8843,7 +9416,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#dashing">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#dashing-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#dashing-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#dashing">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#dashing-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -9163,7 +9749,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#galactic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#galactic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#galactic-questions" data-bs-toggle="tab"><span id="galactic-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -9181,7 +9767,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -9228,7 +9814,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -9351,6 +9937,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -9374,6 +9988,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -9477,20 +10106,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -9581,6 +10197,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#galactic">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#galactic-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#galactic">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -9722,7 +10351,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#galactic">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#galactic-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#galactic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#galactic">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#galactic-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -10042,7 +10684,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#foxy-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#foxy-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#foxy-questions" data-bs-toggle="tab"><span id="foxy-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -10060,7 +10702,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -10107,7 +10749,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -10230,6 +10872,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -10253,6 +10923,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -10356,20 +11041,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -10460,6 +11132,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#foxy">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#foxy-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#foxy">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -10601,7 +11286,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#foxy">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#foxy-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#foxy-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#foxy">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#foxy-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -10917,7 +11615,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#iron-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#iron-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#iron-questions" data-bs-toggle="tab"><span id="iron-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -10935,7 +11633,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -10982,7 +11680,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -11105,6 +11803,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -11128,6 +11854,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -11231,20 +11972,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -11335,6 +12063,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#iron">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#iron-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#iron">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -11792,7 +12533,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#lunar-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#lunar-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#lunar-questions" data-bs-toggle="tab"><span id="lunar-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -11810,7 +12551,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -11857,7 +12598,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -11980,6 +12721,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -12003,6 +12772,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -12106,20 +12890,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -12210,6 +12981,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#lunar">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#lunar-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#lunar">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -12351,7 +13135,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#lunar">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#lunar-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#lunar-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#lunar">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#lunar-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -12689,7 +13486,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#jade-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#jade-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#jade-questions" data-bs-toggle="tab"><span id="jade-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -12707,7 +13504,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -12754,7 +13551,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -12877,6 +13674,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -12900,6 +13725,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -13003,20 +13843,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -13107,6 +13934,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#jade">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#jade-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#jade">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -13248,7 +14088,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#jade">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#jade-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#jade-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#jade">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#jade-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -13586,7 +14439,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#indigo-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#indigo-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#indigo-questions" data-bs-toggle="tab"><span id="indigo-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -13604,7 +14457,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -13651,7 +14504,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -13774,6 +14627,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -13797,6 +14678,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -13900,20 +14796,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -14004,6 +14887,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#indigo">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#indigo-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#indigo">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -14145,7 +15041,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#indigo">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#indigo-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#indigo-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#indigo">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#indigo-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -14483,7 +15392,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#hydro-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#hydro-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#hydro-questions" data-bs-toggle="tab"><span id="hydro-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -14501,7 +15410,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -14548,7 +15457,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -14671,6 +15580,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -14694,6 +15631,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -14797,20 +15749,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -14901,6 +15840,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#hydro">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#hydro-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#hydro">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -15042,7 +15994,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#hydro">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#hydro-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#hydro-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#hydro">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#hydro-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -15380,7 +16345,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#kinetic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#kinetic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#kinetic-questions" data-bs-toggle="tab"><span id="kinetic-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -15398,7 +16363,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -15445,7 +16410,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -15568,6 +16533,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -15591,6 +16584,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -15694,20 +16702,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -15798,6 +16793,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#kinetic">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#kinetic-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#kinetic">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -15939,7 +16947,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#kinetic">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#kinetic-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#kinetic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#kinetic">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#kinetic-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -16277,7 +17298,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#melodic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#melodic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#melodic-questions" data-bs-toggle="tab"><span id="melodic-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -16295,7 +17316,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -16342,7 +17363,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -16465,6 +17486,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -16488,6 +17537,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -16591,20 +17655,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -16695,6 +17746,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#melodic">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#melodic-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#melodic">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -16836,7 +17900,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#melodic">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#melodic-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#melodic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#melodic">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#melodic-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -17174,7 +18251,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#noetic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">13</span> Dependencies</a>
+    <a class="nav-link" href="#noetic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">14</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#noetic-questions" data-bs-toggle="tab"><span id="noetic-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -17192,7 +18269,7 @@ jQuery(function() {
             <table class="table table-sm">
               <tr>
                 <td style="width:100px;" class="text-end"><strong>Version</strong></td>
-                <td>3.4.0</td>
+                <td>3.6.0</td>
               </tr>
               <tr>
                 <td class="text-end"><strong>License</strong></td>
@@ -17239,7 +18316,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-12
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-19
         </span>
       </td>
     </tr>
@@ -17362,6 +18439,34 @@ hard-linked there too); observations already in the map are not added again.</li
 <p>The ROS 1 version is <code class="language-plaintext highlighter-rouge">mola-sm-attach-from-rosbag1</code> (package <code class="language-plaintext highlighter-rouge">mola_input_rosbag1</code>).
   ROS 2 bags may also need <code class="language-plaintext highlighter-rouge">--tf-topic</code> / <code class="language-plaintext highlighter-rouge">--tf-static-topic</code> (e.g. namespaced robots).</p>
 
+<h2 id="rgb-d-cameras">RGB-D cameras</h2>
+<p>A <code class="language-plaintext highlighter-rouge">sensors</code> entry of <code class="language-plaintext highlighter-rouge">type: CObservation3DRangeScan</code> combines the topics of an
+RGB-D camera into <code class="language-plaintext highlighter-rouge">mrpt::obs::CObservation3DRangeScan</code> observations:</p>
+
+<div class="language-yaml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="na">sensors</span><span class="pi">:</span>
+  <span class="pi">-</span> <span class="na">topic</span><span class="pi">:</span> <span class="s">/camera/camera/depth/image_rect_raw</span>   <span class="c1"># 16UC1 (mm) or 32FC1 (m)</span>
+    <span class="na">type</span><span class="pi">:</span> <span class="s">CObservation3DRangeScan</span>
+    <span class="na">sensorLabel</span><span class="pi">:</span> <span class="s">rgbd</span>
+    <span class="na">intensity_topic</span><span class="pi">:</span> <span class="s">/camera/camera/color/image_raw</span>   <span class="c1"># optional</span>
+    <span class="c1">#camera_info_topic: ...            # default: sibling "camera_info" topic</span>
+    <span class="c1">#intensity_camera_info_topic: ...  # default: sibling "camera_info" topic</span>
+    <span class="c1">#max_time_offset: 0.005            # [s] to pair depth and intensity frames</span>
+    <span class="c1">#is_optional: false                # skip the sensor if a topic is missing</span>
+    <span class="c1">#max_range: 10.0                   # [m]</span>
+    <span class="c1">#fixed_sensor_pose: "x y z yaw_deg pitch_deg roll_deg"  # depth camera, +X forward</span>
+
+</code></pre></div></div>
+
+<p>Depth and intensity keep their own resolution and intrinsics
+(<code class="language-plaintext highlighter-rouge">cameraParams</code>, <code class="language-plaintext highlighter-rouge">cameraParamsIntensity</code>), and <code class="language-plaintext highlighter-rouge">relativePoseIntensityWRTDepth</code>
+comes from <code class="language-plaintext highlighter-rouge">/tf</code>. Depth already registered to the intensity camera (e.g. an
+<code class="language-plaintext highlighter-rouge">aligned_depth_to_color</code> topic) shares its optical frame, so both cameras then
+coincide. Depth and intensity frames whose stamps differ by more than
+<code class="language-plaintext highlighter-rouge">max_time_offset</code> are dropped, with a periodic warning: raise it for cameras
+whose streams are not hardware-synchronized. With
+<code class="language-plaintext highlighter-rouge">use_bag_recv_time_as_timestamp</code>, an observation takes the receive time of the
+image that completed its pair.</p>
+
 <h2 id="build-and-install">Build and install</h2>
 <p>Refer to the <a href="https://github.com/MOLAorg/mola">root MOLA repository</a>.</p>
 
@@ -17385,6 +18490,21 @@ hard-linked there too); observations already in the map are not added again.</li
             
               <div class="rendered-markdown">
 <h1 id="changelog-for-package-mola_input_rosbag2">Changelog for package mola_input_rosbag2</h1>
+
+<h2 id="360-2026-11-20">3.6.0 (2026-11-20)</h2>
+
+<h2 id="350-2026-11-15">3.5.0 (2026-11-15)</h2>
+
+<ul>
+  <li>RGB-D cameras (color + depth + camera_info) as
+CObservation3DRangeScan.</li>
+  <li>Deserialize bag messages without copying their payload.</li>
+  <li>New CLI mola-sm-attach-from-rosbag2: attach observations (e.g.
+camera images) from bags to simplemap keyframes.</li>
+  <li>Static transforms survive a partial replay, and skipping is cheap.</li>
+  <li>Optional dataset ground-truth trajectory, shown in mola_viz_imgui.</li>
+  <li>Contributors: Jose Luis Blanco-Claraco</li>
+</ul>
 
 <h2 id="340-2026-11-01">3.4.0 (2026-11-01)</h2>
 
@@ -17488,20 +18608,7 @@ toCvShare(), which needs a shared_ptr).</p>
     <p>- cv_ptr (and the cv::Mat it owns) is likewise local to this call,
 so copying it into the CObservationImage with
 mrpt::img::SHALLOW_COPY (ref-counted) instead of DEEP_COPY avoids
-duplicating the decoded pixel buffer a second time. Re-verified
-end-to-end against the Oxford Spires dataset: no errors. (CodeRabbit
-finding on PR <a href="https://github.com/MOLAorg/mola/issues/178">#178</a>)</p>
-  </li>
-  <li>
-    <p>feat: decode sensor_msgs/msg/CompressedImage topics in
-Rosbag2Dataset mrpt_ros_bridge's rosbag2ToImage() only understands
-the raw, uncompressed sensor_msgs/msg/Image wire format, so a
-'sensors' entry of type CObservationImage pointed at a
-compressed-image topic (e.g. an "image/compressed" republished
-stream) previously fell through as unhandled. Added a local decoder
-(cv_bridge-based, dispatched on the topic's actual wire type) and
-registered the ROS type for auto-detection, so compressed camera
-streams can be read the same way as raw ones.</p>
+duplicating the decoded pixel buffer a second time. Re-verified</p>
   </li>
 </ul>
 
@@ -17592,6 +18699,19 @@ streams can be read the same way as raw ones.</p>
                           </a>
                         </td>
                         <td><a href="/p/mrpt_libros_bridge/#noetic">mrpt_libros_bridge  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rclcpp/#noetic-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rclcpp/#noetic">rclcpp  </a></td>
                       </tr>
                     
                   
@@ -17733,7 +18853,20 @@ streams can be read the same way as raw ones.</p>
                       <td><a href="/p/mola_lidar_odometry/#noetic">mola_lidar_odometry</a></td>
                       <td class="text-center">
                         
-                        <a href="/p/mola_lidar_odometry/#noetic-deps" class="endoftree">
+                        <a href="/p/mola_lidar_odometry/#noetic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/mola_mapper/#noetic">mola_mapper</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/mola_mapper/#noetic-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -18189,7 +19322,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="d-none d-md-inline">| generated on 2026-11-13</em>
+        <em class="d-none d-md-inline">| generated on 2026-11-20</em>
       
       </div>
       <div style="float:right;">

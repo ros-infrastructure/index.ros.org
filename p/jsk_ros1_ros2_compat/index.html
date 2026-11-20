@@ -2745,7 +2745,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#kilted-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">20</span> Dependencies</a>
+    <a class="nav-link" href="#kilted-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">21</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#kilted-questions" data-bs-toggle="tab"><span id="kilted-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -2810,7 +2810,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-10
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -2893,6 +2893,48 @@ jQuery(function() {
 <p>Shared ROS1 (roscpp/rospy) / ROS2 (rclcpp/rclpy) compatibility helpers, so
 that a package can keep <strong>one</strong> source tree that builds and runs on both,
 with the ROS1 code left as close to the original as possible.</p>
+
+<h2 id="ros-1--ros-2">ROS 1 / ROS 2</h2>
+
+<p>This is a library package (no nodes, scripts or launch files). It builds for
+both ROS 1 (catkin) and ROS 2 (ament), selected by <code class="language-plaintext highlighter-rouge">$ROS_VERSION</code>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th>ROS 1</th>
+      <th>ROS 2</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>C++ headers (<code class="language-plaintext highlighter-rouge">include/jsk_ros1_ros2_compat/*.h</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>Python package <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat</code> (<code class="language-plaintext highlighter-rouge">rospy_rclpy_compat</code>, <code class="language-plaintext highlighter-rouge">rosbag</code>, <code class="language-plaintext highlighter-rouge">log_utils</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_install_python()</code>
+</td>
+      <td>defined, but meant for ROS 2 builds</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_generate_uv_venv()</code> and the bundled <code class="language-plaintext highlighter-rouge">uv</code> binary (<code class="language-plaintext highlighter-rouge">lib/jsk_ros1_ros2_compat/uv</code>)</td>
+      <td>no (use catkin_virtualenv)</td>
+      <td>yes</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><code class="language-plaintext highlighter-rouge">ROS_VERSION</code> in the Python modules is read from the <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>
+environment variable (default <code class="language-plaintext highlighter-rouge">1</code>). The C++ headers detect ROS 1 by whether
+<code class="language-plaintext highlighter-rouge">&lt;ros/ros.h&gt;</code> can be included, so no compile definition is needed.</p>
 
 <h2 id="porting-style">Porting style</h2>
 
@@ -2992,14 +3034,14 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td><code class="language-plaintext highlighter-rouge">create_publisher(node, topic, type, queue_size=1, latch=False)</code></td>
       <td><code class="language-plaintext highlighter-rouge">rospy.Publisher</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (<code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS)</td>
+<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (depth <code class="language-plaintext highlighter-rouge">queue_size</code>, default reliable QoS; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False, callback_group=None, qos=None)</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded)</td>
+<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded; <code class="language-plaintext highlighter-rouge">latch</code>, <code class="language-plaintext highlighter-rouge">qos</code> ignored)</td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
+<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; QoS: see below; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
       <td>
@@ -3085,43 +3127,67 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td>-</td>
       <td>spin until SIGINT/SIGTERM/<code class="language-plaintext highlighter-rouge">signal_shutdown</code>, then clean up</td>
     </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">private_name(name)</code>, <code class="language-plaintext highlighter-rouge">message_type_name(msg)</code>, <code class="language-plaintext highlighter-rouge">resolve_message_class('pkg/Type')</code>
+</td>
+      <td>name unchanged, <code class="language-plaintext highlighter-rouge">msg._type</code>, <code class="language-plaintext highlighter-rouge">roslib.message</code>
+</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>, <code class="language-plaintext highlighter-rouge">'pkg/Type'</code>, <code class="language-plaintext highlighter-rouge">get_message</code> (accepts <code class="language-plaintext highlighter-rouge">pkg/Type</code> and <code class="language-plaintext highlighter-rouge">pkg/msg/Type</code>)</td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">declare_params(node, defaults)</code>, <code class="language-plaintext highlighter-rouge">get_params(node, names)</code>
+</td>
+      <td>-</td>
+      <td>ROS2 only: declare / read several parameters at once</td>
+    </tr>
   </tbody>
 </table>
 
-<p>Action types: pass <code class="language-plaintext highlighter-rouge">FooAction</code>/<code class="language-plaintext highlighter-rouge">FooGoal</code> on ROS1 and <code class="language-plaintext highlighter-rouge">Foo</code>/<code class="language-plaintext highlighter-rouge">Foo.Goal</code> on
-ROS2; timeouts are in seconds on both. <code class="language-plaintext highlighter-rouge">actionlib</code>/<code class="language-plaintext highlighter-rouge">dynamic_reconfigure</code>
-are imported lazily, so depend on them in your own package.</p>
+<p>QoS of <code class="language-plaintext highlighter-rouge">create_subscription()</code> on ROS2 (ignored on ROS1), from the <code class="language-plaintext highlighter-rouge">qos</code>
+argument:</p>
 
-<h3 id="packages-outside-jsk_common">Packages outside jsk_common</h3>
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">qos</code></th>
+      <th>QoS</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">None</code> (default)</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">'any'</code>, or transient-local with depth <code class="language-plaintext highlighter-rouge">queue_size</code> if <code class="language-plaintext highlighter-rouge">latch=True</code>
+</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'any'</code></td>
+      <td>BEST_EFFORT + VOLATILE with depth <code class="language-plaintext highlighter-rouge">queue_size</code>: reads the topic of any publisher, whenever it joins</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'best_available'</code></td>
+      <td>BEST_AVAILABLE reliability and durability (Iron and later) of the publishers discovered when the subscription is created; a publisher with a weaker QoS that joins later is not read. Falls back to <code class="language-plaintext highlighter-rouge">'any'</code> on Humble</td>
+    </tr>
+    <tr>
+      <td>a <code class="language-plaintext highlighter-rouge">QoSProfile</code> (e.g. <code class="language-plaintext highlighter-rouge">rclpy.qos.qos_profile_sensor_data</code>)</td>
+      <td>as given</td>
+    </tr>
+    <tr>
+      <td>an <code class="language-plaintext highlighter-rouge">int</code>
+</td>
+      <td>that depth, rclpy’s default (reliable) QoS</td>
+    </tr>
+  </tbody>
+</table>
 
-<p>jsk_ros1_ros2_compat is only released with jsk_common &gt;= 3.0, which is not
-available for every ROS1 distro. Depend on it for ROS2 only and fall back
-to rospy when it can not be imported, listing just the functions you use:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;exec_depend</span> <span class="na">condition=</span><span class="s">"$ROS_VERSION == 2"</span><span class="nt">&gt;</span>jsk_ros1_ros2_compat<span class="nt">&lt;/exec_depend&gt;</span>
-
-</code></pre></div></div>
-
-<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat</span> <span class="kn">import</span> <span class="n">rospy_rclpy_compat</span> <span class="k">as</span> <span class="n">ros_compat</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat.rospy_rclpy_compat</span> <span class="kn">import</span> <span class="n">ROS_VERSION</span>
-<span class="k">except</span> <span class="nb">ImportError</span><span class="p">:</span>
-    <span class="c1"># jsk_common &lt; 3.0 has no jsk_ros1_ros2_compat, so this is ROS1 only:
-</span>    <span class="c1"># forward ros_compat.xxx(node, ...) to rospy.xxx(...)
-</span>    <span class="kn">import</span> <span class="n">rospy</span>
-    <span class="n">ROS_VERSION</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="k">class</span> <span class="nc">ros_compat</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-        <span class="n">get_param</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">get_param</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-        <span class="n">loginfo</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">loginfo</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-
-</code></pre></div></div>
-
-<p>Or, to keep the original rospy code untouched for its ROS1 users, add a
-jsk_ros1_ros2_compat version next to it and choose by whether
-jsk_ros1_ros2_compat can be imported (not by <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>):</p>
-
-<p>```python
-try:</p>
+<p>So by default a subscriber receives from both reliable and best-effort
+publishers, but delivery is best effort. Pass <code class="language-plaintext highlighter-rouge">qos=</code> (e.g. a depth for
+reliable delivery) where lost messages matter, and <code class="language-plaintext highlighter-rouge">latch=True</code> for the
+last message of a <code class="language-plaintext highlighter-rouge">create_publisher(..., latch=True)</code> topic.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/jsk-ros-pkg/jsk_common/tree/master/jsk_ros1_ros2_compat/README.md">see the full file</a></p>
 </div>
@@ -3340,6 +3406,19 @@ versions</li>
                           </a>
                         </td>
                         <td><a href="/p/rosbag2_py/#kilted">rosbag2_py  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rosbag2_storage_sqlite3/#kilted-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rosbag2_storage_sqlite3/#kilted">rosbag2_storage_sqlite3  </a></td>
                       </tr>
                     
                   
@@ -3914,7 +3993,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#lyrical-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">20</span> Dependencies</a>
+    <a class="nav-link" href="#lyrical-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">21</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#lyrical-questions" data-bs-toggle="tab"><span id="lyrical-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -3979,7 +4058,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-10
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -4062,6 +4141,48 @@ jQuery(function() {
 <p>Shared ROS1 (roscpp/rospy) / ROS2 (rclcpp/rclpy) compatibility helpers, so
 that a package can keep <strong>one</strong> source tree that builds and runs on both,
 with the ROS1 code left as close to the original as possible.</p>
+
+<h2 id="ros-1--ros-2">ROS 1 / ROS 2</h2>
+
+<p>This is a library package (no nodes, scripts or launch files). It builds for
+both ROS 1 (catkin) and ROS 2 (ament), selected by <code class="language-plaintext highlighter-rouge">$ROS_VERSION</code>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th>ROS 1</th>
+      <th>ROS 2</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>C++ headers (<code class="language-plaintext highlighter-rouge">include/jsk_ros1_ros2_compat/*.h</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>Python package <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat</code> (<code class="language-plaintext highlighter-rouge">rospy_rclpy_compat</code>, <code class="language-plaintext highlighter-rouge">rosbag</code>, <code class="language-plaintext highlighter-rouge">log_utils</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_install_python()</code>
+</td>
+      <td>defined, but meant for ROS 2 builds</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_generate_uv_venv()</code> and the bundled <code class="language-plaintext highlighter-rouge">uv</code> binary (<code class="language-plaintext highlighter-rouge">lib/jsk_ros1_ros2_compat/uv</code>)</td>
+      <td>no (use catkin_virtualenv)</td>
+      <td>yes</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><code class="language-plaintext highlighter-rouge">ROS_VERSION</code> in the Python modules is read from the <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>
+environment variable (default <code class="language-plaintext highlighter-rouge">1</code>). The C++ headers detect ROS 1 by whether
+<code class="language-plaintext highlighter-rouge">&lt;ros/ros.h&gt;</code> can be included, so no compile definition is needed.</p>
 
 <h2 id="porting-style">Porting style</h2>
 
@@ -4161,14 +4282,14 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td><code class="language-plaintext highlighter-rouge">create_publisher(node, topic, type, queue_size=1, latch=False)</code></td>
       <td><code class="language-plaintext highlighter-rouge">rospy.Publisher</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (<code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS)</td>
+<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (depth <code class="language-plaintext highlighter-rouge">queue_size</code>, default reliable QoS; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False, callback_group=None, qos=None)</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded)</td>
+<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded; <code class="language-plaintext highlighter-rouge">latch</code>, <code class="language-plaintext highlighter-rouge">qos</code> ignored)</td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
+<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; QoS: see below; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
       <td>
@@ -4254,43 +4375,67 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td>-</td>
       <td>spin until SIGINT/SIGTERM/<code class="language-plaintext highlighter-rouge">signal_shutdown</code>, then clean up</td>
     </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">private_name(name)</code>, <code class="language-plaintext highlighter-rouge">message_type_name(msg)</code>, <code class="language-plaintext highlighter-rouge">resolve_message_class('pkg/Type')</code>
+</td>
+      <td>name unchanged, <code class="language-plaintext highlighter-rouge">msg._type</code>, <code class="language-plaintext highlighter-rouge">roslib.message</code>
+</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>, <code class="language-plaintext highlighter-rouge">'pkg/Type'</code>, <code class="language-plaintext highlighter-rouge">get_message</code> (accepts <code class="language-plaintext highlighter-rouge">pkg/Type</code> and <code class="language-plaintext highlighter-rouge">pkg/msg/Type</code>)</td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">declare_params(node, defaults)</code>, <code class="language-plaintext highlighter-rouge">get_params(node, names)</code>
+</td>
+      <td>-</td>
+      <td>ROS2 only: declare / read several parameters at once</td>
+    </tr>
   </tbody>
 </table>
 
-<p>Action types: pass <code class="language-plaintext highlighter-rouge">FooAction</code>/<code class="language-plaintext highlighter-rouge">FooGoal</code> on ROS1 and <code class="language-plaintext highlighter-rouge">Foo</code>/<code class="language-plaintext highlighter-rouge">Foo.Goal</code> on
-ROS2; timeouts are in seconds on both. <code class="language-plaintext highlighter-rouge">actionlib</code>/<code class="language-plaintext highlighter-rouge">dynamic_reconfigure</code>
-are imported lazily, so depend on them in your own package.</p>
+<p>QoS of <code class="language-plaintext highlighter-rouge">create_subscription()</code> on ROS2 (ignored on ROS1), from the <code class="language-plaintext highlighter-rouge">qos</code>
+argument:</p>
 
-<h3 id="packages-outside-jsk_common">Packages outside jsk_common</h3>
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">qos</code></th>
+      <th>QoS</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">None</code> (default)</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">'any'</code>, or transient-local with depth <code class="language-plaintext highlighter-rouge">queue_size</code> if <code class="language-plaintext highlighter-rouge">latch=True</code>
+</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'any'</code></td>
+      <td>BEST_EFFORT + VOLATILE with depth <code class="language-plaintext highlighter-rouge">queue_size</code>: reads the topic of any publisher, whenever it joins</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'best_available'</code></td>
+      <td>BEST_AVAILABLE reliability and durability (Iron and later) of the publishers discovered when the subscription is created; a publisher with a weaker QoS that joins later is not read. Falls back to <code class="language-plaintext highlighter-rouge">'any'</code> on Humble</td>
+    </tr>
+    <tr>
+      <td>a <code class="language-plaintext highlighter-rouge">QoSProfile</code> (e.g. <code class="language-plaintext highlighter-rouge">rclpy.qos.qos_profile_sensor_data</code>)</td>
+      <td>as given</td>
+    </tr>
+    <tr>
+      <td>an <code class="language-plaintext highlighter-rouge">int</code>
+</td>
+      <td>that depth, rclpy’s default (reliable) QoS</td>
+    </tr>
+  </tbody>
+</table>
 
-<p>jsk_ros1_ros2_compat is only released with jsk_common &gt;= 3.0, which is not
-available for every ROS1 distro. Depend on it for ROS2 only and fall back
-to rospy when it can not be imported, listing just the functions you use:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;exec_depend</span> <span class="na">condition=</span><span class="s">"$ROS_VERSION == 2"</span><span class="nt">&gt;</span>jsk_ros1_ros2_compat<span class="nt">&lt;/exec_depend&gt;</span>
-
-</code></pre></div></div>
-
-<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat</span> <span class="kn">import</span> <span class="n">rospy_rclpy_compat</span> <span class="k">as</span> <span class="n">ros_compat</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat.rospy_rclpy_compat</span> <span class="kn">import</span> <span class="n">ROS_VERSION</span>
-<span class="k">except</span> <span class="nb">ImportError</span><span class="p">:</span>
-    <span class="c1"># jsk_common &lt; 3.0 has no jsk_ros1_ros2_compat, so this is ROS1 only:
-</span>    <span class="c1"># forward ros_compat.xxx(node, ...) to rospy.xxx(...)
-</span>    <span class="kn">import</span> <span class="n">rospy</span>
-    <span class="n">ROS_VERSION</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="k">class</span> <span class="nc">ros_compat</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-        <span class="n">get_param</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">get_param</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-        <span class="n">loginfo</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">loginfo</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-
-</code></pre></div></div>
-
-<p>Or, to keep the original rospy code untouched for its ROS1 users, add a
-jsk_ros1_ros2_compat version next to it and choose by whether
-jsk_ros1_ros2_compat can be imported (not by <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>):</p>
-
-<p>```python
-try:</p>
+<p>So by default a subscriber receives from both reliable and best-effort
+publishers, but delivery is best effort. Pass <code class="language-plaintext highlighter-rouge">qos=</code> (e.g. a depth for
+reliable delivery) where lost messages matter, and <code class="language-plaintext highlighter-rouge">latch=True</code> for the
+last message of a <code class="language-plaintext highlighter-rouge">create_publisher(..., latch=True)</code> topic.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/jsk-ros-pkg/jsk_common/tree/master/jsk_ros1_ros2_compat/README.md">see the full file</a></p>
 </div>
@@ -4509,6 +4654,19 @@ versions</li>
                           </a>
                         </td>
                         <td><a href="/p/rosbag2_py/#lyrical">rosbag2_py  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rosbag2_storage_sqlite3/#lyrical-deps" >
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rosbag2_storage_sqlite3/#lyrical">rosbag2_storage_sqlite3  </a></td>
                       </tr>
                     
                   
@@ -16854,7 +17012,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#jade-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">20</span> Dependencies</a>
+    <a class="nav-link" href="#jade-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">21</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#jade-questions" data-bs-toggle="tab"><span id="jade-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -16919,7 +17077,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-10
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -17002,6 +17160,48 @@ jQuery(function() {
 <p>Shared ROS1 (roscpp/rospy) / ROS2 (rclcpp/rclpy) compatibility helpers, so
 that a package can keep <strong>one</strong> source tree that builds and runs on both,
 with the ROS1 code left as close to the original as possible.</p>
+
+<h2 id="ros-1--ros-2">ROS 1 / ROS 2</h2>
+
+<p>This is a library package (no nodes, scripts or launch files). It builds for
+both ROS 1 (catkin) and ROS 2 (ament), selected by <code class="language-plaintext highlighter-rouge">$ROS_VERSION</code>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th>ROS 1</th>
+      <th>ROS 2</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>C++ headers (<code class="language-plaintext highlighter-rouge">include/jsk_ros1_ros2_compat/*.h</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>Python package <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat</code> (<code class="language-plaintext highlighter-rouge">rospy_rclpy_compat</code>, <code class="language-plaintext highlighter-rouge">rosbag</code>, <code class="language-plaintext highlighter-rouge">log_utils</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_install_python()</code>
+</td>
+      <td>defined, but meant for ROS 2 builds</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_generate_uv_venv()</code> and the bundled <code class="language-plaintext highlighter-rouge">uv</code> binary (<code class="language-plaintext highlighter-rouge">lib/jsk_ros1_ros2_compat/uv</code>)</td>
+      <td>no (use catkin_virtualenv)</td>
+      <td>yes</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><code class="language-plaintext highlighter-rouge">ROS_VERSION</code> in the Python modules is read from the <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>
+environment variable (default <code class="language-plaintext highlighter-rouge">1</code>). The C++ headers detect ROS 1 by whether
+<code class="language-plaintext highlighter-rouge">&lt;ros/ros.h&gt;</code> can be included, so no compile definition is needed.</p>
 
 <h2 id="porting-style">Porting style</h2>
 
@@ -17101,14 +17301,14 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td><code class="language-plaintext highlighter-rouge">create_publisher(node, topic, type, queue_size=1, latch=False)</code></td>
       <td><code class="language-plaintext highlighter-rouge">rospy.Publisher</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (<code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS)</td>
+<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (depth <code class="language-plaintext highlighter-rouge">queue_size</code>, default reliable QoS; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False, callback_group=None, qos=None)</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded)</td>
+<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded; <code class="language-plaintext highlighter-rouge">latch</code>, <code class="language-plaintext highlighter-rouge">qos</code> ignored)</td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
+<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; QoS: see below; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
       <td>
@@ -17194,43 +17394,67 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td>-</td>
       <td>spin until SIGINT/SIGTERM/<code class="language-plaintext highlighter-rouge">signal_shutdown</code>, then clean up</td>
     </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">private_name(name)</code>, <code class="language-plaintext highlighter-rouge">message_type_name(msg)</code>, <code class="language-plaintext highlighter-rouge">resolve_message_class('pkg/Type')</code>
+</td>
+      <td>name unchanged, <code class="language-plaintext highlighter-rouge">msg._type</code>, <code class="language-plaintext highlighter-rouge">roslib.message</code>
+</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>, <code class="language-plaintext highlighter-rouge">'pkg/Type'</code>, <code class="language-plaintext highlighter-rouge">get_message</code> (accepts <code class="language-plaintext highlighter-rouge">pkg/Type</code> and <code class="language-plaintext highlighter-rouge">pkg/msg/Type</code>)</td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">declare_params(node, defaults)</code>, <code class="language-plaintext highlighter-rouge">get_params(node, names)</code>
+</td>
+      <td>-</td>
+      <td>ROS2 only: declare / read several parameters at once</td>
+    </tr>
   </tbody>
 </table>
 
-<p>Action types: pass <code class="language-plaintext highlighter-rouge">FooAction</code>/<code class="language-plaintext highlighter-rouge">FooGoal</code> on ROS1 and <code class="language-plaintext highlighter-rouge">Foo</code>/<code class="language-plaintext highlighter-rouge">Foo.Goal</code> on
-ROS2; timeouts are in seconds on both. <code class="language-plaintext highlighter-rouge">actionlib</code>/<code class="language-plaintext highlighter-rouge">dynamic_reconfigure</code>
-are imported lazily, so depend on them in your own package.</p>
+<p>QoS of <code class="language-plaintext highlighter-rouge">create_subscription()</code> on ROS2 (ignored on ROS1), from the <code class="language-plaintext highlighter-rouge">qos</code>
+argument:</p>
 
-<h3 id="packages-outside-jsk_common">Packages outside jsk_common</h3>
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">qos</code></th>
+      <th>QoS</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">None</code> (default)</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">'any'</code>, or transient-local with depth <code class="language-plaintext highlighter-rouge">queue_size</code> if <code class="language-plaintext highlighter-rouge">latch=True</code>
+</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'any'</code></td>
+      <td>BEST_EFFORT + VOLATILE with depth <code class="language-plaintext highlighter-rouge">queue_size</code>: reads the topic of any publisher, whenever it joins</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'best_available'</code></td>
+      <td>BEST_AVAILABLE reliability and durability (Iron and later) of the publishers discovered when the subscription is created; a publisher with a weaker QoS that joins later is not read. Falls back to <code class="language-plaintext highlighter-rouge">'any'</code> on Humble</td>
+    </tr>
+    <tr>
+      <td>a <code class="language-plaintext highlighter-rouge">QoSProfile</code> (e.g. <code class="language-plaintext highlighter-rouge">rclpy.qos.qos_profile_sensor_data</code>)</td>
+      <td>as given</td>
+    </tr>
+    <tr>
+      <td>an <code class="language-plaintext highlighter-rouge">int</code>
+</td>
+      <td>that depth, rclpy’s default (reliable) QoS</td>
+    </tr>
+  </tbody>
+</table>
 
-<p>jsk_ros1_ros2_compat is only released with jsk_common &gt;= 3.0, which is not
-available for every ROS1 distro. Depend on it for ROS2 only and fall back
-to rospy when it can not be imported, listing just the functions you use:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;exec_depend</span> <span class="na">condition=</span><span class="s">"$ROS_VERSION == 2"</span><span class="nt">&gt;</span>jsk_ros1_ros2_compat<span class="nt">&lt;/exec_depend&gt;</span>
-
-</code></pre></div></div>
-
-<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat</span> <span class="kn">import</span> <span class="n">rospy_rclpy_compat</span> <span class="k">as</span> <span class="n">ros_compat</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat.rospy_rclpy_compat</span> <span class="kn">import</span> <span class="n">ROS_VERSION</span>
-<span class="k">except</span> <span class="nb">ImportError</span><span class="p">:</span>
-    <span class="c1"># jsk_common &lt; 3.0 has no jsk_ros1_ros2_compat, so this is ROS1 only:
-</span>    <span class="c1"># forward ros_compat.xxx(node, ...) to rospy.xxx(...)
-</span>    <span class="kn">import</span> <span class="n">rospy</span>
-    <span class="n">ROS_VERSION</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="k">class</span> <span class="nc">ros_compat</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-        <span class="n">get_param</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">get_param</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-        <span class="n">loginfo</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">loginfo</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-
-</code></pre></div></div>
-
-<p>Or, to keep the original rospy code untouched for its ROS1 users, add a
-jsk_ros1_ros2_compat version next to it and choose by whether
-jsk_ros1_ros2_compat can be imported (not by <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>):</p>
-
-<p>```python
-try:</p>
+<p>So by default a subscriber receives from both reliable and best-effort
+publishers, but delivery is best effort. Pass <code class="language-plaintext highlighter-rouge">qos=</code> (e.g. a depth for
+reliable delivery) where lost messages matter, and <code class="language-plaintext highlighter-rouge">latch=True</code> for the
+last message of a <code class="language-plaintext highlighter-rouge">create_publisher(..., latch=True)</code> topic.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/jsk-ros-pkg/jsk_common/tree/master/jsk_ros1_ros2_compat/README.md">see the full file</a></p>
 </div>
@@ -17449,6 +17673,19 @@ versions</li>
                           </a>
                         </td>
                         <td><a href="/p/rosbag2_py/#jade">rosbag2_py  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rosbag2_storage_sqlite3/#jade-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rosbag2_storage_sqlite3/#jade">rosbag2_storage_sqlite3  </a></td>
                       </tr>
                     
                   
@@ -17761,6 +17998,19 @@ versions</li>
                       <td class="text-center">
                         
                         <a href="/p/jsk_power_switching_tools/#jade-deps" class="endoftree">
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/nfc_ros/#jade">nfc_ros</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/nfc_ros/#jade-deps" class="endoftree">
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -18197,7 +18447,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#indigo-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">20</span> Dependencies</a>
+    <a class="nav-link" href="#indigo-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">21</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#indigo-questions" data-bs-toggle="tab"><span id="indigo-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -18262,7 +18512,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-10
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -18345,6 +18595,48 @@ jQuery(function() {
 <p>Shared ROS1 (roscpp/rospy) / ROS2 (rclcpp/rclpy) compatibility helpers, so
 that a package can keep <strong>one</strong> source tree that builds and runs on both,
 with the ROS1 code left as close to the original as possible.</p>
+
+<h2 id="ros-1--ros-2">ROS 1 / ROS 2</h2>
+
+<p>This is a library package (no nodes, scripts or launch files). It builds for
+both ROS 1 (catkin) and ROS 2 (ament), selected by <code class="language-plaintext highlighter-rouge">$ROS_VERSION</code>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th>ROS 1</th>
+      <th>ROS 2</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>C++ headers (<code class="language-plaintext highlighter-rouge">include/jsk_ros1_ros2_compat/*.h</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>Python package <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat</code> (<code class="language-plaintext highlighter-rouge">rospy_rclpy_compat</code>, <code class="language-plaintext highlighter-rouge">rosbag</code>, <code class="language-plaintext highlighter-rouge">log_utils</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_install_python()</code>
+</td>
+      <td>defined, but meant for ROS 2 builds</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_generate_uv_venv()</code> and the bundled <code class="language-plaintext highlighter-rouge">uv</code> binary (<code class="language-plaintext highlighter-rouge">lib/jsk_ros1_ros2_compat/uv</code>)</td>
+      <td>no (use catkin_virtualenv)</td>
+      <td>yes</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><code class="language-plaintext highlighter-rouge">ROS_VERSION</code> in the Python modules is read from the <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>
+environment variable (default <code class="language-plaintext highlighter-rouge">1</code>). The C++ headers detect ROS 1 by whether
+<code class="language-plaintext highlighter-rouge">&lt;ros/ros.h&gt;</code> can be included, so no compile definition is needed.</p>
 
 <h2 id="porting-style">Porting style</h2>
 
@@ -18444,14 +18736,14 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td><code class="language-plaintext highlighter-rouge">create_publisher(node, topic, type, queue_size=1, latch=False)</code></td>
       <td><code class="language-plaintext highlighter-rouge">rospy.Publisher</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (<code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS)</td>
+<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (depth <code class="language-plaintext highlighter-rouge">queue_size</code>, default reliable QoS; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False, callback_group=None, qos=None)</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded)</td>
+<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded; <code class="language-plaintext highlighter-rouge">latch</code>, <code class="language-plaintext highlighter-rouge">qos</code> ignored)</td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
+<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; QoS: see below; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
       <td>
@@ -18537,43 +18829,67 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td>-</td>
       <td>spin until SIGINT/SIGTERM/<code class="language-plaintext highlighter-rouge">signal_shutdown</code>, then clean up</td>
     </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">private_name(name)</code>, <code class="language-plaintext highlighter-rouge">message_type_name(msg)</code>, <code class="language-plaintext highlighter-rouge">resolve_message_class('pkg/Type')</code>
+</td>
+      <td>name unchanged, <code class="language-plaintext highlighter-rouge">msg._type</code>, <code class="language-plaintext highlighter-rouge">roslib.message</code>
+</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>, <code class="language-plaintext highlighter-rouge">'pkg/Type'</code>, <code class="language-plaintext highlighter-rouge">get_message</code> (accepts <code class="language-plaintext highlighter-rouge">pkg/Type</code> and <code class="language-plaintext highlighter-rouge">pkg/msg/Type</code>)</td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">declare_params(node, defaults)</code>, <code class="language-plaintext highlighter-rouge">get_params(node, names)</code>
+</td>
+      <td>-</td>
+      <td>ROS2 only: declare / read several parameters at once</td>
+    </tr>
   </tbody>
 </table>
 
-<p>Action types: pass <code class="language-plaintext highlighter-rouge">FooAction</code>/<code class="language-plaintext highlighter-rouge">FooGoal</code> on ROS1 and <code class="language-plaintext highlighter-rouge">Foo</code>/<code class="language-plaintext highlighter-rouge">Foo.Goal</code> on
-ROS2; timeouts are in seconds on both. <code class="language-plaintext highlighter-rouge">actionlib</code>/<code class="language-plaintext highlighter-rouge">dynamic_reconfigure</code>
-are imported lazily, so depend on them in your own package.</p>
+<p>QoS of <code class="language-plaintext highlighter-rouge">create_subscription()</code> on ROS2 (ignored on ROS1), from the <code class="language-plaintext highlighter-rouge">qos</code>
+argument:</p>
 
-<h3 id="packages-outside-jsk_common">Packages outside jsk_common</h3>
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">qos</code></th>
+      <th>QoS</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">None</code> (default)</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">'any'</code>, or transient-local with depth <code class="language-plaintext highlighter-rouge">queue_size</code> if <code class="language-plaintext highlighter-rouge">latch=True</code>
+</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'any'</code></td>
+      <td>BEST_EFFORT + VOLATILE with depth <code class="language-plaintext highlighter-rouge">queue_size</code>: reads the topic of any publisher, whenever it joins</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'best_available'</code></td>
+      <td>BEST_AVAILABLE reliability and durability (Iron and later) of the publishers discovered when the subscription is created; a publisher with a weaker QoS that joins later is not read. Falls back to <code class="language-plaintext highlighter-rouge">'any'</code> on Humble</td>
+    </tr>
+    <tr>
+      <td>a <code class="language-plaintext highlighter-rouge">QoSProfile</code> (e.g. <code class="language-plaintext highlighter-rouge">rclpy.qos.qos_profile_sensor_data</code>)</td>
+      <td>as given</td>
+    </tr>
+    <tr>
+      <td>an <code class="language-plaintext highlighter-rouge">int</code>
+</td>
+      <td>that depth, rclpy’s default (reliable) QoS</td>
+    </tr>
+  </tbody>
+</table>
 
-<p>jsk_ros1_ros2_compat is only released with jsk_common &gt;= 3.0, which is not
-available for every ROS1 distro. Depend on it for ROS2 only and fall back
-to rospy when it can not be imported, listing just the functions you use:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;exec_depend</span> <span class="na">condition=</span><span class="s">"$ROS_VERSION == 2"</span><span class="nt">&gt;</span>jsk_ros1_ros2_compat<span class="nt">&lt;/exec_depend&gt;</span>
-
-</code></pre></div></div>
-
-<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat</span> <span class="kn">import</span> <span class="n">rospy_rclpy_compat</span> <span class="k">as</span> <span class="n">ros_compat</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat.rospy_rclpy_compat</span> <span class="kn">import</span> <span class="n">ROS_VERSION</span>
-<span class="k">except</span> <span class="nb">ImportError</span><span class="p">:</span>
-    <span class="c1"># jsk_common &lt; 3.0 has no jsk_ros1_ros2_compat, so this is ROS1 only:
-</span>    <span class="c1"># forward ros_compat.xxx(node, ...) to rospy.xxx(...)
-</span>    <span class="kn">import</span> <span class="n">rospy</span>
-    <span class="n">ROS_VERSION</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="k">class</span> <span class="nc">ros_compat</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-        <span class="n">get_param</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">get_param</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-        <span class="n">loginfo</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">loginfo</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-
-</code></pre></div></div>
-
-<p>Or, to keep the original rospy code untouched for its ROS1 users, add a
-jsk_ros1_ros2_compat version next to it and choose by whether
-jsk_ros1_ros2_compat can be imported (not by <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>):</p>
-
-<p>```python
-try:</p>
+<p>So by default a subscriber receives from both reliable and best-effort
+publishers, but delivery is best effort. Pass <code class="language-plaintext highlighter-rouge">qos=</code> (e.g. a depth for
+reliable delivery) where lost messages matter, and <code class="language-plaintext highlighter-rouge">latch=True</code> for the
+last message of a <code class="language-plaintext highlighter-rouge">create_publisher(..., latch=True)</code> topic.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/jsk-ros-pkg/jsk_common/tree/master/jsk_ros1_ros2_compat/README.md">see the full file</a></p>
 </div>
@@ -18792,6 +19108,19 @@ versions</li>
                           </a>
                         </td>
                         <td><a href="/p/rosbag2_py/#indigo">rosbag2_py  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rosbag2_storage_sqlite3/#indigo-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rosbag2_storage_sqlite3/#indigo">rosbag2_storage_sqlite3  </a></td>
                       </tr>
                     
                   
@@ -19113,6 +19442,19 @@ versions</li>
                     
                     
                     <tr>
+                      <td><a href="/p/nfc_ros/#indigo">nfc_ros</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/nfc_ros/#indigo-deps" class="endoftree">
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
                       <td><a href="/p/respeaker_ros/#indigo">respeaker_ros</a></td>
                       <td class="text-center">
                         
@@ -19260,6 +19602,45 @@ versions</li>
                       <td class="text-center">
                         
                         <a href="/p/jsk_topic_tools/#indigo-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_interactive_marker/#indigo">jsk_interactive_marker</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_interactive_marker/#indigo-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_rqt_plugins/#indigo">jsk_rqt_plugins</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_rqt_plugins/#indigo-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_rviz_plugins/#indigo">jsk_rviz_plugins</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_rviz_plugins/#indigo-deps" >
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -19540,7 +19921,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#hydro-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">20</span> Dependencies</a>
+    <a class="nav-link" href="#hydro-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">21</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#hydro-questions" data-bs-toggle="tab"><span id="hydro-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -19605,7 +19986,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-10
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -19688,6 +20069,48 @@ jQuery(function() {
 <p>Shared ROS1 (roscpp/rospy) / ROS2 (rclcpp/rclpy) compatibility helpers, so
 that a package can keep <strong>one</strong> source tree that builds and runs on both,
 with the ROS1 code left as close to the original as possible.</p>
+
+<h2 id="ros-1--ros-2">ROS 1 / ROS 2</h2>
+
+<p>This is a library package (no nodes, scripts or launch files). It builds for
+both ROS 1 (catkin) and ROS 2 (ament), selected by <code class="language-plaintext highlighter-rouge">$ROS_VERSION</code>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th>ROS 1</th>
+      <th>ROS 2</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>C++ headers (<code class="language-plaintext highlighter-rouge">include/jsk_ros1_ros2_compat/*.h</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>Python package <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat</code> (<code class="language-plaintext highlighter-rouge">rospy_rclpy_compat</code>, <code class="language-plaintext highlighter-rouge">rosbag</code>, <code class="language-plaintext highlighter-rouge">log_utils</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_install_python()</code>
+</td>
+      <td>defined, but meant for ROS 2 builds</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_generate_uv_venv()</code> and the bundled <code class="language-plaintext highlighter-rouge">uv</code> binary (<code class="language-plaintext highlighter-rouge">lib/jsk_ros1_ros2_compat/uv</code>)</td>
+      <td>no (use catkin_virtualenv)</td>
+      <td>yes</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><code class="language-plaintext highlighter-rouge">ROS_VERSION</code> in the Python modules is read from the <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>
+environment variable (default <code class="language-plaintext highlighter-rouge">1</code>). The C++ headers detect ROS 1 by whether
+<code class="language-plaintext highlighter-rouge">&lt;ros/ros.h&gt;</code> can be included, so no compile definition is needed.</p>
 
 <h2 id="porting-style">Porting style</h2>
 
@@ -19787,14 +20210,14 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td><code class="language-plaintext highlighter-rouge">create_publisher(node, topic, type, queue_size=1, latch=False)</code></td>
       <td><code class="language-plaintext highlighter-rouge">rospy.Publisher</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (<code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS)</td>
+<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (depth <code class="language-plaintext highlighter-rouge">queue_size</code>, default reliable QoS; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False, callback_group=None, qos=None)</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded)</td>
+<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded; <code class="language-plaintext highlighter-rouge">latch</code>, <code class="language-plaintext highlighter-rouge">qos</code> ignored)</td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
+<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; QoS: see below; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
       <td>
@@ -19880,43 +20303,67 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td>-</td>
       <td>spin until SIGINT/SIGTERM/<code class="language-plaintext highlighter-rouge">signal_shutdown</code>, then clean up</td>
     </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">private_name(name)</code>, <code class="language-plaintext highlighter-rouge">message_type_name(msg)</code>, <code class="language-plaintext highlighter-rouge">resolve_message_class('pkg/Type')</code>
+</td>
+      <td>name unchanged, <code class="language-plaintext highlighter-rouge">msg._type</code>, <code class="language-plaintext highlighter-rouge">roslib.message</code>
+</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>, <code class="language-plaintext highlighter-rouge">'pkg/Type'</code>, <code class="language-plaintext highlighter-rouge">get_message</code> (accepts <code class="language-plaintext highlighter-rouge">pkg/Type</code> and <code class="language-plaintext highlighter-rouge">pkg/msg/Type</code>)</td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">declare_params(node, defaults)</code>, <code class="language-plaintext highlighter-rouge">get_params(node, names)</code>
+</td>
+      <td>-</td>
+      <td>ROS2 only: declare / read several parameters at once</td>
+    </tr>
   </tbody>
 </table>
 
-<p>Action types: pass <code class="language-plaintext highlighter-rouge">FooAction</code>/<code class="language-plaintext highlighter-rouge">FooGoal</code> on ROS1 and <code class="language-plaintext highlighter-rouge">Foo</code>/<code class="language-plaintext highlighter-rouge">Foo.Goal</code> on
-ROS2; timeouts are in seconds on both. <code class="language-plaintext highlighter-rouge">actionlib</code>/<code class="language-plaintext highlighter-rouge">dynamic_reconfigure</code>
-are imported lazily, so depend on them in your own package.</p>
+<p>QoS of <code class="language-plaintext highlighter-rouge">create_subscription()</code> on ROS2 (ignored on ROS1), from the <code class="language-plaintext highlighter-rouge">qos</code>
+argument:</p>
 
-<h3 id="packages-outside-jsk_common">Packages outside jsk_common</h3>
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">qos</code></th>
+      <th>QoS</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">None</code> (default)</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">'any'</code>, or transient-local with depth <code class="language-plaintext highlighter-rouge">queue_size</code> if <code class="language-plaintext highlighter-rouge">latch=True</code>
+</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'any'</code></td>
+      <td>BEST_EFFORT + VOLATILE with depth <code class="language-plaintext highlighter-rouge">queue_size</code>: reads the topic of any publisher, whenever it joins</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'best_available'</code></td>
+      <td>BEST_AVAILABLE reliability and durability (Iron and later) of the publishers discovered when the subscription is created; a publisher with a weaker QoS that joins later is not read. Falls back to <code class="language-plaintext highlighter-rouge">'any'</code> on Humble</td>
+    </tr>
+    <tr>
+      <td>a <code class="language-plaintext highlighter-rouge">QoSProfile</code> (e.g. <code class="language-plaintext highlighter-rouge">rclpy.qos.qos_profile_sensor_data</code>)</td>
+      <td>as given</td>
+    </tr>
+    <tr>
+      <td>an <code class="language-plaintext highlighter-rouge">int</code>
+</td>
+      <td>that depth, rclpy’s default (reliable) QoS</td>
+    </tr>
+  </tbody>
+</table>
 
-<p>jsk_ros1_ros2_compat is only released with jsk_common &gt;= 3.0, which is not
-available for every ROS1 distro. Depend on it for ROS2 only and fall back
-to rospy when it can not be imported, listing just the functions you use:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;exec_depend</span> <span class="na">condition=</span><span class="s">"$ROS_VERSION == 2"</span><span class="nt">&gt;</span>jsk_ros1_ros2_compat<span class="nt">&lt;/exec_depend&gt;</span>
-
-</code></pre></div></div>
-
-<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat</span> <span class="kn">import</span> <span class="n">rospy_rclpy_compat</span> <span class="k">as</span> <span class="n">ros_compat</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat.rospy_rclpy_compat</span> <span class="kn">import</span> <span class="n">ROS_VERSION</span>
-<span class="k">except</span> <span class="nb">ImportError</span><span class="p">:</span>
-    <span class="c1"># jsk_common &lt; 3.0 has no jsk_ros1_ros2_compat, so this is ROS1 only:
-</span>    <span class="c1"># forward ros_compat.xxx(node, ...) to rospy.xxx(...)
-</span>    <span class="kn">import</span> <span class="n">rospy</span>
-    <span class="n">ROS_VERSION</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="k">class</span> <span class="nc">ros_compat</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-        <span class="n">get_param</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">get_param</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-        <span class="n">loginfo</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">loginfo</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-
-</code></pre></div></div>
-
-<p>Or, to keep the original rospy code untouched for its ROS1 users, add a
-jsk_ros1_ros2_compat version next to it and choose by whether
-jsk_ros1_ros2_compat can be imported (not by <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>):</p>
-
-<p>```python
-try:</p>
+<p>So by default a subscriber receives from both reliable and best-effort
+publishers, but delivery is best effort. Pass <code class="language-plaintext highlighter-rouge">qos=</code> (e.g. a depth for
+reliable delivery) where lost messages matter, and <code class="language-plaintext highlighter-rouge">latch=True</code> for the
+last message of a <code class="language-plaintext highlighter-rouge">create_publisher(..., latch=True)</code> topic.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/jsk-ros-pkg/jsk_common/tree/master/jsk_ros1_ros2_compat/README.md">see the full file</a></p>
 </div>
@@ -20135,6 +20582,19 @@ versions</li>
                           </a>
                         </td>
                         <td><a href="/p/rosbag2_py/#hydro">rosbag2_py  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rosbag2_storage_sqlite3/#hydro-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rosbag2_storage_sqlite3/#hydro">rosbag2_storage_sqlite3  </a></td>
                       </tr>
                     
                   
@@ -20456,6 +20916,19 @@ versions</li>
                     
                     
                     <tr>
+                      <td><a href="/p/nfc_ros/#hydro">nfc_ros</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/nfc_ros/#hydro-deps" class="endoftree">
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
                       <td><a href="/p/respeaker_ros/#hydro">respeaker_ros</a></td>
                       <td class="text-center">
                         
@@ -20603,6 +21076,45 @@ versions</li>
                       <td class="text-center">
                         
                         <a href="/p/jsk_topic_tools/#hydro-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_interactive_marker/#hydro">jsk_interactive_marker</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_interactive_marker/#hydro-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_rqt_plugins/#hydro">jsk_rqt_plugins</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_rqt_plugins/#hydro-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_rviz_plugins/#hydro">jsk_rviz_plugins</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_rviz_plugins/#hydro-deps" >
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -20883,7 +21395,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#kinetic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">20</span> Dependencies</a>
+    <a class="nav-link" href="#kinetic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">21</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#kinetic-questions" data-bs-toggle="tab"><span id="kinetic-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -20948,7 +21460,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-10
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -21031,6 +21543,48 @@ jQuery(function() {
 <p>Shared ROS1 (roscpp/rospy) / ROS2 (rclcpp/rclpy) compatibility helpers, so
 that a package can keep <strong>one</strong> source tree that builds and runs on both,
 with the ROS1 code left as close to the original as possible.</p>
+
+<h2 id="ros-1--ros-2">ROS 1 / ROS 2</h2>
+
+<p>This is a library package (no nodes, scripts or launch files). It builds for
+both ROS 1 (catkin) and ROS 2 (ament), selected by <code class="language-plaintext highlighter-rouge">$ROS_VERSION</code>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th>ROS 1</th>
+      <th>ROS 2</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>C++ headers (<code class="language-plaintext highlighter-rouge">include/jsk_ros1_ros2_compat/*.h</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>Python package <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat</code> (<code class="language-plaintext highlighter-rouge">rospy_rclpy_compat</code>, <code class="language-plaintext highlighter-rouge">rosbag</code>, <code class="language-plaintext highlighter-rouge">log_utils</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_install_python()</code>
+</td>
+      <td>defined, but meant for ROS 2 builds</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_generate_uv_venv()</code> and the bundled <code class="language-plaintext highlighter-rouge">uv</code> binary (<code class="language-plaintext highlighter-rouge">lib/jsk_ros1_ros2_compat/uv</code>)</td>
+      <td>no (use catkin_virtualenv)</td>
+      <td>yes</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><code class="language-plaintext highlighter-rouge">ROS_VERSION</code> in the Python modules is read from the <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>
+environment variable (default <code class="language-plaintext highlighter-rouge">1</code>). The C++ headers detect ROS 1 by whether
+<code class="language-plaintext highlighter-rouge">&lt;ros/ros.h&gt;</code> can be included, so no compile definition is needed.</p>
 
 <h2 id="porting-style">Porting style</h2>
 
@@ -21130,14 +21684,14 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td><code class="language-plaintext highlighter-rouge">create_publisher(node, topic, type, queue_size=1, latch=False)</code></td>
       <td><code class="language-plaintext highlighter-rouge">rospy.Publisher</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (<code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS)</td>
+<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (depth <code class="language-plaintext highlighter-rouge">queue_size</code>, default reliable QoS; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False, callback_group=None, qos=None)</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded)</td>
+<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded; <code class="language-plaintext highlighter-rouge">latch</code>, <code class="language-plaintext highlighter-rouge">qos</code> ignored)</td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
+<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; QoS: see below; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
       <td>
@@ -21223,43 +21777,67 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td>-</td>
       <td>spin until SIGINT/SIGTERM/<code class="language-plaintext highlighter-rouge">signal_shutdown</code>, then clean up</td>
     </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">private_name(name)</code>, <code class="language-plaintext highlighter-rouge">message_type_name(msg)</code>, <code class="language-plaintext highlighter-rouge">resolve_message_class('pkg/Type')</code>
+</td>
+      <td>name unchanged, <code class="language-plaintext highlighter-rouge">msg._type</code>, <code class="language-plaintext highlighter-rouge">roslib.message</code>
+</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>, <code class="language-plaintext highlighter-rouge">'pkg/Type'</code>, <code class="language-plaintext highlighter-rouge">get_message</code> (accepts <code class="language-plaintext highlighter-rouge">pkg/Type</code> and <code class="language-plaintext highlighter-rouge">pkg/msg/Type</code>)</td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">declare_params(node, defaults)</code>, <code class="language-plaintext highlighter-rouge">get_params(node, names)</code>
+</td>
+      <td>-</td>
+      <td>ROS2 only: declare / read several parameters at once</td>
+    </tr>
   </tbody>
 </table>
 
-<p>Action types: pass <code class="language-plaintext highlighter-rouge">FooAction</code>/<code class="language-plaintext highlighter-rouge">FooGoal</code> on ROS1 and <code class="language-plaintext highlighter-rouge">Foo</code>/<code class="language-plaintext highlighter-rouge">Foo.Goal</code> on
-ROS2; timeouts are in seconds on both. <code class="language-plaintext highlighter-rouge">actionlib</code>/<code class="language-plaintext highlighter-rouge">dynamic_reconfigure</code>
-are imported lazily, so depend on them in your own package.</p>
+<p>QoS of <code class="language-plaintext highlighter-rouge">create_subscription()</code> on ROS2 (ignored on ROS1), from the <code class="language-plaintext highlighter-rouge">qos</code>
+argument:</p>
 
-<h3 id="packages-outside-jsk_common">Packages outside jsk_common</h3>
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">qos</code></th>
+      <th>QoS</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">None</code> (default)</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">'any'</code>, or transient-local with depth <code class="language-plaintext highlighter-rouge">queue_size</code> if <code class="language-plaintext highlighter-rouge">latch=True</code>
+</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'any'</code></td>
+      <td>BEST_EFFORT + VOLATILE with depth <code class="language-plaintext highlighter-rouge">queue_size</code>: reads the topic of any publisher, whenever it joins</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'best_available'</code></td>
+      <td>BEST_AVAILABLE reliability and durability (Iron and later) of the publishers discovered when the subscription is created; a publisher with a weaker QoS that joins later is not read. Falls back to <code class="language-plaintext highlighter-rouge">'any'</code> on Humble</td>
+    </tr>
+    <tr>
+      <td>a <code class="language-plaintext highlighter-rouge">QoSProfile</code> (e.g. <code class="language-plaintext highlighter-rouge">rclpy.qos.qos_profile_sensor_data</code>)</td>
+      <td>as given</td>
+    </tr>
+    <tr>
+      <td>an <code class="language-plaintext highlighter-rouge">int</code>
+</td>
+      <td>that depth, rclpy’s default (reliable) QoS</td>
+    </tr>
+  </tbody>
+</table>
 
-<p>jsk_ros1_ros2_compat is only released with jsk_common &gt;= 3.0, which is not
-available for every ROS1 distro. Depend on it for ROS2 only and fall back
-to rospy when it can not be imported, listing just the functions you use:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;exec_depend</span> <span class="na">condition=</span><span class="s">"$ROS_VERSION == 2"</span><span class="nt">&gt;</span>jsk_ros1_ros2_compat<span class="nt">&lt;/exec_depend&gt;</span>
-
-</code></pre></div></div>
-
-<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat</span> <span class="kn">import</span> <span class="n">rospy_rclpy_compat</span> <span class="k">as</span> <span class="n">ros_compat</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat.rospy_rclpy_compat</span> <span class="kn">import</span> <span class="n">ROS_VERSION</span>
-<span class="k">except</span> <span class="nb">ImportError</span><span class="p">:</span>
-    <span class="c1"># jsk_common &lt; 3.0 has no jsk_ros1_ros2_compat, so this is ROS1 only:
-</span>    <span class="c1"># forward ros_compat.xxx(node, ...) to rospy.xxx(...)
-</span>    <span class="kn">import</span> <span class="n">rospy</span>
-    <span class="n">ROS_VERSION</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="k">class</span> <span class="nc">ros_compat</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-        <span class="n">get_param</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">get_param</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-        <span class="n">loginfo</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">loginfo</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-
-</code></pre></div></div>
-
-<p>Or, to keep the original rospy code untouched for its ROS1 users, add a
-jsk_ros1_ros2_compat version next to it and choose by whether
-jsk_ros1_ros2_compat can be imported (not by <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>):</p>
-
-<p>```python
-try:</p>
+<p>So by default a subscriber receives from both reliable and best-effort
+publishers, but delivery is best effort. Pass <code class="language-plaintext highlighter-rouge">qos=</code> (e.g. a depth for
+reliable delivery) where lost messages matter, and <code class="language-plaintext highlighter-rouge">latch=True</code> for the
+last message of a <code class="language-plaintext highlighter-rouge">create_publisher(..., latch=True)</code> topic.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/jsk-ros-pkg/jsk_common/tree/master/jsk_ros1_ros2_compat/README.md">see the full file</a></p>
 </div>
@@ -21478,6 +22056,19 @@ versions</li>
                           </a>
                         </td>
                         <td><a href="/p/rosbag2_py/#kinetic">rosbag2_py  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rosbag2_storage_sqlite3/#kinetic-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rosbag2_storage_sqlite3/#kinetic">rosbag2_storage_sqlite3  </a></td>
                       </tr>
                     
                   
@@ -21799,6 +22390,19 @@ versions</li>
                     
                     
                     <tr>
+                      <td><a href="/p/nfc_ros/#kinetic">nfc_ros</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/nfc_ros/#kinetic-deps" class="endoftree">
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
                       <td><a href="/p/respeaker_ros/#kinetic">respeaker_ros</a></td>
                       <td class="text-center">
                         
@@ -21946,6 +22550,45 @@ versions</li>
                       <td class="text-center">
                         
                         <a href="/p/jsk_topic_tools/#kinetic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_interactive_marker/#kinetic">jsk_interactive_marker</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_interactive_marker/#kinetic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_rqt_plugins/#kinetic">jsk_rqt_plugins</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_rqt_plugins/#kinetic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_rviz_plugins/#kinetic">jsk_rviz_plugins</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_rviz_plugins/#kinetic-deps" >
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -22226,7 +22869,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#melodic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">20</span> Dependencies</a>
+    <a class="nav-link" href="#melodic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">21</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#melodic-questions" data-bs-toggle="tab"><span id="melodic-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -22291,7 +22934,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-10
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -22374,6 +23017,48 @@ jQuery(function() {
 <p>Shared ROS1 (roscpp/rospy) / ROS2 (rclcpp/rclpy) compatibility helpers, so
 that a package can keep <strong>one</strong> source tree that builds and runs on both,
 with the ROS1 code left as close to the original as possible.</p>
+
+<h2 id="ros-1--ros-2">ROS 1 / ROS 2</h2>
+
+<p>This is a library package (no nodes, scripts or launch files). It builds for
+both ROS 1 (catkin) and ROS 2 (ament), selected by <code class="language-plaintext highlighter-rouge">$ROS_VERSION</code>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th>ROS 1</th>
+      <th>ROS 2</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>C++ headers (<code class="language-plaintext highlighter-rouge">include/jsk_ros1_ros2_compat/*.h</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>Python package <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat</code> (<code class="language-plaintext highlighter-rouge">rospy_rclpy_compat</code>, <code class="language-plaintext highlighter-rouge">rosbag</code>, <code class="language-plaintext highlighter-rouge">log_utils</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_install_python()</code>
+</td>
+      <td>defined, but meant for ROS 2 builds</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_generate_uv_venv()</code> and the bundled <code class="language-plaintext highlighter-rouge">uv</code> binary (<code class="language-plaintext highlighter-rouge">lib/jsk_ros1_ros2_compat/uv</code>)</td>
+      <td>no (use catkin_virtualenv)</td>
+      <td>yes</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><code class="language-plaintext highlighter-rouge">ROS_VERSION</code> in the Python modules is read from the <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>
+environment variable (default <code class="language-plaintext highlighter-rouge">1</code>). The C++ headers detect ROS 1 by whether
+<code class="language-plaintext highlighter-rouge">&lt;ros/ros.h&gt;</code> can be included, so no compile definition is needed.</p>
 
 <h2 id="porting-style">Porting style</h2>
 
@@ -22473,14 +23158,14 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td><code class="language-plaintext highlighter-rouge">create_publisher(node, topic, type, queue_size=1, latch=False)</code></td>
       <td><code class="language-plaintext highlighter-rouge">rospy.Publisher</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (<code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS)</td>
+<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (depth <code class="language-plaintext highlighter-rouge">queue_size</code>, default reliable QoS; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False, callback_group=None, qos=None)</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded)</td>
+<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded; <code class="language-plaintext highlighter-rouge">latch</code>, <code class="language-plaintext highlighter-rouge">qos</code> ignored)</td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
+<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; QoS: see below; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
       <td>
@@ -22566,43 +23251,67 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td>-</td>
       <td>spin until SIGINT/SIGTERM/<code class="language-plaintext highlighter-rouge">signal_shutdown</code>, then clean up</td>
     </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">private_name(name)</code>, <code class="language-plaintext highlighter-rouge">message_type_name(msg)</code>, <code class="language-plaintext highlighter-rouge">resolve_message_class('pkg/Type')</code>
+</td>
+      <td>name unchanged, <code class="language-plaintext highlighter-rouge">msg._type</code>, <code class="language-plaintext highlighter-rouge">roslib.message</code>
+</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>, <code class="language-plaintext highlighter-rouge">'pkg/Type'</code>, <code class="language-plaintext highlighter-rouge">get_message</code> (accepts <code class="language-plaintext highlighter-rouge">pkg/Type</code> and <code class="language-plaintext highlighter-rouge">pkg/msg/Type</code>)</td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">declare_params(node, defaults)</code>, <code class="language-plaintext highlighter-rouge">get_params(node, names)</code>
+</td>
+      <td>-</td>
+      <td>ROS2 only: declare / read several parameters at once</td>
+    </tr>
   </tbody>
 </table>
 
-<p>Action types: pass <code class="language-plaintext highlighter-rouge">FooAction</code>/<code class="language-plaintext highlighter-rouge">FooGoal</code> on ROS1 and <code class="language-plaintext highlighter-rouge">Foo</code>/<code class="language-plaintext highlighter-rouge">Foo.Goal</code> on
-ROS2; timeouts are in seconds on both. <code class="language-plaintext highlighter-rouge">actionlib</code>/<code class="language-plaintext highlighter-rouge">dynamic_reconfigure</code>
-are imported lazily, so depend on them in your own package.</p>
+<p>QoS of <code class="language-plaintext highlighter-rouge">create_subscription()</code> on ROS2 (ignored on ROS1), from the <code class="language-plaintext highlighter-rouge">qos</code>
+argument:</p>
 
-<h3 id="packages-outside-jsk_common">Packages outside jsk_common</h3>
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">qos</code></th>
+      <th>QoS</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">None</code> (default)</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">'any'</code>, or transient-local with depth <code class="language-plaintext highlighter-rouge">queue_size</code> if <code class="language-plaintext highlighter-rouge">latch=True</code>
+</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'any'</code></td>
+      <td>BEST_EFFORT + VOLATILE with depth <code class="language-plaintext highlighter-rouge">queue_size</code>: reads the topic of any publisher, whenever it joins</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'best_available'</code></td>
+      <td>BEST_AVAILABLE reliability and durability (Iron and later) of the publishers discovered when the subscription is created; a publisher with a weaker QoS that joins later is not read. Falls back to <code class="language-plaintext highlighter-rouge">'any'</code> on Humble</td>
+    </tr>
+    <tr>
+      <td>a <code class="language-plaintext highlighter-rouge">QoSProfile</code> (e.g. <code class="language-plaintext highlighter-rouge">rclpy.qos.qos_profile_sensor_data</code>)</td>
+      <td>as given</td>
+    </tr>
+    <tr>
+      <td>an <code class="language-plaintext highlighter-rouge">int</code>
+</td>
+      <td>that depth, rclpy’s default (reliable) QoS</td>
+    </tr>
+  </tbody>
+</table>
 
-<p>jsk_ros1_ros2_compat is only released with jsk_common &gt;= 3.0, which is not
-available for every ROS1 distro. Depend on it for ROS2 only and fall back
-to rospy when it can not be imported, listing just the functions you use:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;exec_depend</span> <span class="na">condition=</span><span class="s">"$ROS_VERSION == 2"</span><span class="nt">&gt;</span>jsk_ros1_ros2_compat<span class="nt">&lt;/exec_depend&gt;</span>
-
-</code></pre></div></div>
-
-<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat</span> <span class="kn">import</span> <span class="n">rospy_rclpy_compat</span> <span class="k">as</span> <span class="n">ros_compat</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat.rospy_rclpy_compat</span> <span class="kn">import</span> <span class="n">ROS_VERSION</span>
-<span class="k">except</span> <span class="nb">ImportError</span><span class="p">:</span>
-    <span class="c1"># jsk_common &lt; 3.0 has no jsk_ros1_ros2_compat, so this is ROS1 only:
-</span>    <span class="c1"># forward ros_compat.xxx(node, ...) to rospy.xxx(...)
-</span>    <span class="kn">import</span> <span class="n">rospy</span>
-    <span class="n">ROS_VERSION</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="k">class</span> <span class="nc">ros_compat</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-        <span class="n">get_param</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">get_param</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-        <span class="n">loginfo</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">loginfo</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-
-</code></pre></div></div>
-
-<p>Or, to keep the original rospy code untouched for its ROS1 users, add a
-jsk_ros1_ros2_compat version next to it and choose by whether
-jsk_ros1_ros2_compat can be imported (not by <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>):</p>
-
-<p>```python
-try:</p>
+<p>So by default a subscriber receives from both reliable and best-effort
+publishers, but delivery is best effort. Pass <code class="language-plaintext highlighter-rouge">qos=</code> (e.g. a depth for
+reliable delivery) where lost messages matter, and <code class="language-plaintext highlighter-rouge">latch=True</code> for the
+last message of a <code class="language-plaintext highlighter-rouge">create_publisher(..., latch=True)</code> topic.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/jsk-ros-pkg/jsk_common/tree/master/jsk_ros1_ros2_compat/README.md">see the full file</a></p>
 </div>
@@ -22821,6 +23530,19 @@ versions</li>
                           </a>
                         </td>
                         <td><a href="/p/rosbag2_py/#melodic">rosbag2_py  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rosbag2_storage_sqlite3/#melodic-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rosbag2_storage_sqlite3/#melodic">rosbag2_storage_sqlite3  </a></td>
                       </tr>
                     
                   
@@ -23142,6 +23864,19 @@ versions</li>
                     
                     
                     <tr>
+                      <td><a href="/p/nfc_ros/#melodic">nfc_ros</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/nfc_ros/#melodic-deps" class="endoftree">
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
                       <td><a href="/p/respeaker_ros/#melodic">respeaker_ros</a></td>
                       <td class="text-center">
                         
@@ -23289,6 +24024,45 @@ versions</li>
                       <td class="text-center">
                         
                         <a href="/p/jsk_topic_tools/#melodic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_interactive_marker/#melodic">jsk_interactive_marker</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_interactive_marker/#melodic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_rqt_plugins/#melodic">jsk_rqt_plugins</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_rqt_plugins/#melodic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_rviz_plugins/#melodic">jsk_rviz_plugins</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_rviz_plugins/#melodic-deps" >
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -23569,7 +24343,7 @@ jQuery(function() {
     
     
     
-    <a class="nav-link" href="#noetic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">20</span> Dependencies</a>
+    <a class="nav-link" href="#noetic-deps" data-bs-toggle="tab"><span class="badge text-bg-primary">21</span> Dependencies</a>
   </li>
   <li class="nav-item better-tabs">
     <a class="nav-link" href="#noetic-questions" data-bs-toggle="tab"><span id="noetic-questions-count" class="badge text-bg-primary">0</span> Q & A</a>
@@ -23634,7 +24408,7 @@ jQuery(function() {
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-10
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
         </span>
       </td>
     </tr>
@@ -23717,6 +24491,48 @@ jQuery(function() {
 <p>Shared ROS1 (roscpp/rospy) / ROS2 (rclcpp/rclpy) compatibility helpers, so
 that a package can keep <strong>one</strong> source tree that builds and runs on both,
 with the ROS1 code left as close to the original as possible.</p>
+
+<h2 id="ros-1--ros-2">ROS 1 / ROS 2</h2>
+
+<p>This is a library package (no nodes, scripts or launch files). It builds for
+both ROS 1 (catkin) and ROS 2 (ament), selected by <code class="language-plaintext highlighter-rouge">$ROS_VERSION</code>:</p>
+
+<table>
+  <thead>
+    <tr>
+      <th> </th>
+      <th>ROS 1</th>
+      <th>ROS 2</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>C++ headers (<code class="language-plaintext highlighter-rouge">include/jsk_ros1_ros2_compat/*.h</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>Python package <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat</code> (<code class="language-plaintext highlighter-rouge">rospy_rclpy_compat</code>, <code class="language-plaintext highlighter-rouge">rosbag</code>, <code class="language-plaintext highlighter-rouge">log_utils</code>)</td>
+      <td>yes</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_install_python()</code>
+</td>
+      <td>defined, but meant for ROS 2 builds</td>
+      <td>yes</td>
+    </tr>
+    <tr>
+      <td>CMake <code class="language-plaintext highlighter-rouge">jsk_ros1_ros2_compat_generate_uv_venv()</code> and the bundled <code class="language-plaintext highlighter-rouge">uv</code> binary (<code class="language-plaintext highlighter-rouge">lib/jsk_ros1_ros2_compat/uv</code>)</td>
+      <td>no (use catkin_virtualenv)</td>
+      <td>yes</td>
+    </tr>
+  </tbody>
+</table>
+
+<p><code class="language-plaintext highlighter-rouge">ROS_VERSION</code> in the Python modules is read from the <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>
+environment variable (default <code class="language-plaintext highlighter-rouge">1</code>). The C++ headers detect ROS 1 by whether
+<code class="language-plaintext highlighter-rouge">&lt;ros/ros.h&gt;</code> can be included, so no compile definition is needed.</p>
 
 <h2 id="porting-style">Porting style</h2>
 
@@ -23816,14 +24632,14 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td><code class="language-plaintext highlighter-rouge">create_publisher(node, topic, type, queue_size=1, latch=False)</code></td>
       <td><code class="language-plaintext highlighter-rouge">rospy.Publisher</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (<code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS)</td>
+<code class="language-plaintext highlighter-rouge">node.create_publisher</code> (depth <code class="language-plaintext highlighter-rouge">queue_size</code>, default reliable QoS; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
-      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False)</code></td>
+      <td><code class="language-plaintext highlighter-rouge">create_subscription(node, topic, type, cb, queue_size=None, latch=False, callback_group=None, qos=None)</code></td>
       <td>
-<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded)</td>
+<code class="language-plaintext highlighter-rouge">rospy.Subscriber</code> (<code class="language-plaintext highlighter-rouge">None</code>: unbounded; <code class="language-plaintext highlighter-rouge">latch</code>, <code class="language-plaintext highlighter-rouge">qos</code> ignored)</td>
       <td>
-<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; <code class="language-plaintext highlighter-rouge">latch</code>: transient-local QoS; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
+<code class="language-plaintext highlighter-rouge">node.create_subscription</code> (<code class="language-plaintext highlighter-rouge">None</code>: depth 1; QoS: see below; <code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>)</td>
     </tr>
     <tr>
       <td>
@@ -23909,43 +24725,67 @@ where <code class="language-plaintext highlighter-rouge">node</code> is <code cl
       <td>-</td>
       <td>spin until SIGINT/SIGTERM/<code class="language-plaintext highlighter-rouge">signal_shutdown</code>, then clean up</td>
     </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">private_name(name)</code>, <code class="language-plaintext highlighter-rouge">message_type_name(msg)</code>, <code class="language-plaintext highlighter-rouge">resolve_message_class('pkg/Type')</code>
+</td>
+      <td>name unchanged, <code class="language-plaintext highlighter-rouge">msg._type</code>, <code class="language-plaintext highlighter-rouge">roslib.message</code>
+</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">~foo</code> -&gt; <code class="language-plaintext highlighter-rouge">~/foo</code>, <code class="language-plaintext highlighter-rouge">'pkg/Type'</code>, <code class="language-plaintext highlighter-rouge">get_message</code> (accepts <code class="language-plaintext highlighter-rouge">pkg/Type</code> and <code class="language-plaintext highlighter-rouge">pkg/msg/Type</code>)</td>
+    </tr>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">declare_params(node, defaults)</code>, <code class="language-plaintext highlighter-rouge">get_params(node, names)</code>
+</td>
+      <td>-</td>
+      <td>ROS2 only: declare / read several parameters at once</td>
+    </tr>
   </tbody>
 </table>
 
-<p>Action types: pass <code class="language-plaintext highlighter-rouge">FooAction</code>/<code class="language-plaintext highlighter-rouge">FooGoal</code> on ROS1 and <code class="language-plaintext highlighter-rouge">Foo</code>/<code class="language-plaintext highlighter-rouge">Foo.Goal</code> on
-ROS2; timeouts are in seconds on both. <code class="language-plaintext highlighter-rouge">actionlib</code>/<code class="language-plaintext highlighter-rouge">dynamic_reconfigure</code>
-are imported lazily, so depend on them in your own package.</p>
+<p>QoS of <code class="language-plaintext highlighter-rouge">create_subscription()</code> on ROS2 (ignored on ROS1), from the <code class="language-plaintext highlighter-rouge">qos</code>
+argument:</p>
 
-<h3 id="packages-outside-jsk_common">Packages outside jsk_common</h3>
+<table>
+  <thead>
+    <tr>
+      <th><code class="language-plaintext highlighter-rouge">qos</code></th>
+      <th>QoS</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>
+<code class="language-plaintext highlighter-rouge">None</code> (default)</td>
+      <td>
+<code class="language-plaintext highlighter-rouge">'any'</code>, or transient-local with depth <code class="language-plaintext highlighter-rouge">queue_size</code> if <code class="language-plaintext highlighter-rouge">latch=True</code>
+</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'any'</code></td>
+      <td>BEST_EFFORT + VOLATILE with depth <code class="language-plaintext highlighter-rouge">queue_size</code>: reads the topic of any publisher, whenever it joins</td>
+    </tr>
+    <tr>
+      <td><code class="language-plaintext highlighter-rouge">'best_available'</code></td>
+      <td>BEST_AVAILABLE reliability and durability (Iron and later) of the publishers discovered when the subscription is created; a publisher with a weaker QoS that joins later is not read. Falls back to <code class="language-plaintext highlighter-rouge">'any'</code> on Humble</td>
+    </tr>
+    <tr>
+      <td>a <code class="language-plaintext highlighter-rouge">QoSProfile</code> (e.g. <code class="language-plaintext highlighter-rouge">rclpy.qos.qos_profile_sensor_data</code>)</td>
+      <td>as given</td>
+    </tr>
+    <tr>
+      <td>an <code class="language-plaintext highlighter-rouge">int</code>
+</td>
+      <td>that depth, rclpy’s default (reliable) QoS</td>
+    </tr>
+  </tbody>
+</table>
 
-<p>jsk_ros1_ros2_compat is only released with jsk_common &gt;= 3.0, which is not
-available for every ROS1 distro. Depend on it for ROS2 only and fall back
-to rospy when it can not be imported, listing just the functions you use:</p>
-
-<div class="language-xml highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="nt">&lt;exec_depend</span> <span class="na">condition=</span><span class="s">"$ROS_VERSION == 2"</span><span class="nt">&gt;</span>jsk_ros1_ros2_compat<span class="nt">&lt;/exec_depend&gt;</span>
-
-</code></pre></div></div>
-
-<div class="language-python highlighter-rouge"><div class="highlight"><pre class="highlight"><code><span class="k">try</span><span class="p">:</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat</span> <span class="kn">import</span> <span class="n">rospy_rclpy_compat</span> <span class="k">as</span> <span class="n">ros_compat</span>
-    <span class="kn">from</span> <span class="n">jsk_ros1_ros2_compat.rospy_rclpy_compat</span> <span class="kn">import</span> <span class="n">ROS_VERSION</span>
-<span class="k">except</span> <span class="nb">ImportError</span><span class="p">:</span>
-    <span class="c1"># jsk_common &lt; 3.0 has no jsk_ros1_ros2_compat, so this is ROS1 only:
-</span>    <span class="c1"># forward ros_compat.xxx(node, ...) to rospy.xxx(...)
-</span>    <span class="kn">import</span> <span class="n">rospy</span>
-    <span class="n">ROS_VERSION</span> <span class="o">=</span> <span class="mi">1</span>
-    <span class="k">class</span> <span class="nc">ros_compat</span><span class="p">(</span><span class="nb">object</span><span class="p">):</span>
-        <span class="n">get_param</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">get_param</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-        <span class="n">loginfo</span> <span class="o">=</span> <span class="nf">staticmethod</span><span class="p">(</span><span class="k">lambda</span> <span class="n">node</span><span class="p">,</span> <span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">rospy</span><span class="p">.</span><span class="nf">loginfo</span><span class="p">(</span><span class="o">*</span><span class="n">args</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
-
-</code></pre></div></div>
-
-<p>Or, to keep the original rospy code untouched for its ROS1 users, add a
-jsk_ros1_ros2_compat version next to it and choose by whether
-jsk_ros1_ros2_compat can be imported (not by <code class="language-plaintext highlighter-rouge">ROS_VERSION</code>):</p>
-
-<p>```python
-try:</p>
+<p>So by default a subscriber receives from both reliable and best-effort
+publishers, but delivery is best effort. Pass <code class="language-plaintext highlighter-rouge">qos=</code> (e.g. a depth for
+reliable delivery) where lost messages matter, and <code class="language-plaintext highlighter-rouge">latch=True</code> for the
+last message of a <code class="language-plaintext highlighter-rouge">create_publisher(..., latch=True)</code> topic.</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/jsk-ros-pkg/jsk_common/tree/master/jsk_ros1_ros2_compat/README.md">see the full file</a></p>
 </div>
@@ -24164,6 +25004,19 @@ versions</li>
                           </a>
                         </td>
                         <td><a href="/p/rosbag2_py/#noetic">rosbag2_py  </a></td>
+                      </tr>
+                    
+                  
+                    
+                    
+                      <tr>
+                        <td class="text-center">
+                          
+                          <a href="/p/rosbag2_storage_sqlite3/#noetic-deps" class="endoftree">
+                            <span class="bi bi-arrow-left" title="Package dependencies"></span>
+                          </a>
+                        </td>
+                        <td><a href="/p/rosbag2_storage_sqlite3/#noetic">rosbag2_storage_sqlite3  </a></td>
                       </tr>
                     
                   
@@ -24485,6 +25338,19 @@ versions</li>
                     
                     
                     <tr>
+                      <td><a href="/p/nfc_ros/#noetic">nfc_ros</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/nfc_ros/#noetic-deps" class="endoftree">
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
                       <td><a href="/p/respeaker_ros/#noetic">respeaker_ros</a></td>
                       <td class="text-center">
                         
@@ -24632,6 +25498,45 @@ versions</li>
                       <td class="text-center">
                         
                         <a href="/p/jsk_topic_tools/#noetic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_interactive_marker/#noetic">jsk_interactive_marker</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_interactive_marker/#noetic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_rqt_plugins/#noetic">jsk_rqt_plugins</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_rqt_plugins/#noetic-deps" >
+                          <span class="bi bi-arrow-right"></span>
+                        </a>
+                      </td>
+                    </tr>
+                    
+                  
+                    
+                    
+                    <tr>
+                      <td><a href="/p/jsk_rviz_plugins/#noetic">jsk_rviz_plugins</a></td>
+                      <td class="text-center">
+                        
+                        <a href="/p/jsk_rviz_plugins/#noetic-deps" >
                           <span class="bi bi-arrow-right"></span>
                         </a>
                       </td>
@@ -25074,7 +25979,7 @@ jQuery(function() {
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="d-none d-md-inline">| generated on 2026-11-11</em>
+        <em class="d-none d-md-inline">| generated on 2026-11-20</em>
       
       </div>
       <div style="float:right;">
