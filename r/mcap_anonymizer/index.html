@@ -332,7 +332,7 @@
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -447,14 +447,14 @@
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -468,7 +468,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -482,9 +483,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -503,7 +507,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -533,19 +539,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -657,7 +657,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -772,14 +772,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -793,7 +793,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -807,9 +808,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -828,7 +832,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -858,19 +864,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -982,7 +982,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -1097,14 +1097,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -1118,7 +1118,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -1132,9 +1133,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -1153,7 +1157,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -1183,19 +1189,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -1297,7 +1297,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -1412,14 +1412,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -1433,7 +1433,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -1447,9 +1448,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -1468,7 +1472,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -1498,19 +1504,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -1622,7 +1622,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -1737,14 +1737,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -1758,7 +1758,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -1772,9 +1773,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -1793,7 +1797,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -1823,19 +1829,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -1947,7 +1947,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -2062,14 +2062,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -2083,7 +2083,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -2097,9 +2098,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -2118,7 +2122,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -2148,19 +2154,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -2272,7 +2272,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -2387,14 +2387,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -2408,7 +2408,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -2422,9 +2423,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -2443,7 +2447,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -2473,19 +2479,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -2597,7 +2597,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -2712,14 +2712,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -2733,7 +2733,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -2747,9 +2748,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -2768,7 +2772,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -2798,19 +2804,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -2922,7 +2922,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -3037,14 +3037,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -3058,7 +3058,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -3072,9 +3073,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -3093,7 +3097,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -3123,19 +3129,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -3247,7 +3247,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -3362,14 +3362,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -3383,7 +3383,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -3397,9 +3398,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -3418,7 +3422,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -3448,19 +3454,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -3572,7 +3572,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -3687,14 +3687,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -3708,7 +3708,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -3722,9 +3723,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -3743,7 +3747,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -3773,19 +3779,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -3897,7 +3897,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -4012,14 +4012,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -4033,7 +4033,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -4047,9 +4048,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -4068,7 +4072,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -4098,19 +4104,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -4222,7 +4222,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -4337,14 +4337,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -4358,7 +4358,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -4372,9 +4373,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -4393,7 +4397,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -4423,19 +4429,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -4547,7 +4547,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -4662,14 +4662,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -4683,7 +4683,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -4697,9 +4698,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -4718,7 +4722,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -4748,19 +4754,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -4872,7 +4872,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -4987,14 +4987,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -5008,7 +5008,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -5022,9 +5023,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -5043,7 +5047,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -5073,19 +5079,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -5197,7 +5197,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -5312,14 +5312,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -5333,7 +5333,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -5347,9 +5348,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -5368,7 +5372,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -5398,19 +5404,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -5522,7 +5522,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -5637,14 +5637,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -5658,7 +5658,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -5672,9 +5673,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -5693,7 +5697,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -5723,19 +5729,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -5847,7 +5847,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -5962,14 +5962,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -5983,7 +5983,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -5997,9 +5998,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -6018,7 +6022,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -6048,19 +6054,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -6172,7 +6172,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -6287,14 +6287,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -6308,7 +6308,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -6322,9 +6323,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -6343,7 +6347,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -6373,19 +6379,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -6497,7 +6497,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
       <td style="white-space: nowrap;" class="text-end"><b>Last Updated</b></div>
       <td>
         
-          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-18
+          <span class="badge text-bg-secondary"><span class="bi bi-clock"></span> 2026-11-21
         </span>
       </td>
     </tr>
@@ -6612,14 +6612,14 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
   </tbody>
 </table>
 
-<p>Blurs the faces in the camera images of <a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so
-datasets recorded among people can be shared without privacy issues, while keeping everything
-else exactly as it was recorded.</p>
+<p>Blurs the faces and, optionally, the license plates in the camera images of
+<a href="https://mcap.dev/">MCAP</a> files (ROS 2 bags), so datasets recorded among people and vehicles can
+be shared without privacy issues, while keeping everything else exactly as it was recorded.</p>
 
 <ul>
   <li>
-<strong>Only the faces change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside the
-blurred faces stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
+<strong>Only the private regions change.</strong> In raw images (<code class="language-plaintext highlighter-rouge">sensor_msgs/Image</code>), every pixel outside
+the blurred faces and plates stays bit-exact, and so do the encoding, <code class="language-plaintext highlighter-rouge">step</code>, header and message size. Each
 encoding is processed in its own format: a Bayer image is still a valid mosaic, a YUV 4:2:2
 image keeps its chroma subsampling, 16-bit images keep their depth and byte order.</li>
   <li>
@@ -6633,7 +6633,8 @@ channels and bit depth); JPEG is re-encoded with its own quantization tables and
 subsampling, so the extra loss in the rest of the image is minimal.</li>
   <li>
 <strong>Privacy first.</strong> A low detection threshold, boxes enlarged by a margin and propagated to the
-neighboring frames (so a face missed by the detector in a few frames is still covered), a
+neighboring frames (so a face or plate missed by the detector in a few frames is still
+covered), a
 review video to check the result, and hand-added boxes for anything missed. Topics that may
 contain images but cannot be processed (e.g. compressed video) stop the tool, instead of being
 silently copied.</li>
@@ -6647,9 +6648,12 @@ indexed MCAP file.</li>
 <p>Faces are detected with <a href="https://github.com/Star-Clouds/CenterFace">CenterFace</a> at a low
 threshold (high recall), and doubtful detections are kept only if a person detector
 (<a href="https://github.com/Megvii-BaseDetection/YOLOX">YOLOX-s</a>) finds a person around them, which
-removes most false positives (foliage, wheels, machinery…). Both are ONNX models that run with
-OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a> on the CPU or an
-NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT, Apache-2.0).</p>
+removes most false positives (foliage, wheels, machinery…). License plates (<code class="language-plaintext highlighter-rouge">--targets
+faces,plates</code>) are detected with an RT-DETRv2 model trained on the Open Images plates, also at a
+low threshold, and kept only on a vehicle found by YOLOX-s (see “License plates”). All are ONNX
+models that run with OpenCV (no extra dependencies), or with <a href="https://onnxruntime.ai/">onnxruntime</a>
+on the CPU or an NVIDIA GPU. All the bundled code and models have permissive licenses (BSD, MIT,
+Apache-2.0).</p>
 
 <h2 id="install">Install</h2>
 
@@ -6668,7 +6672,9 @@ ros2 run mcap_anonymizer mcap_anonymize <span class="nt">--help</span>
 </code></pre></div></div>
 
 <p>Its only dependencies are <code class="language-plaintext highlighter-rouge">python3-numpy</code>, <code class="language-plaintext highlighter-rouge">python3-opencv</code> and <code class="language-plaintext highlighter-rouge">python3-pil</code>; the MCAP reader
-and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled.</p>
+and writer (the <a href="https://github.com/foxglove/mcap">mcap</a> Python library, MIT) is bundled. License
+plate detection also needs onnxruntime (<code class="language-plaintext highlighter-rouge">pip install onnxruntime</code>) or OpenCV 5: the OpenCV 4
+versions of the Ubuntu releases cannot run its model.</p>
 
 <h3 id="pip-no-ros-needed">pip (no ROS needed)</h3>
 
@@ -6698,19 +6704,13 @@ the CUDA 13 libraries of the latest versions; on them, use
 
 <div class="language-bash highlighter-rouge"><div class="highlight"><pre class="highlight"><code>mcap_anonymize run input.mcap output.mcap <span class="nt">--detections</span> detections.json
 mcap_anonymize run my_rosbag2_dir/ my_rosbag2_dir_anonymized/   <span class="c"># all the .mcap files of a bag</span>
+mcap_anonymize run input.mcap output.mcap <span class="nt">--targets</span> faces,plates   <span class="c"># faces and license plates</span>
 
 </code></pre></div></div>
 
 <p>With ROS 2, use <code class="language-plaintext highlighter-rouge">ros2 run mcap_anonymizer mcap_anonymize</code> instead of <code class="language-plaintext highlighter-rouge">mcap_anonymize</code>.</p>
 
-<p>All the image topics are processed. The tool prints how many images of each topic were
-anonymized, and <code class="language-plaintext highlighter-rouge">detections.json</code> keeps the detected faces.</p>
-
-<h2 id="recommended-workflow-to-publish-a-dataset">Recommended workflow to publish a dataset</h2>
-
-<p>```bash</p>
-<h1 id="1-detect-the-faces-the-slow-part-see-performance">1. Detect the faces (the slow part; see “Performance”)</h1>
-<p>mcap_anonymize detect input.mcap detections.json</p>
+<p>All the image topics are processed. The tool prints how many images of each topic were</p>
 
 <p>File truncated at 100 lines <a href="https://github.com/MOLAorg/mcap_anonymizer/tree/main/README.md">see the full file</a></p>
 </div>
@@ -6785,7 +6785,7 @@ anonymized, and <code class="language-plaintext highlighter-rouge">detections.js
 
           <span class="username">ros-infrastructure/rosindex</span>
         </a>
-        <em class="d-none d-md-inline">| generated on 2026-11-20</em>
+        <em class="d-none d-md-inline">| generated on 2026-11-22</em>
       
       </div>
       <div style="float:right;">
